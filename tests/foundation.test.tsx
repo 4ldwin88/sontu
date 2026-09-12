@@ -124,7 +124,7 @@ describe("governed presentation boundaries", () => {
       expect(a.getAttribute("href")).toMatch(/^\/events\//);
   });
   it("keeps cosmetic choice separate from event truth", async () => {
-    open("/profile");
+    open("/settings");
     const before = JSON.stringify(events);
     await userEvent.selectOptions(
       screen.getByLabelText("Display mode"),

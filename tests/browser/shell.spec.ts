@@ -59,7 +59,7 @@ for (const route of routes) {
 test("theme, square imagery, keyboard, and focused host transition", async ({
   page,
 }, info) => {
-  await page.goto("/#/profile");
+  await page.goto("/#/settings");
   await page.getByLabel("Display mode").selectOption("dark");
   await page.getByLabel("Curated accent").selectOption("navy");
   await page.goto("/#/events?view=Hosting");
@@ -138,13 +138,13 @@ test("root navigation starts at top and chrome follows scroll direction", async 
 test("utility drawers keep the page, trap focus, and return focus", async ({
   page,
 }, info) => {
+  await page.goto("/#/settings");
+  await page.getByLabel("Display mode").selectOption("dark");
   await page.goto("/#/discover");
   await page.getByRole("button", { name: "Profile and appearance" }).click();
   const profile = page.getByRole("dialog", { name: "Profile", exact: true });
   await expect(profile).toBeVisible();
   await expect(page).toHaveURL(/#\/discover$/);
-  await page.getByLabel("Display mode").selectOption("dark");
-  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   for (let i = 0; i < 9; i++) {
     await page.keyboard.press("Tab");
     expect(
@@ -291,4 +291,72 @@ test("clean chrome and outward drawer dismissal gestures", async ({ page }) => {
   await expect(
     page.getByRole("button", { name: "Notifications", exact: true }),
   ).toBeFocused();
+});
+
+test("profile drawer follows section 30.21 and edits only preview identity", async ({
+  page,
+}, info) => {
+  await page.goto("/#/home");
+  await page.getByRole("button", { name: "Profile and appearance" }).click();
+  const drawer = page.getByRole("dialog", { name: "Profile", exact: true });
+  await expect(
+    drawer
+      .getByRole("navigation", { name: "Profile utilities" })
+      .getByRole("link"),
+  ).toHaveText([
+    "Connections",
+    "Settings & Preferences",
+    "Privacy & Safety",
+    "Help & Support",
+    "About Sontu",
+    "Sign Out",
+  ]);
+  await expect(drawer.getByText("@jay", { exact: true })).toBeVisible();
+  await page.screenshot({ path: info.outputPath("profile-3021.png") });
+  await drawer.getByRole("link", { name: "Edit Profile", exact: true }).click();
+  const editor = page.getByRole("dialog", {
+    name: "Edit Profile",
+    exact: true,
+  });
+  await expect(editor).toBeVisible();
+  await editor.getByLabel("Display name").fill("Jay Preview");
+  await editor.getByRole("button", { name: "Apply to preview" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Jay Preview", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Profile and appearance" }).click();
+  await expect(
+    drawer.getByRole("heading", { name: "Jay Preview" }),
+  ).toBeVisible();
+  await drawer.getByRole("link", { name: "Settings & Preferences" }).click();
+  await expect(page.getByLabel("Display mode")).toBeVisible();
+  for (const route of [
+    "profile",
+    "connections",
+    "settings",
+    "privacy",
+    "help",
+    "about",
+    "sign-out",
+  ]) {
+    await page.goto("/#/" + route);
+    await expect(
+      page
+        .getByRole("navigation", { name: "Main navigation" })
+        .getByRole("link"),
+    ).toHaveCount(4);
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth + 1,
+      ),
+    ).toBe(true);
+    expect(
+      (
+        await new AxeBuilder({ page })
+          .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+          .analyze()
+      ).violations,
+    ).toEqual([]);
+  }
+  await expect(page.getByText("No account is signed in.")).toBeVisible();
 });

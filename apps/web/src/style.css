@@ -2470,3 +2470,64 @@ td {
     animation: none;
   }
 }
+.profile-identity {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.profile-identity h1 {
+  font-size: 1.6rem;
+}
+.profile-identity h2 {
+  font-size: 1.2rem;
+}
+.profile-identity p {
+  font-size: 0.85rem;
+  margin-top: 3px;
+}
+.profile-entry-actions {
+  display: flex;
+  gap: 20px;
+  margin: 12px 0 22px;
+}
+.profile-entry-actions a {
+  color: var(--interactive-primary);
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  font-size: 0.84rem;
+}
+.profile-menu nav {
+  border-top: 1px solid var(--border);
+}
+.profile-menu nav a {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 4px;
+  min-height: 56px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+.profile-menu nav a span {
+  flex: 1;
+}
+.profile-menu nav a:hover {
+  background: var(--selected);
+}
+.profile-menu nav a:last-child {
+  margin-top: 20px;
+  border-bottom: 0;
+}
+.profile-bio {
+  margin: 22px 0;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+.profile-preview-note {
+  margin-top: 28px;
+}
+.profile-identity > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

@@ -1,3 +1,4 @@
+import { initialProfile } from "../../../packages/test-fixtures/profile";
 import { useEffect, useState } from "react";
 import {
   Link,
@@ -5,6 +6,7 @@ import {
   Route,
   Routes,
   useParams,
+  useLocation,
   useSearchParams,
 } from "react-router-dom";
 import {
@@ -56,6 +58,11 @@ import {
   WidePortalShell,
   UtilityDrawer,
 } from "./shells";
+import {
+  ProfileDrawerContent,
+  ProfilePage,
+  ProfileUtilityPage,
+} from "./profile";
 const mainProps = { id: "main", tabIndex: -1 };
 function SectionHeading({
   title,
@@ -779,7 +786,7 @@ function HostModule({
     </div>
   );
 }
-function Profile({
+function Settings({
   mode,
   setMode,
   accent,
@@ -801,9 +808,8 @@ function Profile({
           Back to Home
         </Link>
       )}
-      <span className="avatar profile-avatar">J</span>
-      <h1>Your space.</h1>
-      <p className="muted">Design preview profile</p>
+      <h1>Settings &amp; Preferences</h1>
+      <p className="muted">How Sontu fits your day.</p>
       <section className="panel">
         <h2>Appearance</h2>
         <p>Choose how Sontu looks. Event status meanings stay the same.</p>
@@ -822,6 +828,21 @@ function Profile({
             <option value="navy">Ocean Navy</option>
           </select>
         </label>
+      </section>
+      <section className="panel">
+        <h2>Personalize your experience</h2>
+        <p>
+          Behavioral presentation preferences, interests, location and
+          notification preferences belong here. Account-level editing is not
+          activated in this fixture preview.
+        </p>
+      </section>
+      <section className="panel">
+        <h2>Accessibility &amp; Language</h2>
+        <p>
+          Sontu follows your device’s reduced-motion preference and supports
+          browser text scaling. Account language preferences are not activated.
+        </p>
       </section>
       <section className="panel">
         <h2>Review the design foundation</h2>
@@ -847,7 +868,7 @@ function StateGallery() {
   ];
   return (
     <main {...mainProps}>
-      <Link className="back-link" to="/profile">
+      <Link className="back-link" to="/settings">
         <ArrowLeft size={18} />
         Back to appearance
       </Link>
@@ -905,6 +926,8 @@ function Notifications({ embedded = false }: { embedded?: boolean }) {
   );
 }
 export default function App() {
+  const location = useLocation();
+  const [profile, setProfile] = useState(initialProfile);
   const [drawer, setDrawer] = useState<"profile" | "notifications" | null>(
     null,
   );
@@ -949,9 +972,9 @@ export default function App() {
           <Route path="/feed" element={<Feed />} />
           <Route path="/events/:eventId" element={<EventHub />} />
           <Route
-            path="/profile"
+            path="/settings"
             element={
-              <Profile
+              <Settings
                 mode={mode}
                 setMode={setMode}
                 accent={accent}
@@ -959,6 +982,28 @@ export default function App() {
               />
             }
           />
+          <Route
+            path="/profile"
+            element={
+              <ProfilePage
+                key={location.key}
+                profile={profile}
+                onChange={setProfile}
+                editInitially={
+                  new URLSearchParams(location.search).get("edit") === "1"
+                }
+              />
+            }
+          />
+          {["connections", "privacy", "help", "about", "sign-out"].map(
+            (kind) => (
+              <Route
+                key={kind}
+                path={`/${kind}`}
+                element={<ProfileUtilityPage kind={kind} />}
+              />
+            ),
+          )}
           <Route path="/notifications" element={<Notifications />} />
           <Route path="/preview/states" element={<StateGallery />} />
           <Route
@@ -982,13 +1027,7 @@ export default function App() {
           onClose={() => setDrawer(null)}
         >
           {drawer === "profile" ? (
-            <Profile
-              embedded
-              mode={mode}
-              setMode={setMode}
-              accent={accent}
-              setAccent={setAccent}
-            />
+            <ProfileDrawerContent profile={profile} />
           ) : (
             <Notifications embedded />
           )}
