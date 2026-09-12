@@ -107,6 +107,21 @@ function Notes({ signedIn }: { signedIn: boolean }) {
           type="button"
           aria-label="Add dev note"
           title="Add dev note"
+          onKeyDown={(e) => {
+            // React portal events follow the React tree, so the drawer's
+            // synthetic Tab handler cannot receive this button's key event.
+            if (e.key !== "Tab" || e.shiftKey || target.tagName !== "DIALOG")
+              return;
+            const first = [
+              ...target.querySelectorAll<HTMLElement>(
+                'button:not(:disabled),a[href],input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex="0"]',
+              ),
+            ].find((el) => el.getClientRects().length > 0);
+            if (first) {
+              e.preventDefault();
+              first.focus();
+            }
+          }}
           onClick={() => {
             setOpen(true);
             if (!pending.current) setScreen(category(location.pathname));
@@ -129,7 +144,8 @@ function Notes({ signedIn }: { signedIn: boolean }) {
           >
             <p className="small muted">
               Screen: {screen}. Saves your note with your account, time and
-              screen category. No screen recording or automatic activity tracking.
+              screen category. No screen recording or automatic activity
+              tracking.
             </p>
             <label className="dev-note-field">
               What should we fix or improve?
