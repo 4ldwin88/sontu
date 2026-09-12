@@ -15,7 +15,8 @@ import {
   useNavigate,
 } from "react-router-dom";
 import {
-  ArrowLeft,
+  ChevronLeft,
+  UserRound,
   Bell,
   CalendarDays,
   Compass,
@@ -66,9 +67,11 @@ export function TopUtilities({
         aria-label="Profile and appearance"
         aria-haspopup="dialog"
       >
-        {account.profile
-          ? (account.profile.display_name || account.profile.first_name)[0]
-          : "•"}
+        {account.profile ? (
+          (account.profile.display_name || account.profile.first_name)[0]
+        ) : (
+          <UserRound size={23} aria-hidden="true" />
+        )}
       </button>
       <Link className="brand-link" to="/home" aria-label="Sontu home">
         <Wordmark />
@@ -229,7 +232,7 @@ export function FocusedWorkspaceShell({
     <div className="focused-shell">
       <header className="focused-header">
         <Link to={back} className="icon-button" aria-label="Back to event">
-          <ArrowLeft />
+          <ChevronLeft />
         </Link>
         <strong>{title}</strong>
         <Link
@@ -256,9 +259,12 @@ export function WidePortalShell({
       <aside className="portal-sidebar">
         <Wordmark />
         <p className="muted">Host Portal</p>
-        <Link className="back-link" to="/events?view=Hosting">
-          <ArrowLeft size={17} />
-          Back to your events
+        <Link
+          to="/events?view=Hosting"
+          className="icon-button back-chevron"
+          aria-label="Back to your events"
+        >
+          <ChevronLeft size={26} strokeWidth={2.5} />
         </Link>
         {nav}
         <span className="portal-footnote">Event-scoped workspace</span>

@@ -1,3 +1,4 @@
+import { ChevronLeft } from "lucide-react";
 /* oxlint-disable react/set-state-in-effect -- Loading drafts from the backend is an external synchronization. */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -153,8 +154,12 @@ function CreateEntry() {
         </Button>
       </section>
       {error && <p role="alert">{error}</p>}
-      <Link className="text-action" to="/core">
-        Back to Hosting
+      <Link
+        to="/core"
+        className="icon-button back-chevron"
+        aria-label="Back to Hosting"
+      >
+        <ChevronLeft size={26} strokeWidth={2.5} />
       </Link>
     </>
   );

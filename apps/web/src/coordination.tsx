@@ -1,3 +1,4 @@
+import { ChevronLeft } from "lucide-react";
 import { useAccount } from "./account-state";
 /* oxlint-disable react/set-state-in-effect -- Effects initiate asynchronous reads from the external backend. */
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -951,8 +952,10 @@ function HostContent({ id }: { id: string }) {
                   variant="secondary"
                   disabled={busy}
                   onClick={() => setModal(null)}
+                  aria-label="Go back"
+                  className="back-chevron"
                 >
-                  Go back
+                  <ChevronLeft size={26} strokeWidth={2.5} />
                 </Button>
               </div>
             </form>
@@ -1154,8 +1157,12 @@ export function CoreSignOut({ onBack }: { onBack: () => void }) {
   }, []);
   return (
     <main id="main" tabIndex={-1} className="settings-page">
-      <button className="back-link" onClick={onBack}>
-        Back to Profile
+      <button
+        onClick={onBack}
+        className="icon-button back-chevron"
+        aria-label="Back to Profile"
+      >
+        <ChevronLeft size={26} strokeWidth={2.5} />
       </button>
       <h1>Sign Out</h1>
       {active === null ? (

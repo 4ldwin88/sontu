@@ -32,7 +32,7 @@ import {
   useSearchParams,
 } from "react-router-dom";
 import {
-  ArrowLeft,
+  ChevronLeft,
   ArrowRight,
   CalendarDays,
   Clock3,
@@ -475,16 +475,25 @@ function EventHub() {
     return (
       <main {...mainProps}>
         <SystemState state={{ status: event ? "denied" : "unavailable" }}>
-          <TextAction to="/events">Back to Events</TextAction>
+          <Link
+            to="/events"
+            className="icon-button back-chevron"
+            aria-label="Back to Events"
+          >
+            <ChevronLeft size={26} strokeWidth={2.5} />
+          </Link>
         </SystemState>
       </main>
     );
   const p = event.presentation;
   return (
     <main {...mainProps} className="hub">
-      <Link className="back-link" to="/events">
-        <ArrowLeft size={18} />
-        Back to Events
+      <Link
+        to="/events"
+        className="icon-button back-chevron"
+        aria-label="Back to Events"
+      >
+        <ChevronLeft size={26} strokeWidth={2.5} />
       </Link>
       <div className="hub-image">
         <EventImage event={event} priority />
@@ -814,9 +823,12 @@ function Settings({
   return (
     <Container {...(embedded ? {} : mainProps)} className="settings-page">
       {!embedded && (
-        <button className="back-link" onClick={onBack}>
-          <ArrowLeft size={18} />
-          Back to Profile
+        <button
+          onClick={onBack}
+          className="icon-button back-chevron"
+          aria-label="Back to Profile"
+        >
+          <ChevronLeft size={26} strokeWidth={2.5} />
         </button>
       )}
       <h1>Settings &amp; Preferences</h1>
@@ -879,9 +891,12 @@ function StateGallery() {
   ];
   return (
     <main {...mainProps}>
-      <Link className="back-link" to="/settings">
-        <ArrowLeft size={18} />
-        Back to appearance
+      <Link
+        to="/settings"
+        className="icon-button back-chevron"
+        aria-label="Back to appearance"
+      >
+        <ChevronLeft size={26} strokeWidth={2.5} />
       </Link>
       <h1>System state gallery</h1>
       <p className="muted">
@@ -911,7 +926,13 @@ function StateGallery() {
               : undefined
           }
         >
-          <TextAction to="/events">Back to Events</TextAction>
+          <Link
+            to="/events"
+            className="icon-button back-chevron"
+            aria-label="Back to Events"
+          >
+            <ChevronLeft size={26} strokeWidth={2.5} />
+          </Link>
         </SystemState>
       )}
     </main>
@@ -1059,7 +1080,13 @@ export default function App() {
             element={
               <main {...mainProps}>
                 <SystemState state={{ status: "unavailable" }}>
-                  <TextAction to="/home">Back to Home</TextAction>
+                  <Link
+                    to="/home"
+                    className="icon-button back-chevron"
+                    aria-label="Back to Home"
+                  >
+                    <ChevronLeft size={26} strokeWidth={2.5} />
+                  </Link>
                 </SystemState>
               </main>
             }

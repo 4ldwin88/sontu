@@ -2,7 +2,7 @@ import { useAccount } from "./account-state";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
-  ArrowLeft,
+  ChevronLeft,
   ArrowRight,
   Users,
   Settings,
@@ -33,8 +33,9 @@ export function ProfileDrawerContent({
       <section className="profile-menu">
         <h2>Make room for real life.</h2>
         <p>Sign in to your events or create your Sontu account.</p>
-        <TextAction to="/sign-in">Sign in</TextAction>
-        <TextAction to="/sign-up">Create an account</TextAction>
+        <Link to="/sign-in" className="account-menu-entry">
+          Sign in/Sign up
+        </Link>
         <nav aria-label="Profile utilities">
           {destinations
             .filter((d) => !["/sign-out", "/connections"].includes(d.path))
@@ -93,9 +94,12 @@ export function ProfilePage({
   const [error, setError] = useState(false);
   return (
     <main id="main" tabIndex={-1} className="settings-page lightweight-profile">
-      <button className="back-link" onClick={onBack}>
-        <ArrowLeft size={18} />
-        Back to Profile
+      <button
+        onClick={onBack}
+        className="icon-button back-chevron"
+        aria-label="Back to Profile"
+      >
+        <ChevronLeft size={26} strokeWidth={2.5} />
       </button>
       <div className="profile-identity">
         <span
@@ -208,9 +212,12 @@ export function ProfileUtilityPage({
   const p = pages[kind];
   return (
     <main id="main" tabIndex={-1} className="settings-page">
-      <button className="back-link" onClick={onBack}>
-        <ArrowLeft size={18} />
-        Back to Profile
+      <button
+        onClick={onBack}
+        className="icon-button back-chevron"
+        aria-label="Back to Profile"
+      >
+        <ChevronLeft size={26} strokeWidth={2.5} />
       </button>
       <h1>{p.title}</h1>
       <p className="muted">{p.intro}</p>

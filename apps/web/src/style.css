@@ -2932,3 +2932,55 @@ button.back-link {
 .account-switch a {
   text-decoration: underline;
 }
+
+/* Founder review: compact account entry, visible icon-only back actions. */
+.account-surface {
+  padding-top: 8px;
+  padding-bottom: max(24px, env(safe-area-inset-bottom));
+}
+.account-form {
+  margin-top: 4px;
+}
+.account-wordmark {
+  margin-bottom: 12px;
+}
+.account-wordmark .wordmark {
+  width: 112px;
+}
+.account-form h1 {
+  margin: 8px 0;
+}
+.provider-options {
+  margin-top: 16px;
+  gap: 8px;
+}
+.account-divider {
+  margin: 14px 0;
+}
+.account-form form {
+  gap: 12px;
+  margin: 16px 0;
+}
+.password-rules {
+  gap: 4px;
+}
+.account-switch {
+  margin: 16px 0;
+}
+.account-notice {
+  padding: 12px;
+}
+.back-chevron {
+  display: inline-flex;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  color: var(--text-primary);
+}
+.account-menu-entry {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  font-weight: 600;
+  color: var(--interactive-primary);
+}

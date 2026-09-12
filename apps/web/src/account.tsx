@@ -6,7 +6,14 @@ import {
   useNavigate,
   useSearchParams,
 } from "react-router-dom";
-import { ArrowLeft, Check, Eye, EyeOff, Circle, UserRound } from "lucide-react";
+import {
+  ChevronLeft,
+  Check,
+  Eye,
+  EyeOff,
+  Circle,
+  UserRound,
+} from "lucide-react";
 import { Button, TextField } from "../../../packages/ui-web";
 import { supabase } from "../../../packages/data/sontu";
 import {
@@ -36,8 +43,12 @@ function AccountShell({ children }: { children: ReactNode }) {
         </p>
       </aside>
       <section className="account-surface">
-        <Link to="/home" className="back-link">
-          <ArrowLeft size={18} /> Back to Sontu
+        <Link
+          to="/home"
+          className="icon-button back-chevron"
+          aria-label="Back to Sontu"
+        >
+          <ChevronLeft size={26} strokeWidth={2.5} />
         </Link>
         <div className="account-form">
           <div className="account-wordmark">
@@ -112,8 +123,12 @@ export function AccountPortal() {
             your address. Delivery may be limited during the beta.
           </p>
           <p>You can then return here to sign in and finish your profile.</p>
-          <Link to={"/sign-in?next=" + encodeURIComponent(next)}>
-            Back to sign in
+          <Link
+            to={"/sign-in?next=" + encodeURIComponent(next)}
+            className="icon-button back-chevron"
+            aria-label="Back to sign in"
+          >
+            <ChevronLeft size={26} strokeWidth={2.5} />
           </Link>
         </section>
       ) : (
@@ -232,10 +247,14 @@ export function AccountPortal() {
                   </span>
                 </label>
               ) : (
-                <p className="account-notice" role="status">
-                  Registration is being prepared for the beta. Terms, privacy
-                  notices, and server password settings must be finalized before
-                  new accounts can be created here.
+                <p
+                  id="registration-status"
+                  className="account-notice"
+                  role="status"
+                >
+                  New accounts aren’t enabled yet. Meeting the password rules
+                  won’t unlock registration. Beta terms and account settings
+                  still need to be finalized.
                 </p>
               )}
             </>
@@ -252,7 +271,13 @@ export function AccountPortal() {
                 (!registrationReady || !accepted || checks.some((c) => !c.met)))
             }
           >
-            {busy ? "Please wait…" : signup ? "Create account" : "Sign in"}
+            {busy
+              ? "Please wait…"
+              : signup
+                ? registrationReady
+                  ? "Create account"
+                  : "Registration not yet available"
+                : "Sign in"}
           </Button>
         </form>
       )}
@@ -385,9 +410,12 @@ export function RealProfile({ onBack }: { onBack: () => void }) {
   if (!p) return <Navigate to="/account/setup" replace />;
   return (
     <main id="main" tabIndex={-1} className="settings-page lightweight-profile">
-      <button className="back-link" onClick={onBack}>
-        <ArrowLeft size={18} />
-        Back to Profile
+      <button
+        onClick={onBack}
+        className="icon-button back-chevron"
+        aria-label="Back to Profile"
+      >
+        <ChevronLeft size={26} strokeWidth={2.5} />
       </button>
       <div className="profile-identity">
         <span className="avatar profile-avatar">

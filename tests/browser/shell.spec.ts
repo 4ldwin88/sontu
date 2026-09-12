@@ -300,14 +300,16 @@ test("signed-out profile drawer offers account entry without a sample identity",
   await page.getByRole("button", { name: "Profile and appearance" }).click();
   const drawer = page.getByRole("dialog", { name: "Profile", exact: true });
   await expect(
-    drawer.getByRole("link", { name: "Sign in", exact: true }),
+    drawer.getByRole("link", { name: "Sign in/Sign up", exact: true }),
   ).toBeVisible();
   await expect(drawer.getByText("@jay", { exact: true })).toHaveCount(0);
   await expect(
-    drawer.getByRole("link", { name: "Create an account" }),
+    drawer.getByRole("link", { name: "Sign in/Sign up" }),
   ).toBeVisible();
   await page.screenshot({ path: info.outputPath("signed-out-profile.png") });
-  await drawer.getByRole("link", { name: "Sign in", exact: true }).click();
+  await drawer
+    .getByRole("link", { name: "Sign in/Sign up", exact: true })
+    .click();
   await expect(
     page.getByRole("heading", { name: "Welcome back." }),
   ).toBeVisible();

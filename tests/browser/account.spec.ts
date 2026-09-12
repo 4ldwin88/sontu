@@ -138,6 +138,6 @@ test("account portal registers, resumes minimum profile, and keeps real identity
   await expect(
     page
       .getByRole("dialog")
-      .getByRole("link", { name: "Sign in", exact: true }),
+      .getByRole("link", { name: "Sign in/Sign up", exact: true }),
   ).toBeVisible();
 });
