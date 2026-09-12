@@ -246,10 +246,10 @@ export function EventCard({
           {variant === "hero" && (
             <span className="eyebrow">An evening worth sharing</span>
           )}
+          <h3>{event.identity.title}</h3>
           <span className="event-date">
             {p.date} · {p.time.split("–")[0]}
           </span>
-          <h3>{event.identity.title}</h3>
           <p className="location">
             <MapPin size={14} />
             {p.location}

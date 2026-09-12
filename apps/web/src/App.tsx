@@ -76,24 +76,56 @@ function SectionHeading({
 function Home() {
   return (
     <main {...mainProps}>
-      <div className="intro-line">
-        <div>
-          <span className="eyebrow">Saturday, September 12</span>
-          <h1>Make room for a good day.</h1>
-        </div>
-        <span className="location-label">
-          <MapPin size={16} />
-          Nha Trang
-        </span>
-      </div>
       <div className="home-layout">
         <div>
-          <EventCard event={events[0]} variant="hero" />
+          <div className="home-welcome">
+            <EventImage event={events[0]} priority />
+            <div className="welcome-copy">
+              <h1>
+                More
+                <br />
+                together.
+              </h1>
+              <p>
+                Find events, meet people,
+                <br />
+                explore your world.
+              </p>
+              <Link className="welcome-search" to="/discover">
+                <MapPin size={20} />
+                Search events and experiences
+                <ArrowRight size={18} />
+              </Link>
+            </div>
+          </div>
+          <nav className="home-shortcuts" aria-label="Explore Sontu">
+            <Link to="/discover?mode=nearby">
+              <span>
+                <MapPin />
+              </span>
+              Events near you
+            </Link>
+            <Link to="/discover">
+              <span>
+                <List />
+              </span>
+              Explore events
+            </Link>
+            <Link to="/events">
+              <span>
+                <CalendarDays />
+              </span>
+              Your plans
+            </Link>
+            <Link to="/events?view=Interested">
+              <span>
+                <Users />
+              </span>
+              Interested
+            </Link>
+          </nav>
           <section>
-            <SectionHeading
-              title="A little more your kind of day"
-              to="/discover"
-            />
+            <SectionHeading title="Featured for you" to="/discover" />
             <div className="editorial-grid">
               {[events[3], events[2], events[4]].map((e) => (
                 <EventCard key={e.identity.id} event={e} />
@@ -103,7 +135,7 @@ function Home() {
         </div>
         <aside className="home-aside">
           <section className="panel">
-            <SectionHeading title="Your next plans" to="/events" />
+            <SectionHeading title="Your upcoming events" to="/events" />
             <EventCard event={events[1]} variant="compact-square" />
             <EventCard event={events[2]} variant="compact-square" />
           </section>
@@ -183,9 +215,9 @@ function Discover() {
           <div>
             <span className="eyebrow">Stay curious</span>
             <h1>
-              Your next favourite memory
+              Unforgettable
               <br />
-              starts out here.
+              experiences await.
             </h1>
             <p>
               Explore the coast. Find your people.
@@ -264,12 +296,12 @@ function Events() {
         <div>
           <h1>
             {view === "Hosting"
-              ? "Bring people together."
+              ? "Your hosted events"
               : view === "Invited"
-                ? "There’s a place for you."
+                ? "Your invitations"
                 : view === "Interested"
-                  ? "Keep a little inspiration."
-                  : "Good plans ahead."}
+                  ? "Interested events"
+                  : "Your upcoming events"}
           </h1>
           <p className="muted">
             {view === "Hosting"
