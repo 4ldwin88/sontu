@@ -138,16 +138,12 @@ describe("governed presentation boundaries", () => {
     expect(document.documentElement.dataset.accent).toBe("navy");
     expect(JSON.stringify(events)).toBe(before);
   });
-  it("does not create a real event from the contextual preview", async () => {
+  it("requires host authentication before creating a persistent event", async () => {
     open("/events?view=Hosting");
     await userEvent.click(screen.getByRole("button", { name: "Create Event" }));
-    await userEvent.click(
-      screen.getByRole("button", { name: "Preview next step" }),
-    );
-    expect(screen.getByLabelText("Event name")).toHaveAttribute(
-      "aria-invalid",
-      "true",
-    );
+    expect(
+      await screen.findByRole("button", { name: "Sign in" }),
+    ).toBeVisible();
     expect(events).toHaveLength(6);
   });
   it("separates participation from host access", () => {

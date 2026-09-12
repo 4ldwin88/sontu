@@ -48,12 +48,14 @@ function journal(key: string, value: unknown) {
 }
 const interrupted =
   "A previous request was interrupted. Retry the same request to recover its authoritative outcome.";
-const date = (value: string, zone = "America/Toronto") =>
-  new Intl.DateTimeFormat("en-CA", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: zone,
-  }).format(new Date(value));
+const date = (value: string | null, zone = "America/Toronto") =>
+  value
+    ? new Intl.DateTimeFormat("en-CA", {
+        dateStyle: "medium",
+        timeStyle: "short",
+        timeZone: zone,
+      }).format(new Date(value))
+    : "Schedule not set";
 const label = (s: string) =>
   s
     .toLowerCase()
@@ -80,7 +82,7 @@ function Feedback({
     </div>
   );
 }
-function SessionGate({ children }: { children: ReactNode }) {
+export function SessionGate({ children }: { children: ReactNode }) {
   const [signed, setSigned] = useState<boolean | null>(null),
     [email, setEmail] = useState(""),
     [password, setPassword] = useState(""),
@@ -162,7 +164,15 @@ export function CoreEntry() {
 }
 function CoreEvents() {
   const [items, setItems] = useState<
-      { id: string; title: string; lifecycle: string; starts_at: string }[]
+      {
+        id: string;
+        title: string;
+        lifecycle: string;
+        starts_at: string;
+        timezone: string;
+        cover_key: string;
+        event_kind: string;
+      }[]
     >([]),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
@@ -188,6 +198,9 @@ function CoreEvents() {
         <div>
           <span className="eyebrow">Core Validation</span>
           <h1>Bring people together.</h1>
+          <Link className="button primary" to="/create">
+            Create Event
+          </Link>
           <p className="muted">
             A working event, with a clear view of what changes and who needs to
             respond.
@@ -245,13 +258,22 @@ function CoreEvents() {
           <Link
             key={e.id}
             className="panel coord-event-row"
-            to={`/core/events/${e.id}/host`}
+            to={
+              e.event_kind === "SIMPLE" && e.lifecycle === "DRAFT"
+                ? `/create/${e.id}`
+                : `/core/events/${e.id}/host`
+            }
           >
-            <img src="images/food.jpg" alt="Food prepared for a shared meal" />
+            {e.cover_key !== "none" && (
+              <img src={`images/${e.cover_key ?? "food"}.jpg`} alt="" />
+            )}
             <div>
               <StatusBadge>{label(e.lifecycle)}</StatusBadge>
-              <h2>{e.title}</h2>
-              <p>{date(e.starts_at)} · Toronto</p>
+              <h2>{e.title || "Untitled event"}</h2>
+              <p>
+                {e.starts_at ? date(e.starts_at) : "Date to be decided"} ·
+                Toronto
+              </p>
             </div>
             <ArrowRight aria-hidden="true" />
           </Link>
@@ -286,6 +308,8 @@ function HostContent({ id }: { id: string }) {
     [unknown, setUnknown] = useState(() => !!recover<Action>(id)),
     [success, setSuccess] = useState(""),
     [modal, setModal] = useState<string | null>(null),
+    [inviteName, setInviteName] = useState(""),
+    [inviteEmail, setInviteEmail] = useState(""),
     [reason, setReason] = useState(""),
     [time, setTime] = useState(""),
     [description, setDescription] = useState(""),
@@ -337,10 +361,18 @@ function HostContent({ id }: { id: string }) {
         if (r.token) {
           const name =
             data?.participants.find((p) => p.id === action.input.participant_id)
-              ?.display_name ?? "Participant";
+              ?.display_name ??
+            inviteName ??
+            "Participant";
           setLink({
             name,
-            url: location.origin + location.pathname + "#/respond/" + r.token,
+            url:
+              location.origin +
+              location.pathname +
+              (data?.event.event_kind === "SIMPLE"
+                ? "#/invite/"
+                : "#/respond/") +
+              r.token,
           });
         }
       } else
@@ -423,9 +455,18 @@ function HostContent({ id }: { id: string }) {
     <main id="main" tabIndex={-1} className="host-main">
       <WidePortalShell nav={nav}>
         <header className="workspace-event coord-hero">
-          <img src="images/food.jpg" alt="A meal prepared for sharing" />
+          {data.version.cover_key !== "none" && (
+            <img
+              src={`images/${data.version.cover_key ?? "food"}.jpg`}
+              alt=""
+            />
+          )}
           <div>
-            <span className="eyebrow">Community · Private test event</span>
+            <span className="eyebrow">
+              {data.event.event_kind === "SIMPLE"
+                ? "Personal event · Host view"
+                : "Community · Private test event"}
+            </span>
             <h1>{data.version.title}</h1>
             <p>
               {date(data.version.starts_at, data.version.timezone)} ·{" "}
@@ -475,7 +516,10 @@ function HostContent({ id }: { id: string }) {
                 <h2>Current event</h2>
                 <p>{date(data.version.starts_at, data.version.timezone)}</p>
                 <p className="small muted">
-                  {data.version.timezone} · capacity 20
+                  {data.version.timezone}
+                  {data.version.capacity
+                    ? ` · Participation limit ${data.version.capacity}`
+                    : ""}
                 </p>
                 <p>{data.version.description}</p>
                 <div className="coord-actions">
@@ -586,75 +630,79 @@ function HostContent({ id }: { id: string }) {
                   )}
               </section>
             </div>
-            <section className="panel coord-provider">
-              <div>
-                <span className="eyebrow">External arrangement</span>
-                <h2>Venue service confirmation</h2>
-                <StatusBadge
-                  tone={provider === "CONFIRMED" ? "success" : "warning"}
-                >
-                  {label(provider)}
-                </StatusBadge>
-                <p>
-                  {provider === "CONFIRMED"
-                    ? "The simulated provider confirms the current time. No Sontu-managed case is needed."
-                    : "Provider confirmation is unresolved. It does not become confirmed because the event was updated."}
-                </p>
-                <p className="small muted">
-                  Simulated provider evidence ·{" "}
-                  {data.provider
-                    ? date(data.provider.authoritative_at)
-                    : "No evidence received"}
-                </p>
-              </div>
-              <details>
-                <summary>Test provider and delivery outcomes</summary>
-                <p className="small muted">
-                  These controls run simulated adapters. They send no external
-                  messages.
-                </p>
-                <div className="coord-actions">
-                  {["CONFIRMED", "UNKNOWN", "PENDING", "FAILED", "STALE"].map(
-                    (s) => (
-                      <Button
-                        key={s}
-                        variant="secondary"
-                        disabled={disabled}
-                        onClick={() =>
-                          act("simulate_provider", {
-                            provider_status: s,
-                            evidence_id: crypto.randomUUID(),
-                            authoritative_at: new Date().toISOString(),
-                          })
-                        }
-                      >
-                        {label(s)}
-                      </Button>
-                    ),
-                  )}
-                </div>
-                <div className="coord-actions">
-                  <Button
-                    variant="secondary"
-                    disabled={disabled}
-                    onClick={() =>
-                      act("simulate_delivery", { delivery_status: "DELIVERED" })
-                    }
+            {data.event.event_kind !== "SIMPLE" && (
+              <section className="panel coord-provider">
+                <div>
+                  <span className="eyebrow">External arrangement</span>
+                  <h2>Venue service confirmation</h2>
+                  <StatusBadge
+                    tone={provider === "CONFIRMED" ? "success" : "warning"}
                   >
-                    Simulate delivered messages
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    disabled={disabled}
-                    onClick={() =>
-                      act("simulate_delivery", { delivery_status: "FAILED" })
-                    }
-                  >
-                    Simulate delivery failure
-                  </Button>
+                    {label(provider)}
+                  </StatusBadge>
+                  <p>
+                    {provider === "CONFIRMED"
+                      ? "The simulated provider confirms the current time. No Sontu-managed case is needed."
+                      : "Provider confirmation is unresolved. It does not become confirmed because the event was updated."}
+                  </p>
+                  <p className="small muted">
+                    Simulated provider evidence ·{" "}
+                    {data.provider
+                      ? date(data.provider.authoritative_at)
+                      : "No evidence received"}
+                  </p>
                 </div>
-              </details>
-            </section>
+                <details>
+                  <summary>Test provider and delivery outcomes</summary>
+                  <p className="small muted">
+                    These controls run simulated adapters. They send no external
+                    messages.
+                  </p>
+                  <div className="coord-actions">
+                    {["CONFIRMED", "UNKNOWN", "PENDING", "FAILED", "STALE"].map(
+                      (s) => (
+                        <Button
+                          key={s}
+                          variant="secondary"
+                          disabled={disabled}
+                          onClick={() =>
+                            act("simulate_provider", {
+                              provider_status: s,
+                              evidence_id: crypto.randomUUID(),
+                              authoritative_at: new Date().toISOString(),
+                            })
+                          }
+                        >
+                          {label(s)}
+                        </Button>
+                      ),
+                    )}
+                  </div>
+                  <div className="coord-actions">
+                    <Button
+                      variant="secondary"
+                      disabled={disabled}
+                      onClick={() =>
+                        act("simulate_delivery", {
+                          delivery_status: "DELIVERED",
+                        })
+                      }
+                    >
+                      Simulate delivered messages
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      disabled={disabled}
+                      onClick={() =>
+                        act("simulate_delivery", { delivery_status: "FAILED" })
+                      }
+                    >
+                      Simulate delivery failure
+                    </Button>
+                  </div>
+                </details>
+              </section>
+            )}
             <section className="panel">
               <h2>Message delivery</h2>
               {data.communications.length ? (
@@ -688,16 +736,57 @@ function HostContent({ id }: { id: string }) {
               <div>
                 <h2>People coming together</h2>
                 <p className="muted">
-                  Twelve synthetic relationships. Response links are private and
-                  scoped to one person.
+                  {data.event.event_kind === "SIMPLE"
+                    ? "Named invitations require the recipient’s verified email. Creating a link does not send an email or confirm participation."
+                    : "Twelve synthetic relationships. Response links are private and scoped to one person."}
                 </p>
               </div>
             </div>
+            {data.event.event_kind === "SIMPLE" &&
+              data.event.lifecycle === "PUBLISHED" && (
+                <form
+                  className="coord-auth"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    act("invite_participant", {
+                      display_name: inviteName,
+                      email: inviteEmail,
+                      token: createParticipantToken(),
+                    });
+                  }}
+                >
+                  <TextField
+                    label="Invitee name"
+                    required
+                    maxLength={80}
+                    value={inviteName}
+                    onChange={(e) => setInviteName(e.target.value)}
+                  />
+                  <TextField
+                    label="Invitee email"
+                    type="email"
+                    required
+                    maxLength={254}
+                    value={inviteEmail}
+                    onChange={(e) => setInviteEmail(e.target.value)}
+                  />
+                  <Button disabled={disabled}>Create invitation link</Button>
+                </form>
+              )}
             <ul className="coord-participants">
               {data.participants.map((p) => (
                 <li key={p.id}>
                   <div>
                     <strong>{p.display_name}</strong>
+                    {p.invitation_email && (
+                      <p className="small muted">
+                        {p.invitation_email} ·{" "}
+                        {p.invitation_state === "CREATED"
+                          ? "Awaiting invitation response"
+                          : label(p.invitation_state ?? "")}{" "}
+                        {p.link_revoked ? " · Link revoked" : ""}
+                      </p>
+                    )}
                     <p>
                       {p.response
                         ? label(p.response)
@@ -906,8 +995,9 @@ function HostContent({ id }: { id: string }) {
             onClose={() => setLink(null)}
           >
             <p>
-              This link authorizes only {link.name}’s response. Creating another
-              link replaces the previous one.
+              {data.event.event_kind === "SIMPLE"
+                ? "The named recipient must verify their email before viewing or responding. Forwarding this link does not grant another person access. Share it directly with the invitee; no email has been sent."
+                : `This link authorizes only ${link.name}’s response. Creating another link replaces the previous one.`}
             </p>
             <a
               className="button primary"

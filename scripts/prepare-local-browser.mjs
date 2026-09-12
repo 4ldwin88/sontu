@@ -19,5 +19,5 @@ if (error) throw error;
 console.log("::add-mask::" + password);
 appendFileSync(
   process.env.GITHUB_ENV,
-  `VITE_SUPABASE_URL=${status.API_URL}\nVITE_SUPABASE_PUBLISHABLE_KEY=${status.ANON_KEY}\nSONTU_TEST_EMAIL=${email}\nSONTU_TEST_PASSWORD=${password}\nSONTU_TEST_API=${status.API_URL}\nSONTU_TEST_KEY=${status.ANON_KEY}\n`,
+  `VITE_INVITATION_VERIFICATION_ENABLED=true\nSONTU_TEST_MAIL_URL=http://127.0.0.1:54324\nVITE_SUPABASE_URL=${status.API_URL}\nVITE_SUPABASE_PUBLISHABLE_KEY=${status.ANON_KEY}\nSONTU_TEST_EMAIL=${email}\nSONTU_TEST_PASSWORD=${password}\nSONTU_TEST_API=${status.API_URL}\nSONTU_TEST_KEY=${status.ANON_KEY}\n`,
 );

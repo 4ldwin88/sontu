@@ -203,10 +203,12 @@ export function TrustBadge({ verified }: { verified: boolean }) {
 }
 export function EventImage({
   event,
+  image,
   className = "",
   priority = false,
 }: {
-  event: EventProjection;
+  event?: EventProjection;
+  image?: { src: string; alt: string };
   className?: string;
   priority?: boolean;
 }) {
@@ -223,8 +225,8 @@ export function EventImage({
   ) : (
     <img
       className={`event-image ${className}`}
-      src={`${import.meta.env.BASE_URL}${event.presentation.image}`}
-      alt={event.presentation.imageAlt}
+      src={`${import.meta.env.BASE_URL}${image?.src ?? event?.presentation.image ?? ""}`}
+      alt={image?.alt ?? event?.presentation.imageAlt ?? ""}
       loading={priority ? "eager" : "lazy"}
       onError={() => setFailed(true)}
     />

@@ -1,4 +1,12 @@
 import {
+  Invitation,
+  ConnectedEventHub,
+  useMyEvents,
+  forView,
+  SimpleEventCard,
+} from "./invitations";
+import { Creation } from "./creation";
+import {
   CoreEntry,
   CoreHost,
   ParticipantResponse,
@@ -54,7 +62,6 @@ import {
   SystemState,
   Tabs,
   TextAction,
-  TextField,
   TrustBadge,
 } from "../../../packages/ui-web";
 import {
@@ -289,15 +296,17 @@ function Discover() {
   );
 }
 function Events() {
+  const real = useMyEvents();
   const [params, setParams] = useSearchParams();
   const current = params.get("view") ?? "Upcoming";
   const view = eventViews.includes(current as (typeof eventViews)[number])
     ? current
     : "Upcoming";
-  const [create, setCreate] = useState(false);
-  const [name, setName] = useState("");
-  const [attempt, setAttempt] = useState(false);
+  const navigate = useNavigate();
   const collection = eventsForView(events, view);
+  const count = real.signed
+    ? forView(real.items, view).length
+    : collection.length;
   return (
     <main {...mainProps} className="events-page">
       <Tabs
@@ -328,12 +337,27 @@ function Events() {
           </p>
         </div>
         <span className="count">
-          {collection.length} {collection.length === 1 ? "event" : "events"}
+          {count} {count === 1 ? "event" : "events"}
         </span>
       </div>
       <div className="events-layout">
         <div className="events-list">
-          {collection.length ? (
+          {real.signed ? (
+            real.loading ? (
+              <p role="status">Loading your events…</p>
+            ) : real.error ? (
+              <div role="alert">
+                <p>{real.error}</p>
+                <Button onClick={real.reload}>Retry</Button>
+              </div>
+            ) : forView(real.items, view).length ? (
+              forView(real.items, view).map((e) => (
+                <SimpleEventCard key={e.id} event={e} view={view} />
+              ))
+            ) : (
+              <p>No {view.toLowerCase()} events yet.</p>
+            )
+          ) : collection.length ? (
             collection.map((e) => (
               <div className="event-list-row" key={e.identity.id}>
                 <EventCard event={e} variant="compact-square" />
@@ -359,12 +383,12 @@ function Events() {
               <p>
                 A few people. A shared idea. One place to bring it together.
               </p>
-              <Button onClick={() => setCreate(true)}>
+              <Button onClick={() => navigate("/create")}>
                 <Plus size={18} />
                 Create Event
               </Button>
               <p className="small muted">
-                Design preview · event creation is not activated.
+                Create a personal event or resume a saved draft.
               </p>
             </>
           ) : (
@@ -380,36 +404,6 @@ function Events() {
           )}
         </aside>
       </div>
-      {create && (
-        <Modal
-          title="Bring an idea to life"
-          onClose={() => {
-            setCreate(false);
-            setAttempt(false);
-          }}
-        >
-          <p>
-            This is a design preview. No event will be created or published.
-          </p>
-          <TextField
-            label="Event name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            error={
-              attempt && !name.trim()
-                ? "Give your event a name to preview the next step."
-                : undefined
-            }
-          />
-          <Button onClick={() => setAttempt(true)}>Preview next step</Button>
-          {attempt && name.trim() && (
-            <p role="status">
-              “{name}” is only a local preview. Creation continues after the
-              design checkpoint is approved.
-            </p>
-          )}
-        </Modal>
-      )}
     </main>
   );
 }
@@ -1050,6 +1044,10 @@ export default function App() {
             }
           />
         </Route>
+        <Route path="/invite/:token" element={<Invitation />} />
+        <Route path="/my-events/:eventId" element={<ConnectedEventHub />} />
+        <Route path="/create" element={<Creation />} />
+        <Route path="/create/:eventId" element={<Creation />} />
         <Route path="/core" element={<CoreEntry />} />
         <Route path="/core/events/:eventId/host" element={<CoreHost />} />
         <Route path="/respond/:token" element={<ParticipantResponse />} />
