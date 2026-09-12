@@ -55,6 +55,7 @@ import {
   Modal,
   RouteFocus,
   WidePortalShell,
+  UtilityDrawer,
 } from "./shells";
 const mainProps = { id: "main", tabIndex: -1 };
 function SectionHeading({
@@ -784,18 +785,23 @@ function Profile({
   setMode,
   accent,
   setAccent,
+  embedded = false,
 }: {
+  embedded?: boolean;
   mode: string;
   setMode: (s: string) => void;
   accent: string;
   setAccent: (s: string) => void;
 }) {
+  const Container = embedded ? "section" : "main";
   return (
-    <main {...mainProps} className="settings-page">
-      <Link className="back-link" to="/home">
-        <ArrowLeft size={18} />
-        Back to Home
-      </Link>
+    <Container {...(embedded ? {} : mainProps)} className="settings-page">
+      {!embedded && (
+        <Link className="back-link" to="/home">
+          <ArrowLeft size={18} />
+          Back to Home
+        </Link>
+      )}
       <span className="avatar profile-avatar">J</span>
       <h1>Your space.</h1>
       <p className="muted">Design preview profile</p>
@@ -826,7 +832,7 @@ function Profile({
         </p>
         <TextAction to="/preview/states">Open state gallery</TextAction>
       </section>
-    </main>
+    </Container>
   );
 }
 function StateGallery() {
@@ -880,9 +886,10 @@ function StateGallery() {
     </main>
   );
 }
-function Notifications() {
+function Notifications({ embedded = false }: { embedded?: boolean }) {
+  const Container = embedded ? "section" : "main";
   return (
-    <main {...mainProps} className="settings-page">
+    <Container {...(embedded ? {} : mainProps)} className="settings-page">
       <h1>Event updates</h1>
       <p className="muted">From your events and invitations.</p>
       <Link className="notification-card" to="/events/sunset-social">
@@ -895,10 +902,13 @@ function Notifications() {
           <p>Open the event to see the sample invitation.</p>
         </div>
       </Link>
-    </main>
+    </Container>
   );
 }
 export default function App() {
+  const [drawer, setDrawer] = useState<"profile" | "notifications" | null>(
+    null,
+  );
   const [mode, setMode] = useState(
     () => localStorage.getItem("sontu-mode") ?? "system",
   );
@@ -932,14 +942,18 @@ export default function App() {
       </a>
       <div className="preview-ribbon">
         Design preview <span>· Sample events, no real bookings</span>
-        <Link to="/profile" aria-label="Appearance and preview settings">
+        <button
+          onClick={() => setDrawer("profile")}
+          aria-label="Appearance and preview settings"
+          aria-haspopup="dialog"
+        >
           <SlidersHorizontal size={14} />
           Appearance
-        </Link>
+        </button>
       </div>
       <RouteFocus />
       <Routes>
-        <Route element={<AppShell />}>
+        <Route element={<AppShell onOpen={setDrawer} />}>
           <Route path="/" element={<Navigate to="/home" replace />} />
           <Route path="/home" element={<Home />} />
           <Route path="/discover" element={<Discover />} />
@@ -973,6 +987,25 @@ export default function App() {
         <Route path="/events/:eventId/host" element={<HostWorkspace />} />
         <Route path="/host/events/:eventId" element={<HostWorkspace />} />
       </Routes>
+      {drawer && (
+        <UtilityDrawer
+          side={drawer === "profile" ? "left" : "right"}
+          title={drawer === "profile" ? "Profile" : "Notifications"}
+          onClose={() => setDrawer(null)}
+        >
+          {drawer === "profile" ? (
+            <Profile
+              embedded
+              mode={mode}
+              setMode={setMode}
+              accent={accent}
+              setAccent={setAccent}
+            />
+          ) : (
+            <Notifications embedded />
+          )}
+        </UtilityDrawer>
+      )}
     </>
   );
 }

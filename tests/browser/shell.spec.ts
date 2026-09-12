@@ -112,3 +112,124 @@ test("320px text reflow and unresolved state", async ({ page }) => {
     page.getByText("The outcome is unresolved. Don’t treat this as confirmed."),
   ).toBeVisible();
 });
+
+test("root navigation starts at top and chrome follows scroll direction", async ({
+  page,
+}) => {
+  await page.goto("/#/feed");
+  await page.evaluate(() => window.scrollTo(0, 450));
+  await expect(page.locator(".app-shell")).toHaveClass(/chrome-hidden/);
+  await page.evaluate(() => window.scrollTo(0, 320));
+  await expect(page.locator(".app-shell")).not.toHaveClass(/chrome-hidden/);
+  await page
+    .getByRole("navigation", { name: "Main navigation" })
+    .getByRole("link", { name: "Discover" })
+    .click();
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+  await expect(page.locator(".app-shell")).not.toHaveClass(/chrome-hidden/);
+  await expect(page.locator(".top-utilities")).toBeInViewport();
+  await page
+    .getByRole("navigation", { name: "Main navigation" })
+    .getByRole("link", { name: "Home" })
+    .click();
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+});
+
+test("utility drawers keep the page, trap focus, and return focus", async ({
+  page,
+}, info) => {
+  await page.goto("/#/discover");
+  await page.getByRole("button", { name: "Profile and appearance" }).click();
+  const profile = page.getByRole("dialog", { name: "Profile", exact: true });
+  await expect(profile).toBeVisible();
+  await expect(page).toHaveURL(/#\/discover$/);
+  await page.getByLabel("Display mode").selectOption("dark");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  for (let i = 0; i < 9; i++) {
+    await page.keyboard.press("Tab");
+    expect(
+      await profile.evaluate((el) => el.contains(document.activeElement)),
+    ).toBe(true);
+  }
+  expect(
+    (
+      await new AxeBuilder({ page })
+        .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+        .analyze()
+    ).violations,
+  ).toEqual([]);
+  await page.screenshot({ path: info.outputPath("profile-drawer.png") });
+  await page.keyboard.press("Escape");
+  await expect(profile).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Profile and appearance" }),
+  ).toBeFocused();
+  await page
+    .getByRole("button", { name: "Notifications", exact: true })
+    .click();
+  const notifications = page.getByRole("dialog", {
+    name: "Notifications",
+    exact: true,
+  });
+  await expect(notifications).toBeVisible();
+  await notifications.evaluate(async (el) => {
+    await Promise.all(el.getAnimations().map((a) => a.finished));
+  });
+  const box = await notifications.boundingBox();
+  expect(Math.round((box?.x ?? 0) + (box?.width ?? 0))).toBe(
+    page.viewportSize()!.width,
+  );
+  await page.screenshot({ path: info.outputPath("notifications-drawer.png") });
+  await notifications.getByRole("link").first().click();
+  await expect(notifications).toHaveCount(0);
+  await expect(page).toHaveURL(/#\/events\/sunset-social$/);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+});
+
+test("sideways root gestures respect controls, direction and boundaries", async ({
+  page,
+}) => {
+  const swipe = async (selector: string, dx: number, dy = 0) => {
+    await page
+      .locator(selector)
+      .first()
+      .evaluate(
+        (el, { dx, dy }) => {
+          const touch = (x: number, y: number) =>
+            new Touch({ identifier: 1, target: el, clientX: x, clientY: y });
+          el.dispatchEvent(
+            new TouchEvent("touchstart", {
+              bubbles: true,
+              touches: [touch(180, 250)],
+              changedTouches: [touch(180, 250)],
+            }),
+          );
+          el.dispatchEvent(
+            new TouchEvent("touchend", {
+              bubbles: true,
+              touches: [],
+              changedTouches: [touch(180 + dx, 250 + dy)],
+            }),
+          );
+        },
+        { dx, dy },
+      );
+  };
+  await page.goto("/#/home");
+  await swipe(".home-welcome", 100);
+  await expect(page).toHaveURL(/#\/home$/);
+  await swipe(".home-welcome", -100, 100);
+  await expect(page).toHaveURL(/#\/home$/);
+  await swipe(".home-welcome", -100);
+  await expect(page).toHaveURL(/#\/discover$/);
+  await swipe(".filter-row button", -100);
+  await expect(page).toHaveURL(/#\/discover$/);
+  await swipe(".discover-feature", -100);
+  await expect(page).toHaveURL(/#\/events$/);
+  await swipe(".events-page h1", -100);
+  await expect(page).toHaveURL(/#\/feed$/);
+  await swipe(".feed-item", -100);
+  await expect(page).toHaveURL(/#\/feed$/);
+  await swipe(".feed-item", 100);
+  await expect(page).toHaveURL(/#\/events$/);
+});
