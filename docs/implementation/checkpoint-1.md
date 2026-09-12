@@ -15,7 +15,8 @@ Inspected the current Drive Brand boards, especially Events Journey, Discover, H
 - Shared projections separate identity/display version, actor relationship, permissions/modules, participation, attention, operations, and presentation metadata. Every sample has `local_fixture` provenance.
 - Host Workspace adapts at available widths. Below 850px it uses focused local navigation/cards; wider layouts use the same event projection in Host Portal navigation and tables. Both host route families remove consumer roots.
 - System/Light/Dark and two curated Ocean accents; semantic status roles are invariant across accent choices. Exact neutrals, spacing, radii and font remain prototype constants for founder review.
-- System UI fallback font initially prioritizes reliable rendering and operational readability. No external font request is required.
+- Inter 400/500/600 Latin fonts are bundled locally for consistent typography; system UI remains the fallback. No third-party font request is required.
+- Founder visual review reopened Checkpoint 1: the initial coded composition was too heavy and spacious relative to the reviewed boards. The correction uses a direct Home image hero, compact discovery shortcuts, white light-mode surfaces, pill controls, lighter type and denser event/host presentation. Existing fixture photographs remain illustrative and are not board-extracted assets. Visual acceptance is still pending.
 - Production repository wordmark files are imported directly. Only the favicon is copied to public output; source-reference boards and unused emblem/app-icon families are excluded by the build.
 - Nearby uses a distance-sorted sample list with an explicit manual area. No fabricated geographic map or location permission request.
 - Creation and participation actions expose a labelled presentation boundary. They never publish, commit participation, create entitlement or claim admission success.

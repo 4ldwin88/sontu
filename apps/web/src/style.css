@@ -2341,3 +2341,18 @@ td {
     border-bottom-color: var(--interactive-primary);
   }
 }
+@media (max-width: 600px) {
+  .discover-feature,
+  .hub-image {
+    margin-left: -14px;
+    margin-right: -14px;
+  }
+  .feed-item {
+    margin-left: -14px;
+    margin-right: -14px;
+  }
+  .compact-workspace-nav .workspace-nav {
+    margin-left: -16px;
+    margin-right: -16px;
+  }
+}
