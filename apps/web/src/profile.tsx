@@ -60,10 +60,12 @@ export function ProfilePage({
   profile,
   onChange,
   editInitially,
+  onBack,
 }: {
   profile: ProfileProjection;
   onChange: (p: ProfileProjection) => void;
   editInitially: boolean;
+  onBack: () => void;
 }) {
   const [editing, setEditing] = useState(editInitially);
   const [name, setName] = useState(profile.displayName);
@@ -71,10 +73,10 @@ export function ProfilePage({
   const [error, setError] = useState(false);
   return (
     <main id="main" tabIndex={-1} className="settings-page lightweight-profile">
-      <Link className="back-link" to="/home">
+      <button className="back-link" onClick={onBack}>
         <ArrowLeft size={18} />
-        Back to Home
-      </Link>
+        Back to Profile
+      </button>
       <div className="profile-identity">
         <span
           className="avatar profile-avatar"
@@ -176,14 +178,14 @@ const pages: Record<string, { title: string; intro: string; body: string }> = {
     body: "This prototype uses a sample identity. Authentication and account sign-out are not activated, so no session has been ended.",
   },
 };
-export function ProfileUtilityPage({ kind }: { kind: string }) {
+export function ProfileUtilityPage({ kind, onBack }: { kind: string; onBack: () => void }) {
   const p = pages[kind];
   return (
     <main id="main" tabIndex={-1} className="settings-page">
-      <Link className="back-link" to="/profile">
+      <button className="back-link" onClick={onBack}>
         <ArrowLeft size={18} />
         Back to Profile
-      </Link>
+      </button>
       <h1>{p.title}</h1>
       <p className="muted">{p.intro}</p>
       <section className="panel">

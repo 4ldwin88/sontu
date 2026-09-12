@@ -1,5 +1,5 @@
 import { initialProfile } from "../../../packages/test-fixtures/profile";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Link,
   Navigate,
@@ -7,6 +7,7 @@ import {
   Routes,
   useParams,
   useLocation,
+  useNavigate,
   useSearchParams,
 } from "react-router-dom";
 import {
@@ -792,8 +793,10 @@ function Settings({
   accent,
   setAccent,
   embedded = false,
+  onBack,
 }: {
   embedded?: boolean;
+  onBack: () => void;
   mode: string;
   setMode: (s: string) => void;
   accent: string;
@@ -803,10 +806,10 @@ function Settings({
   return (
     <Container {...(embedded ? {} : mainProps)} className="settings-page">
       {!embedded && (
-        <Link className="back-link" to="/home">
+        <button className="back-link" onClick={onBack}>
           <ArrowLeft size={18} />
-          Back to Home
-        </Link>
+          Back to Profile
+        </button>
       )}
       <h1>Settings &amp; Preferences</h1>
       <p className="muted">How Sontu fits your day.</p>
@@ -927,6 +930,18 @@ function Notifications({ embedded = false }: { embedded?: boolean }) {
 }
 export default function App() {
   const location = useLocation();
+  const navigate = useNavigate();
+  const profileOrigin = useRef("/home");
+  const openDrawer = (panel: "profile" | "notifications") => {
+    if (panel === "profile" && /^\/(home|discover|events|feed)(\/|$)/.test(location.pathname)) {
+      profileOrigin.current = location.pathname + location.search;
+    }
+    setDrawer(panel);
+  };
+  const backToProfile = () => {
+    navigate(profileOrigin.current);
+    setDrawer("profile");
+  };
   const [profile, setProfile] = useState(initialProfile);
   const [drawer, setDrawer] = useState<"profile" | "notifications" | null>(
     null,
@@ -964,7 +979,7 @@ export default function App() {
       </a>
       <RouteFocus />
       <Routes>
-        <Route element={<AppShell onOpen={setDrawer} />}>
+        <Route element={<AppShell onOpen={openDrawer} />}>
           <Route path="/" element={<Navigate to="/home" replace />} />
           <Route path="/home" element={<Home />} />
           <Route path="/discover" element={<Discover />} />
@@ -975,6 +990,7 @@ export default function App() {
             path="/settings"
             element={
               <Settings
+                onBack={backToProfile}
                 mode={mode}
                 setMode={setMode}
                 accent={accent}
@@ -987,6 +1003,7 @@ export default function App() {
             element={
               <ProfilePage
                 key={location.key}
+                onBack={backToProfile}
                 profile={profile}
                 onChange={setProfile}
                 editInitially={
@@ -1000,7 +1017,7 @@ export default function App() {
               <Route
                 key={kind}
                 path={`/${kind}`}
-                element={<ProfileUtilityPage kind={kind} />}
+                element={<ProfileUtilityPage kind={kind} onBack={backToProfile} />}
               />
             ),
           )}

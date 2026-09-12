@@ -360,3 +360,19 @@ test("profile drawer follows section 30.21 and edits only preview identity", asy
   }
   await expect(page.getByText("No account is signed in.")).toBeVisible();
 });
+
+test("profile destinations return to the drawer over the original root", async ({ page }) => {
+  await page.goto("/#/discover");
+  await page.getByRole("button", { name: "Profile and appearance" }).click();
+  const drawer = page.getByRole("dialog", { name: "Profile", exact: true });
+  for (const name of ["Connections", "Settings & Preferences", "Privacy & Safety", "Help & Support", "About Sontu", "Sign Out", "View Profile"]) {
+    await drawer.getByRole("link", { name, exact: true }).click();
+    await expect(drawer).toHaveCount(0);
+    await page.getByRole("button", { name: "Back to Profile", exact: true }).click();
+    await expect(page).toHaveURL(/#\/discover$/);
+    await expect(drawer).toBeVisible();
+  }
+  await page.keyboard.press("Escape");
+  await expect(drawer).toHaveCount(0);
+  await expect(page).toHaveURL(/#\/discover$/);
+});
