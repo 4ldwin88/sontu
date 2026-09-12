@@ -298,3 +298,48 @@ describe("frozen Core Validation persistence contract", () => {
     expect(p.audit.some((x: any) => x.audit_kind === "cancel")).toBe(true);
   });
 });
+
+it("keeps dismissal, exception and expired participant authority distinct", async () => {
+  await asHost();
+  const fresh = await command("create_fixture");
+  event = fresh.event_id;
+  version = 1;
+  await command("publish");
+  await command("change_time", {
+    confirmed: true,
+    starts_at: "2026-09-16T23:30:00Z",
+  });
+  await command("dismiss", {
+    confirmed: true,
+    reason: "Awareness-only change for this test",
+  });
+  expect((await projection()).cases).toHaveLength(0);
+  await command("change_time", {
+    confirmed: true,
+    starts_at: "2026-09-17T00:00:00Z",
+  });
+  await command("accept", { confirmed: true });
+  const p = await projection(),
+    c = p.cases[0],
+    token = randomBytes(32).toString("hex");
+  await command("issue_link", { participant_id: p.participants[0].id, token });
+  await sql(
+    "update sontu_private.event_participants set token_expires_at=now()-interval '1 minute' where id=$1",
+    [p.participants[0].id],
+  );
+  expect((await response(token)).error_code).toBe("TOKEN_EXPIRED");
+  await command("cosmetic_edit", {
+    description: "A harmless spelling correction.",
+  });
+  expect((await projection()).cases[0].id).toBe(c.id);
+  await command("exception", {
+    confirmed: true,
+    case_id: c.id,
+    row_version: c.row_version,
+    reason: "Unable to establish remaining responses",
+  });
+  expect((await projection()).cases[0].disposition).toBe("EXCEPTION");
+  await asHost("");
+  expect((await command("create_fixture")).error_code).toBe("UNAUTHORIZED");
+  await asHost();
+});

@@ -32,3 +32,11 @@ Events → Hosting → Open working host events → sign in → Create test even
 Change start time and confirm. Require reconfirmation. Open Participants, generate a scoped response link, and respond in a separate tab. Return to Overview and refresh. Simulated delivery cannot settle the case. Review participant counts, provider uncertainty, prior versions, waiver/exception distinction, and cancellation with unresolved obligations.
 
 Stop after this human review. No public launch, real participant delivery, payments, ticketing/admission, broad social graph, enterprise operations, native mobile, or AI authority is included.
+
+## Verification evidence — September 12
+
+- `npm run check`: lint, TypeScript, 29 unit/PostgreSQL integration tests, production build pass.
+- [Browser CI run 34704245706](https://github.com/4ldwin88/sontu/actions/runs/34704245706): 48 tests pass across compact, medium and wide, including the existing design foundation, host/participant flow, accessibility checks and lost-response/reload/same-operation retry recovery. Runtime source is `cdfd2f22b88820f5e435fd6a310bad17a6810133`; subsequent changes add verification evidence only.
+- Hosted Sontu Auth/RPC verification passed ownership denial, anonymous denial, direct-table denial, 11/12 unresolved, 12/12 resolved, released-participant exclusion, stale conflict and concurrent-edit serialization. Reproduce with `SONTU_TEST_ACCOUNTS_FILE=/secure/accounts.json node scripts/verify-hosted.mjs` using two isolated synthetic accounts. This creates a new synthetic event; it never sends mail.
+- The interactive cloud preview browser timed out after supported recovery. Automated browser evidence comes from CI against isolated Supabase; hosted verification is Auth/API evidence. Founder review of the deployed private prototype remains the final gate.
+- Supabase's leaked-password protection setting remains disabled; this checkpoint uses generated synthetic credentials and makes no public-auth readiness claim. Private-table no-policy notices are expected default-deny findings. Build emits a non-blocking bundle-size warning (approximately 163 kB gzip).
