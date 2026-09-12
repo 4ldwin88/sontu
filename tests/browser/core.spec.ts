@@ -39,6 +39,15 @@ test("authenticated host and scoped participants complete the core workflow", as
   await expect(
     page.getByRole("button", { name: "Change start time" }),
   ).toBeVisible();
+  // Commit the command, then lose its HTTP response. Reload must retain the retry identity.
+  let dropOnce = true;
+  await page.route("**/rest/v1/rpc/sontu_host_command", async (route) => {
+    if (dropOnce && route.request().postDataJSON()?.cmd === "change_time") {
+      dropOnce = false;
+      await route.fetch();
+      await route.abort("failed");
+    } else await route.continue();
+  });
   await page.getByRole("button", { name: "Change start time" }).click();
   // CI browser's local zone is UTC; UI also previews the event's Toronto zone.
   await page
@@ -47,6 +56,16 @@ test("authenticated host and scoped participants complete the core workflow", as
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "Confirm", exact: true })
+    .click();
+  await expect(
+    page.getByText("Outcome not confirmed", { exact: true }).first(),
+  ).toBeVisible();
+  await page.reload();
+  await expect(
+    page.getByRole("button", { name: "Retry same request", exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Retry same request", exact: true })
     .click();
   await expect(
     page.getByRole("button", { name: "Require reconfirmation" }),

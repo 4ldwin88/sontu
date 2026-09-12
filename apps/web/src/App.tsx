@@ -1,4 +1,9 @@
-import { CoreEntry, CoreHost, ParticipantResponse } from "./coordination";
+import {
+  CoreEntry,
+  CoreHost,
+  ParticipantResponse,
+  CoreSignOut,
+} from "./coordination";
 import { initialProfile } from "../../../packages/test-fixtures/profile";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -935,7 +940,10 @@ export default function App() {
   const navigate = useNavigate();
   const profileOrigin = useRef("/home");
   const openDrawer = (panel: "profile" | "notifications") => {
-    if (panel === "profile" && /^\/(home|discover|events|feed)(\/|$)/.test(location.pathname)) {
+    if (
+      panel === "profile" &&
+      /^\/(home|discover|events|feed)(\/|$)/.test(location.pathname)
+    ) {
       profileOrigin.current = location.pathname + location.search;
     }
     setDrawer(panel);
@@ -1019,7 +1027,13 @@ export default function App() {
               <Route
                 key={kind}
                 path={`/${kind}`}
-                element={<ProfileUtilityPage kind={kind} onBack={backToProfile} />}
+                element={
+                  kind === "sign-out" ? (
+                    <CoreSignOut onBack={backToProfile} />
+                  ) : (
+                    <ProfileUtilityPage kind={kind} onBack={backToProfile} />
+                  )
+                }
               />
             ),
           )}

@@ -28,6 +28,26 @@ import type {
   CommandResult,
 } from "../../../packages/domain/coordination";
 
+// A pending request is recovery metadata, never authoritative event state.
+function recover<T>(key: string): T | null {
+  try {
+    return JSON.parse(
+      sessionStorage.getItem("sontu-request:" + key) ?? "null",
+    ) as T | null;
+  } catch {
+    return null;
+  }
+}
+function journal(key: string, value: unknown) {
+  try {
+    if (value === null) sessionStorage.removeItem("sontu-request:" + key);
+    else sessionStorage.setItem("sontu-request:" + key, JSON.stringify(value));
+  } catch {
+    /* Same-page retries remain available when session storage is unavailable. */
+  }
+}
+const interrupted =
+  "A previous request was interrupted. Retry the same request to recover its authoritative outcome.";
 const date = (value: string, zone = "America/Toronto") =>
   new Intl.DateTimeFormat("en-CA", {
     dateStyle: "medium",
@@ -147,7 +167,7 @@ function CoreEvents() {
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   const navigate = useNavigate();
-  const createOp = useRef<string | null>(null);
+  const createOp = useRef<string | null>(recover<string>("create"));
   const load = useCallback(async () => {
     try {
       const r = await rpc<{ status: string; events: typeof items }>(
@@ -189,6 +209,7 @@ function CoreEvents() {
             setBusy(true);
             setError("");
             createOp.current ??= crypto.randomUUID();
+            journal("create", createOp.current);
             try {
               const r = await hostCommand(
                 "create_fixture",
@@ -199,6 +220,7 @@ function CoreEvents() {
               );
               if (r.status === "ready") {
                 createOp.current = null;
+                journal("create", null);
                 navigate(`/core/events/${r.event_id}/host`);
               } else
                 setError(
@@ -258,20 +280,23 @@ function HostContent({ id }: { id: string }) {
   const [data, setData] = useState<HostProjection | null>(null),
     [section, setSection] = useState("overview"),
     [busy, setBusy] = useState(false),
-    [error, setError] = useState(""),
-    [unknown, setUnknown] = useState(false),
+    [error, setError] = useState(() =>
+      recover<Action>(id) ? interrupted : "",
+    ),
+    [unknown, setUnknown] = useState(() => !!recover<Action>(id)),
     [success, setSuccess] = useState(""),
     [modal, setModal] = useState<string | null>(null),
     [reason, setReason] = useState(""),
     [time, setTime] = useState(""),
     [description, setDescription] = useState(""),
     [link, setLink] = useState<{ name: string; url: string } | null>(null);
-  const pending = useRef<Action | null>(null);
+  const pending = useRef<Action | null>(recover<Action>(id));
   const load = useCallback(async () => {
     try {
       const r = await hostRead(id);
       if (r.status === "ready" && r.data) {
         setData(r.data);
+        if (!pending.current) setError("");
       } else
         setError(
           errorMessages[r.error_code ?? ""] ?? "This event is unavailable.",
@@ -289,6 +314,7 @@ function HostContent({ id }: { id: string }) {
     setError("");
     setSuccess("");
     pending.current = action;
+    journal(id, action);
     try {
       const r = await hostCommand(
         action.cmd,
@@ -299,6 +325,7 @@ function HostContent({ id }: { id: string }) {
       );
       setUnknown(false);
       pending.current = null;
+      journal(id, null);
       if (r.status === "ready") {
         setModal(null);
         setSuccess(
@@ -925,20 +952,21 @@ interface ParticipantView {
 export function ParticipantResponse() {
   const { token } = useParams();
   const [data, setData] = useState<ParticipantView | null>(null),
-    [error, setError] = useState(""),
+    [error, setError] = useState(() => (recover(token!) ? interrupted : "")),
     [busy, setBusy] = useState(false),
-    [unknown, setUnknown] = useState(false);
+    [unknown, setUnknown] = useState(() => !!recover(token!));
   const pending = useRef<{
     decision: string;
     expected_version: number;
     operation_id: string;
-  } | null>(null);
+  } | null>(recover(token!));
   const load = useCallback(async () => {
     try {
       const r = await rpc<ParticipantView>("sontu_participant_access", {
         token,
       });
       setData(r);
+      if (r.status === "ready" && !pending.current) setError("");
       if (r.status !== "ready")
         setError(
           errorMessages[r.error_code ?? ""] ?? "This response is unavailable.",
@@ -957,6 +985,7 @@ export function ParticipantResponse() {
       expected_version: data.event.current_version,
       operation_id: crypto.randomUUID(),
     };
+    journal(token!, pending.current);
     setBusy(true);
     setError("");
     try {
@@ -965,6 +994,7 @@ export function ParticipantResponse() {
         ...pending.current,
       });
       pending.current = null;
+      journal(token!, null);
       setUnknown(false);
       if (r.status === "ready") await load();
       else
@@ -1051,6 +1081,43 @@ export function ParticipantResponse() {
           </p>
         </>
       )}
+    </main>
+  );
+}
+
+export function CoreSignOut({ onBack }: { onBack: () => void }) {
+  const [active, setActive] = useState<boolean | null>(null),
+    [error, setError] = useState("");
+  useEffect(() => {
+    void supabase.auth
+      .getSession()
+      .then(({ data }) => setActive(!!data.session));
+  }, []);
+  return (
+    <main id="main" tabIndex={-1} className="settings-page">
+      <button className="back-link" onClick={onBack}>
+        Back to Profile
+      </button>
+      <h1>Sign Out</h1>
+      {active === null ? (
+        <p role="status">Checking your session…</p>
+      ) : active ? (
+        <>
+          <p>You are signed in to the host workspace.</p>
+          <Button
+            onClick={async () => {
+              const { error } = await supabase.auth.signOut();
+              if (error) setError("Unable to sign out. Please retry.");
+              else setActive(false);
+            }}
+          >
+            Sign out of host account
+          </Button>
+        </>
+      ) : (
+        <p>No account is signed in.</p>
+      )}
+      {error && <Feedback message={error} />}
     </main>
   );
 }
