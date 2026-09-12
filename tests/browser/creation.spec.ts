@@ -98,8 +98,103 @@ test("host resumes a draft and publishes only reviewed valid event details", asy
   ).toBeVisible();
   await page.goto("/#/events");
   await page.getByRole("tab", { name: "Upcoming", exact: true }).click();
-  await expect(page.getByRole("link").filter({ hasText: `Garden dinner ${info.project.name}` }).first()).toBeVisible();
+  await expect(
+    page
+      .getByRole("link")
+      .filter({ hasText: `Garden dinner ${info.project.name}` })
+      .first(),
+  ).toBeVisible();
   await page.getByRole("tab", { name: "Hosting", exact: true }).click();
-  await expect(page.getByRole("link").filter({ hasText: `Garden dinner ${info.project.name}` }).first()).toBeVisible();
+  await expect(
+    page
+      .getByRole("link")
+      .filter({ hasText: `Garden dinner ${info.project.name}` })
+      .first(),
+  ).toBeVisible();
 
+  const hostedCard = page
+    .getByRole("link")
+    .filter({ hasText: `Garden dinner ${info.project.name}` })
+    .first();
+  await expect(hostedCard.getByText("Hosting", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "Published & upcoming", exact: true }),
+  ).toBeVisible();
+  await hostedCard.click();
+  await expect(
+    page.getByRole("heading", { name: "About this event" }),
+  ).toBeVisible();
+  await expect(page.getByText("An evening with friends.")).toBeVisible();
+  await expect(
+    page.getByText("America/Vancouver", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("link", { name: "Manage event", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Manage guests", exact: true })
+    .click();
+  await expect(
+    page.getByText("No guests yet.", { exact: false }),
+  ).toBeVisible();
+  await page.getByLabel("Search guests").fill("nobody");
+  await expect(page.getByText("0 guests shown", { exact: true })).toBeVisible();
+  await page.getByLabel("Search guests").fill("");
+  await page
+    .getByLabel("Guest status", { exact: true })
+    .selectOption("attending");
+  await expect(page.getByText("0 guests shown", { exact: true })).toBeVisible();
+  const modules = page
+    .getByRole("navigation", { name: "Event workspace modules" })
+    .filter({ visible: true });
+  await modules.getByRole("button", { name: "Overview", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Edit description", exact: true })
+    .click();
+  await page
+    .getByRole("dialog")
+    .getByLabel("Description", { exact: true })
+    .fill("Bring a favourite dish.");
+  await page
+    .getByRole("button", { name: "Save description", exact: true })
+    .click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.getByRole("link", { name: "View event", exact: true }).click();
+  await expect(page.getByText("Bring a favourite dish.")).toBeVisible();
+  await page.getByRole("link", { name: "Manage event", exact: true }).click();
+  await page.getByRole("button", { name: "Cancel event", exact: true }).click();
+  await expect(
+    page
+      .getByRole("dialog")
+      .getByText("No cancellation email will be sent automatically.", {
+        exact: false,
+      }),
+  ).toBeVisible();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Cancel event", exact: true })
+    .click();
+  await expect(
+    page.getByText("This event is cancelled.", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("link", { name: "View event", exact: true }).click();
+  await expect(
+    page.getByText(
+      "This event is cancelled. New participation is unavailable.",
+    ),
+  ).toBeVisible();
+  await page.goto("/#/events?view=Upcoming");
+  await expect(
+    page.getByRole("heading", { name: "Your upcoming events", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("link")
+      .filter({ hasText: `Garden dinner ${info.project.name}` }),
+  ).toHaveCount(0);
+  await page.getByRole("tab", { name: "Hosting", exact: true }).click();
+  await expect(
+    page
+      .getByRole("region", { name: "History & cancelled", exact: true })
+      .getByRole("link")
+      .filter({ hasText: `Garden dinner ${info.project.name}` }),
+  ).toBeVisible();
 });

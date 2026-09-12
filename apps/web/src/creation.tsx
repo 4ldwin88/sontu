@@ -46,7 +46,7 @@ export function Creation() {
   return (
     <FocusedWorkspaceShell
       title={eventId ? "Your event draft" : "Create Event"}
-      back="/core"
+      back="/events?view=Hosting"
     >
       <main id="main" tabIndex={-1} className="coord-entry">
         <SessionGate>
@@ -155,7 +155,7 @@ function CreateEntry() {
       </section>
       {error && <p role="alert">{error}</p>}
       <Link
-        to="/core"
+        to="/events?view=Hosting"
         className="icon-button back-chevron"
         aria-label="Back to Hosting"
       >

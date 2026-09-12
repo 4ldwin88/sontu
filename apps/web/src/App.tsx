@@ -11,6 +11,7 @@ import {
   useMyEvents,
   forView,
   SimpleEventCard,
+  HostingCollection,
 } from "./invitations";
 import { Creation } from "./creation";
 import {
@@ -358,9 +359,13 @@ function Events() {
                 <Button onClick={real.reload}>Retry</Button>
               </div>
             ) : forView(real.items, view).length ? (
-              forView(real.items, view).map((e) => (
-                <SimpleEventCard key={e.id} event={e} view={view} />
-              ))
+              view === "Hosting" ? (
+                <HostingCollection items={forView(real.items, view)} />
+              ) : (
+                forView(real.items, view).map((e) => (
+                  <SimpleEventCard key={e.id} event={e} view={view} />
+                ))
+              )
             ) : (
               <p>No {view.toLowerCase()} events yet.</p>
             )
@@ -386,7 +391,7 @@ function Events() {
                 <CalendarDays />
               </span>
               <h2>Something good starts with you.</h2>
-              <TextAction to="/core">Open working host events</TextAction>
+
               <p>
                 A few people. A shared idea. One place to bring it together.
               </p>

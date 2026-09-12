@@ -2991,3 +2991,38 @@ button.back-link {
 .password-rules li[data-met="true"] {
   color: var(--success);
 }
+
+.hosting-group {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.hosting-group h2 {
+  margin: 0;
+}
+.event-description {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.guest-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 24px 0 16px;
+}
+.guest-controls > * {
+  flex: 1 1 220px;
+}
+.guest-controls label {
+  display: grid;
+  gap: 8px;
+}
+.guest-controls select {
+  min-height: 44px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-primary);
+  font: inherit;
+}

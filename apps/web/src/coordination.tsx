@@ -262,7 +262,7 @@ interface Action {
 export function CoreHost() {
   const { eventId } = useParams();
   return (
-    <FocusedWorkspaceShell title="Host Workspace" back="/core">
+    <FocusedWorkspaceShell title="Host Workspace" back="/events?view=Hosting">
       <SessionGate>
         <HostContent key={eventId} id={eventId!} />
       </SessionGate>
@@ -272,6 +272,8 @@ export function CoreHost() {
 function HostContent({ id }: { id: string }) {
   const [data, setData] = useState<HostProjection | null>(null),
     [section, setSection] = useState("overview"),
+    [guestQuery, setGuestQuery] = useState(""),
+    [guestFilter, setGuestFilter] = useState("all"),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(() =>
       recover<Action>(id) ? interrupted : "",
@@ -416,6 +418,23 @@ function HostContent({ id }: { id: string }) {
       ? data.provider.applicable_event_version_id
       : data.version.id,
   );
+  const visibleGuests = data.participants.filter((p) => {
+    const matches = `${p.display_name} ${p.invitation_email ?? ""}`
+      .toLowerCase()
+      .includes(guestQuery.trim().toLowerCase());
+    return (
+      matches &&
+      (guestFilter === "all" ||
+        (guestFilter === "attending" && p.commitment_state === "CONFIRMED") ||
+        (guestFilter === "pending" &&
+          p.invitation_state === "CREATED" &&
+          p.commitment_state === "NO_COMMITMENT" &&
+          !p.link_revoked) ||
+        (guestFilter === "declined" &&
+          (p.invitation_state === "DECLINED" ||
+            p.commitment_state === "RELEASED_DECLINED")))
+    );
+  });
   const disabled = busy || unknown;
   return (
     <main id="main" tabIndex={-1} className="host-main">
@@ -444,6 +463,11 @@ function HostContent({ id }: { id: string }) {
               Version {data.event.current_version_number}
             </span>
           </div>
+          {data.event.event_kind === "SIMPLE" && (
+            <Link className="button secondary" to={`/my-events/${id}`}>
+              View event
+            </Link>
+          )}
           <Button variant="secondary" onClick={() => void load()}>
             <RefreshCw size={16} />
             Refresh status
@@ -782,8 +806,38 @@ function HostContent({ id }: { id: string }) {
                   <Button disabled={disabled}>Create invitation link</Button>
                 </form>
               )}
+            <div className="guest-controls">
+              <TextField
+                label="Search guests"
+                type="search"
+                value={guestQuery}
+                onChange={(e) => setGuestQuery(e.target.value)}
+              />
+              <label>
+                Guest status
+                <select
+                  value={guestFilter}
+                  onChange={(e) => setGuestFilter(e.target.value)}
+                >
+                  <option value="all">All guests</option>
+                  <option value="attending">Attending</option>
+                  <option value="pending">Awaiting response</option>
+                  <option value="declined">Declined or withdrawn</option>
+                </select>
+              </label>
+            </div>
+            {!data.participants.length && (
+              <p>
+                No guests yet. Your guest list will appear here when invitations
+                are added.
+              </p>
+            )}
+            <p className="small muted" role="status">
+              {visibleGuests.length}{" "}
+              {visibleGuests.length === 1 ? "guest" : "guests"} shown
+            </p>
             <ul className="coord-participants">
-              {data.participants.map((p) => (
+              {visibleGuests.map((p) => (
                 <li key={p.id}>
                   <div>
                     <strong>{p.display_name}</strong>
@@ -918,7 +972,7 @@ function HostContent({ id }: { id: string }) {
               {modal === "change_time" ? (
                 <>
                   <p>
-                    Current time:{" "}
+                    Event: {data.version.title}. Current time:{" "}
                     {date(data.version.starts_at, data.version.timezone)}.
                   </p>
                   <p className="small muted">
@@ -941,9 +995,38 @@ function HostContent({ id }: { id: string }) {
                         )
                       : "Enter a valid time"}{" "}
                     ({data.version.timezone}). Existing commitments may need
-                    reconfirmation.
+                    reconfirmation.{" "}
+                    {
+                      data.participants.filter(
+                        (p) => p.commitment_state === "CONFIRMED",
+                      ).length
+                    }{" "}
+                    committed guests may be affected. Email delivery is not
+                    connected; contact guests yourself.
                   </p>
                 </>
+              ) : modal === "cancel" ? (
+                <section>
+                  <h3>{data.version.title}</h3>
+                  <p>
+                    {date(data.version.starts_at, data.version.timezone)} ·{" "}
+                    {data.version.venue_label}
+                  </p>
+                  <p>
+                    {
+                      data.participants.filter(
+                        (p) => p.commitment_state === "CONFIRMED",
+                      ).length
+                    }{" "}
+                    guests currently committed. Cancellation stops new
+                    participation; existing responses and unresolved obligations
+                    remain in history.
+                  </p>
+                  <p>
+                    Email delivery is not connected. No cancellation email will
+                    be sent automatically. Contact affected guests yourself.
+                  </p>
+                </section>
               ) : modal === "cosmetic_edit" ? (
                 <>
                   <TextField
@@ -999,7 +1082,17 @@ function HostContent({ id }: { id: string }) {
               )}
               <div className="coord-actions">
                 <Button type="submit" disabled={disabled}>
-                  {busy ? "Saving…" : "Confirm"}
+                  {busy
+                    ? "Saving…"
+                    : data.event.event_kind === "SIMPLE"
+                      ? modal === "cancel"
+                        ? "Cancel event"
+                        : modal === "change_time"
+                          ? "Save new start time"
+                          : modal === "cosmetic_edit"
+                            ? "Save description"
+                            : "Confirm"
+                      : "Confirm"}
                 </Button>
                 <Button
                   type="button"

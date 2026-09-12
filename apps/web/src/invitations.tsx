@@ -14,6 +14,8 @@ export interface MyEvent {
   id: string;
   title: string;
   starts_at: string | null;
+  ends_at: string | null;
+  description: string;
   timezone: string;
   venue_label: string;
   cover_key: string;
@@ -22,7 +24,7 @@ export interface MyEvent {
   commitment_state: string | null;
   invitation_state: string | null;
 }
-const when = (value: string | null, zone: string) =>
+export const when = (value: string | null, zone: string) =>
   value
     ? new Intl.DateTimeFormat("en-CA", {
         dateStyle: "medium",
@@ -81,6 +83,7 @@ export function forView(items: MyEvent[], view: string) {
       ? e.hosting
       : view === "Upcoming"
         ? e.lifecycle === "PUBLISHED" &&
+          (!e.ends_at || Date.parse(e.ends_at) > Date.now()) &&
           (e.hosting || e.commitment_state === "CONFIRMED")
         : view === "Invited"
           ? e.commitment_state === "NO_COMMITMENT" &&
@@ -88,9 +91,43 @@ export function forView(items: MyEvent[], view: string) {
           : false,
   );
 }
+export function hostingGroup(e: MyEvent, now = Date.now()): string {
+  if (e.lifecycle === "DRAFT") return "Drafts";
+  if (
+    e.lifecycle !== "PUBLISHED" ||
+    (e.ends_at && Date.parse(e.ends_at) <= now)
+  )
+    return "History & cancelled";
+  if (e.starts_at && Date.parse(e.starts_at) <= now) return "In progress";
+  return "Published & upcoming";
+}
+export function HostingCollection({ items }: { items: MyEvent[] }) {
+  return (
+    <>
+      {[
+        "Drafts",
+        "Published & upcoming",
+        "In progress",
+        "History & cancelled",
+      ].map((group) => {
+        const events = items.filter((e) => hostingGroup(e) === group);
+        return events.length ? (
+          <section className="hosting-group" key={group} aria-label={group}>
+            <h2>
+              {group} <span className="small muted">({events.length})</span>
+            </h2>
+            {events.map((event) => (
+              <SimpleEventCard key={event.id} event={event} view="Hosting" />
+            ))}
+          </section>
+        ) : null;
+      })}
+    </>
+  );
+}
 export function SimpleEventCard({
   event: e,
-  view,
+  view: _view,
 }: {
   event: MyEvent;
   view: string;
@@ -118,7 +155,7 @@ export function SimpleEventCard({
             <StatusBadge>
               {e.lifecycle === "CANCELLED"
                 ? "Cancelled"
-                : view === "Hosting"
+                : e.hosting
                   ? "Hosting"
                   : e.commitment_state === "CONFIRMED"
                     ? "Going"
@@ -530,7 +567,10 @@ export function ConnectedEventHub() {
         {state.loading ? (
           <p role="status">Loading event…</p>
         ) : state.error ? (
-          <p role="alert">{state.error}</p>
+          <div role="alert">
+            <p>{state.error}</p>
+            <Button onClick={state.reload}>Retry</Button>
+          </div>
         ) : event?.hosting ? (
           <>
             <span className="eyebrow">Your event</span>
@@ -542,9 +582,38 @@ export function ConnectedEventHub() {
               />
             )}
             <h1>{event.title || "Untitled event"}</h1>
-            <p>{when(event.starts_at, event.timezone)}</p>
-            <p>{event.venue_label}</p>
-            <StatusBadge>{event.lifecycle}</StatusBadge>
+            <div className="coord-actions">
+              <StatusBadge tone="info">You’re hosting</StatusBadge>
+              <StatusBadge>
+                {event.lifecycle === "CANCELLED"
+                  ? "Cancelled"
+                  : event.lifecycle === "DRAFT"
+                    ? "Draft"
+                    : hostingGroup(event) === "History & cancelled"
+                      ? "Ended"
+                      : "Published"}
+              </StatusBadge>
+            </div>
+            {event.lifecycle === "CANCELLED" && (
+              <p className="coord-feedback" role="status">
+                This event is cancelled. New participation is unavailable.
+              </p>
+            )}
+            <section className="panel">
+              <h2>When & where</h2>
+              <p>{when(event.starts_at, event.timezone)}</p>
+              {event.ends_at && (
+                <p>Ends {when(event.ends_at, event.timezone)}</p>
+              )}
+              <p className="small muted">{event.timezone}</p>
+              <p>{event.venue_label || "Location to be decided"}</p>
+            </section>
+            <section className="panel">
+              <h2>About this event</h2>
+              <p className="event-description">
+                {event.description || "No description yet."}
+              </p>
+            </section>
             <p>
               <Link
                 className="button primary"
