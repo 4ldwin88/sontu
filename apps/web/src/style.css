@@ -2769,3 +2769,153 @@ button.back-link {
   object-fit: cover;
   border-radius: 16px;
 }
+
+/* Account entry follows the approved Join Sontu board; profile data is a separate step. */
+.account-shell {
+  min-height: 100dvh;
+  display: grid;
+  grid-template-columns: 1fr;
+  background: var(--surface);
+  color: var(--text-primary);
+}
+.account-world {
+  display: none;
+}
+.account-surface {
+  padding: 24px clamp(20px, 5vw, 72px) 48px;
+  min-width: 0;
+}
+.account-form {
+  max-width: 420px;
+  margin: 36px auto 0;
+}
+.account-wordmark {
+  margin-bottom: 32px;
+}
+.account-wordmark .wordmark {
+  width: 138px;
+  height: auto;
+}
+.account-form h1 {
+  font-size: clamp(1.8rem, 4vw, 2.35rem);
+  line-height: 1.15;
+  letter-spacing: -0.035em;
+  margin: 12px 0;
+}
+.account-form form {
+  display: grid;
+  gap: 18px;
+  margin: 24px 0;
+}
+.account-form form > .button {
+  width: 100%;
+}
+.provider-options {
+  display: grid;
+  gap: 10px;
+  margin-top: 28px;
+}
+.provider-options button {
+  width: 100%;
+}
+.account-divider {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 24px 0;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+}
+.account-divider:before,
+.account-divider:after {
+  content: "";
+  height: 1px;
+  flex: 1;
+  background: var(--border);
+}
+.password-field {
+  position: relative;
+}
+.password-field input {
+  padding-right: 52px;
+}
+.password-field .icon-button {
+  position: absolute;
+  right: 4px;
+  bottom: 3px;
+}
+.password-rules {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+.password-rules li {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.legal-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+.legal-check input {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  margin-top: 2px;
+}
+.account-notice {
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  font-size: 0.85rem;
+  line-height: 1.55;
+}
+.account-switch {
+  text-align: center;
+  font-size: 0.9rem;
+  margin: 28px 0;
+}
+.account-form a {
+  text-underline-offset: 3px;
+}
+@media (min-width: 960px) {
+  .account-shell {
+    grid-template-columns: minmax(320px, 0.95fr) minmax(500px, 1.05fr);
+  }
+  .account-world {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 64px;
+    color: white;
+    background:
+      linear-gradient(180deg, rgba(5, 20, 40, 0.3), rgba(5, 20, 40, 0.75)),
+      url("/images/sunset.jpg") center/cover;
+  }
+  .account-world .wordmark-light {
+    display: none;
+  }
+  .account-world .wordmark-dark {
+    display: block;
+    width: 180px;
+    height: auto;
+  }
+  .account-world h2 {
+    font-size: clamp(2.6rem, 5vw, 4.8rem);
+    letter-spacing: -0.04em;
+    line-height: 1.05;
+    margin-top: 160px;
+  }
+  .account-world p {
+    line-height: 1.6;
+  }
+}

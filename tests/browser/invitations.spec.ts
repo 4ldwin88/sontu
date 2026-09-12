@@ -107,6 +107,8 @@ test("verified invitee accepts and reconfirms through connected Events", async (
     page.getByRole("button", { name: "Accept invitation" }),
   ).toBeVisible();
   await page.getByRole("link", { name: "Your Events" }).click();
+  await page.getByLabel("First name", { exact: true }).fill("Invited guest");
+  await page.getByRole("button", { name: "Start exploring" }).click();
   await page.getByRole("tab", { name: "Invited", exact: true }).click();
   await page
     .getByRole("link")

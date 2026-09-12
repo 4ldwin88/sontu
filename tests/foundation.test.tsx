@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
+import { AccountProvider } from "../apps/web/src/account-state";
 import App from "../apps/web/src/App";
 import { eventById, events } from "../packages/test-fixtures/events";
 import {
@@ -11,7 +12,9 @@ import {
 function open(path = "/home") {
   return render(
     <MemoryRouter initialEntries={[path]}>
-      <App />
+      <AccountProvider>
+        <App />
+      </AccountProvider>
     </MemoryRouter>,
   );
 }

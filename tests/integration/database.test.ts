@@ -551,3 +551,62 @@ it("requires recipient email verification, enforces capacity and keeps invitatio
       .commitment_state,
   ).toBe("CONFIRMED");
 });
+
+describe("minimum profile and immutable account identity", () => {
+  it("resumes creation, isolates profiles, and enforces handles and cooldown in the database", async () => {
+    await asHost(host);
+    const call = async (action: string, input: object = {}) =>
+      (
+        await sql<{ r: any }>("select public.sontu_account_profile($1,$2) r", [
+          action,
+          JSON.stringify(input),
+        ])
+      )[0].r;
+    expect((await call("read")).status).toBe("empty");
+    const first = await call("create", { first_name: "Thịnh" });
+    expect(first.profile.handle).toMatch(/^[a-z0-9][a-z0-9_.]{2,29}$/);
+    expect((await call("create", { first_name: "Different" })).profile).toEqual(
+      first.profile,
+    );
+    const selected = await call("update", {
+      first_name: "Thịnh",
+      display_name: "Jay",
+      handle: "captain_j",
+      revision: 1,
+    });
+    expect(selected.profile.user_id).toBe(host);
+    expect(selected.profile.handle_provisional).toBe(false);
+    expect(
+      (
+        await call("update", {
+          first_name: "Jay",
+          handle: "another_j",
+          revision: 2,
+        })
+      ).error_code,
+    ).toBe("HANDLE_COOLDOWN");
+    await asHost(stranger);
+    expect((await call("read")).status).toBe("empty");
+    await call("create", { first_name: "Jay" });
+    expect(
+      (
+        await call("update", {
+          first_name: "Jay",
+          handle: "CAPTAIN_J",
+          revision: 1,
+        })
+      ).error_code,
+    ).toBe("HANDLE_UNAVAILABLE");
+    expect(
+      (
+        await call("update", {
+          first_name: "Jay",
+          handle: "admin",
+          revision: 1,
+        })
+      ).error_code,
+    ).toBe("INVALID_HANDLE");
+    await asHost("");
+    expect((await call("read")).status).toBe("denied");
+  });
+});

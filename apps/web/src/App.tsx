@@ -1,4 +1,11 @@
 import {
+  AccountPortal,
+  MinimumProfile,
+  AccountEntryGate,
+  RealProfile,
+} from "./account";
+import { useAccount } from "./account-state";
+import {
   Invitation,
   ConnectedEventHub,
   useMyEvents,
@@ -930,6 +937,7 @@ function Notifications({ embedded = false }: { embedded?: boolean }) {
   );
 }
 export default function App() {
+  const account = useAccount();
   const location = useLocation();
   const navigate = useNavigate();
   const profileOrigin = useRef("/home");
@@ -983,7 +991,16 @@ export default function App() {
       </a>
       <RouteFocus />
       <Routes>
-        <Route element={<AppShell onOpen={openDrawer} />}>
+        <Route path="/sign-in" element={<AccountPortal key="signin" />} />
+        <Route path="/sign-up" element={<AccountPortal key="signup" />} />
+        <Route path="/account/setup" element={<MinimumProfile />} />
+        <Route
+          element={
+            <AccountEntryGate>
+              <AppShell onOpen={openDrawer} />
+            </AccountEntryGate>
+          }
+        >
           <Route path="/" element={<Navigate to="/home" replace />} />
           <Route path="/home" element={<Home />} />
           <Route path="/discover" element={<Discover />} />
@@ -1005,15 +1022,19 @@ export default function App() {
           <Route
             path="/profile"
             element={
-              <ProfilePage
-                key={location.key}
-                onBack={backToProfile}
-                profile={profile}
-                onChange={setProfile}
-                editInitially={
-                  new URLSearchParams(location.search).get("edit") === "1"
-                }
-              />
+              account.session ? (
+                <RealProfile onBack={backToProfile} />
+              ) : (
+                <ProfilePage
+                  key={location.key}
+                  onBack={backToProfile}
+                  profile={profile}
+                  onChange={setProfile}
+                  editInitially={
+                    new URLSearchParams(location.search).get("edit") === "1"
+                  }
+                />
+              )
             }
           />
           {["connections", "privacy", "help", "about", "sign-out"].map(
@@ -1061,7 +1082,19 @@ export default function App() {
           onClose={() => setDrawer(null)}
         >
           {drawer === "profile" ? (
-            <ProfileDrawerContent profile={profile} />
+            <ProfileDrawerContent
+              profile={
+                account.profile
+                  ? {
+                      ...profile,
+                      displayName:
+                        account.profile.display_name ||
+                        account.profile.first_name,
+                      username: account.profile.handle,
+                    }
+                  : profile
+              }
+            />
           ) : (
             <Notifications embedded />
           )}

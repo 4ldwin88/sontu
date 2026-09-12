@@ -1,3 +1,4 @@
+import { useAccount } from "./account-state";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -26,6 +27,25 @@ export function ProfileDrawerContent({
 }: {
   profile: ProfileProjection;
 }) {
+  const account = useAccount();
+  if (!account.session)
+    return (
+      <section className="profile-menu">
+        <h2>Make room for real life.</h2>
+        <p>Sign in to your events or create your Sontu account.</p>
+        <TextAction to="/sign-in">Sign in</TextAction>
+        <TextAction to="/sign-up">Create an account</TextAction>
+        <nav aria-label="Profile utilities">
+          {destinations
+            .filter((d) => !["/sign-out", "/connections"].includes(d.path))
+            .map((d) => (
+              <Link key={d.path} to={d.path}>
+                {d.label}
+              </Link>
+            ))}
+        </nav>
+      </section>
+    );
   return (
     <section className="profile-menu">
       <div className="profile-identity">
@@ -178,7 +198,13 @@ const pages: Record<string, { title: string; intro: string; body: string }> = {
     body: "This prototype uses a sample identity. Authentication and account sign-out are not activated, so no session has been ended.",
   },
 };
-export function ProfileUtilityPage({ kind, onBack }: { kind: string; onBack: () => void }) {
+export function ProfileUtilityPage({
+  kind,
+  onBack,
+}: {
+  kind: string;
+  onBack: () => void;
+}) {
   const p = pages[kind];
   return (
     <main id="main" tabIndex={-1} className="settings-page">

@@ -1,7 +1,14 @@
+import { useAccount } from "./account-state";
 /* oxlint-disable react/set-state-in-effect -- Effects initiate asynchronous reads from the external backend. */
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import {
+  Link,
+  Navigate,
+  useLocation,
+  useNavigate,
+  useParams,
+} from "react-router-dom";
 import {
   ArrowRight,
   CalendarDays,
@@ -83,73 +90,35 @@ function Feedback({
   );
 }
 export function SessionGate({ children }: { children: ReactNode }) {
-  const [signed, setSigned] = useState<boolean | null>(null),
-    [email, setEmail] = useState(""),
-    [password, setPassword] = useState(""),
-    [error, setError] = useState(""),
-    [busy, setBusy] = useState(false);
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setSigned(!!data.session));
-    const { data } = supabase.auth.onAuthStateChange((_event, session) =>
-      setSigned(!!session),
-    );
-    return () => data.subscription.unsubscribe();
-  }, []);
-  if (signed === null)
+  const account = useAccount(),
+    location = useLocation();
+  if (account.checking)
     return (
-      <div className="panel" role="status">
+      <p role="status" className="panel">
         Checking your session…
-      </div>
-    );
-  if (signed) return <>{children}</>;
-  return (
-    <section className="panel coord-auth">
-      <span className="eyebrow">Your host workspace</span>
-      <h1>Welcome back.</h1>
-      <p>
-        Sign in to manage your Core Validation events. The design preview
-        remains available without signing in.
       </p>
-      <form
-        onSubmit={async (e) => {
-          e.preventDefault();
-          setBusy(true);
-          setError("");
-          try {
-            const { error } = await supabase.auth.signInWithPassword({
-              email,
-              password,
-            });
-            if (error)
-              setError("Could not sign in. Check your email and password.");
-          } catch {
-            setError("Unable to reach sign-in. Please retry.");
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        <TextField
-          label="Email"
-          type="email"
-          autoComplete="username"
-          required
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-        />
-        <TextField
-          label="Password"
-          type="password"
-          autoComplete="current-password"
-          required
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-        />
-        {error && <Feedback message={error} />}
-        <Button disabled={busy}>{busy ? "Signing in…" : "Sign in"}</Button>
-      </form>
-    </section>
-  );
+    );
+  if (!account.session)
+    return (
+      <Navigate
+        to={
+          "/sign-in?next=" +
+          encodeURIComponent(location.pathname + location.search)
+        }
+        replace
+      />
+    );
+  if (!account.profile)
+    return (
+      <Navigate
+        to={
+          "/account/setup?next=" +
+          encodeURIComponent(location.pathname + location.search)
+        }
+        replace
+      />
+    );
+  return <>{children}</>;
 }
 export function CoreEntry() {
   return (

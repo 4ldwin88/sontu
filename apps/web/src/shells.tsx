@@ -1,3 +1,4 @@
+import { useAccount } from "./account-state";
 import {
   useCallback,
   useEffect,
@@ -56,6 +57,7 @@ export function TopUtilities({
 }: {
   onOpen: (panel: "profile" | "notifications") => void;
 }) {
+  const account = useAccount();
   return (
     <header className="top-utilities">
       <button
@@ -64,7 +66,9 @@ export function TopUtilities({
         aria-label="Profile and appearance"
         aria-haspopup="dialog"
       >
-        J
+        {account.profile
+          ? (account.profile.display_name || account.profile.first_name)[0]
+          : "•"}
       </button>
       <Link className="brand-link" to="/home" aria-label="Sontu home">
         <Wordmark />

@@ -5,19 +5,29 @@ import { createClient } from "@supabase/supabase-js";
 const status = JSON.parse(readFileSync("/tmp/sontu-local-status.json", "utf8"));
 if (!/^http:\/\/(127\.0\.0\.1|localhost):/.test(status.API_URL))
   throw new Error("Local test setup refuses hosted targets");
-const password = randomBytes(24).toString("base64url");
+const password = randomBytes(24).toString("base64url") + "Aa1!";
 const email = "browser-test@sontu.example";
 const admin = createClient(status.API_URL, status.SERVICE_ROLE_KEY, {
   auth: { persistSession: false },
 });
-const { error } = await admin.auth.admin.createUser({
+const { data, error } = await admin.auth.admin.createUser({
   email,
   password,
   email_confirm: true,
 });
 if (error) throw error;
+const client = createClient(status.API_URL, status.ANON_KEY, {
+  auth: { persistSession: false },
+});
+await client.auth.signInWithPassword({ email, password });
+const profile = await client.rpc("sontu_account_profile", {
+  action: "create",
+  input: { first_name: "Beta tester" },
+});
+if (profile.error || profile.data.status !== "ready")
+  throw new Error("Profile provisioning failed");
 console.log("::add-mask::" + password);
 appendFileSync(
   process.env.GITHUB_ENV,
-  `VITE_INVITATION_VERIFICATION_ENABLED=true\nSONTU_TEST_MAIL_URL=http://127.0.0.1:54324\nVITE_SUPABASE_URL=${status.API_URL}\nVITE_SUPABASE_PUBLISHABLE_KEY=${status.ANON_KEY}\nSONTU_TEST_EMAIL=${email}\nSONTU_TEST_PASSWORD=${password}\nSONTU_TEST_API=${status.API_URL}\nSONTU_TEST_KEY=${status.ANON_KEY}\n`,
+  `VITE_REGISTRATION_ENABLED=true\nVITE_TERMS_URL=https://example.com/test-terms\nVITE_PRIVACY_URL=https://example.com/test-privacy\nVITE_LEGAL_VERSION=isolated-test-only\nVITE_INVITATION_VERIFICATION_ENABLED=true\nSONTU_TEST_MAIL_URL=http://127.0.0.1:54324\nVITE_SUPABASE_URL=${status.API_URL}\nVITE_SUPABASE_PUBLISHABLE_KEY=${status.ANON_KEY}\nSONTU_TEST_EMAIL=${email}\nSONTU_TEST_PASSWORD=${password}\nSONTU_TEST_API=${status.API_URL}\nSONTU_TEST_KEY=${status.ANON_KEY}\n`,
 );

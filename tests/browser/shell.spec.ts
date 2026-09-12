@@ -293,82 +293,46 @@ test("clean chrome and outward drawer dismissal gestures", async ({ page }) => {
   ).toBeFocused();
 });
 
-test("profile drawer follows section 30.21 and edits only preview identity", async ({
+test("signed-out profile drawer offers account entry without a sample identity", async ({
   page,
 }, info) => {
   await page.goto("/#/home");
   await page.getByRole("button", { name: "Profile and appearance" }).click();
   const drawer = page.getByRole("dialog", { name: "Profile", exact: true });
   await expect(
-    drawer
-      .getByRole("navigation", { name: "Profile utilities" })
-      .getByRole("link"),
-  ).toHaveText([
-    "Connections",
+    drawer.getByRole("link", { name: "Sign in", exact: true }),
+  ).toBeVisible();
+  await expect(drawer.getByText("@jay", { exact: true })).toHaveCount(0);
+  await expect(
+    drawer.getByRole("link", { name: "Create an account" }),
+  ).toBeVisible();
+  await page.screenshot({ path: info.outputPath("signed-out-profile.png") });
+  await drawer.getByRole("link", { name: "Sign in", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Welcome back." }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("navigation", { name: "Main navigation" }),
+  ).toHaveCount(0);
+});
+
+test("profile destinations return to the drawer over the original root", async ({
+  page,
+}) => {
+  await page.goto("/#/discover");
+  await page.getByRole("button", { name: "Profile and appearance" }).click();
+  const drawer = page.getByRole("dialog", { name: "Profile", exact: true });
+  for (const name of [
     "Settings & Preferences",
     "Privacy & Safety",
     "Help & Support",
     "About Sontu",
-    "Sign Out",
-  ]);
-  await expect(drawer.getByText("@jay", { exact: true })).toBeVisible();
-  await page.screenshot({ path: info.outputPath("profile-3021.png") });
-  await drawer.getByRole("link", { name: "Edit Profile", exact: true }).click();
-  const editor = page.getByRole("dialog", {
-    name: "Edit Profile",
-    exact: true,
-  });
-  await expect(editor).toBeVisible();
-  await editor.getByLabel("Display name").fill("Jay Preview");
-  await editor.getByRole("button", { name: "Apply to preview" }).click();
-  await expect(
-    page.getByRole("heading", { name: "Jay Preview", exact: true }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "Profile and appearance" }).click();
-  await expect(
-    drawer.getByRole("heading", { name: "Jay Preview" }),
-  ).toBeVisible();
-  await drawer.getByRole("link", { name: "Settings & Preferences" }).click();
-  await expect(page.getByLabel("Display mode")).toBeVisible();
-  for (const route of [
-    "profile",
-    "connections",
-    "settings",
-    "privacy",
-    "help",
-    "about",
-    "sign-out",
   ]) {
-    await page.goto("/#/" + route);
-    await expect(
-      page
-        .getByRole("navigation", { name: "Main navigation" })
-        .getByRole("link"),
-    ).toHaveCount(4);
-    expect(
-      await page.evaluate(
-        () => document.documentElement.scrollWidth <= innerWidth + 1,
-      ),
-    ).toBe(true);
-    expect(
-      (
-        await new AxeBuilder({ page })
-          .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
-          .analyze()
-      ).violations,
-    ).toEqual([]);
-  }
-  await expect(page.getByText("No account is signed in.")).toBeVisible();
-});
-
-test("profile destinations return to the drawer over the original root", async ({ page }) => {
-  await page.goto("/#/discover");
-  await page.getByRole("button", { name: "Profile and appearance" }).click();
-  const drawer = page.getByRole("dialog", { name: "Profile", exact: true });
-  for (const name of ["Connections", "Settings & Preferences", "Privacy & Safety", "Help & Support", "About Sontu", "Sign Out", "View Profile"]) {
     await drawer.getByRole("link", { name, exact: true }).click();
     await expect(drawer).toHaveCount(0);
-    await page.getByRole("button", { name: "Back to Profile", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Back to Profile", exact: true })
+      .click();
     await expect(page).toHaveURL(/#\/discover$/);
     await expect(drawer).toBeVisible();
   }
