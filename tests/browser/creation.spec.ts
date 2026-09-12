@@ -91,11 +91,13 @@ test("host resumes a draft and publishes only reviewed valid event details", asy
   ).toBeVisible();
   await page.screenshot({
     path: info.outputPath("host-overview-light.png"),
+    animations: "disabled",
     fullPage: false,
   });
   await page.evaluate(() => (document.documentElement.dataset.theme = "dark"));
   await page.screenshot({
     path: info.outputPath("host-overview-dark.png"),
+    animations: "disabled",
     fullPage: false,
   });
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
