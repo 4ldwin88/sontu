@@ -128,8 +128,8 @@ function Notes({ signedIn }: { signedIn: boolean }) {
             }}
           >
             <p className="small muted">
-              Screen: {screen}. Only your note and this screen category are
-              saved. No screen recording or automatic activity tracking.
+              Screen: {screen}. Saves your note with your account, time and
+              screen category. No screen recording or automatic activity tracking.
             </p>
             <label className="dev-note-field">
               What should we fix or improve?
