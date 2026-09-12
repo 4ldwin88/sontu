@@ -80,7 +80,7 @@ function Feedback({
     </div>
   );
 }
-function SessionGate({ children }: { children: ReactNode }) {
+export function SessionGate({ children }: { children: ReactNode }) {
   const [signed, setSigned] = useState<boolean | null>(null),
     [email, setEmail] = useState(""),
     [password, setPassword] = useState(""),
@@ -162,7 +162,15 @@ export function CoreEntry() {
 }
 function CoreEvents() {
   const [items, setItems] = useState<
-      { id: string; title: string; lifecycle: string; starts_at: string }[]
+      {
+        id: string;
+        title: string;
+        lifecycle: string;
+        starts_at: string;
+        timezone: string;
+        cover_key: string;
+        event_kind: string;
+      }[]
     >([]),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
@@ -188,6 +196,9 @@ function CoreEvents() {
         <div>
           <span className="eyebrow">Core Validation</span>
           <h1>Bring people together.</h1>
+          <Link className="button primary" to="/create">
+            Create Event
+          </Link>
           <p className="muted">
             A working event, with a clear view of what changes and who needs to
             respond.
@@ -245,13 +256,22 @@ function CoreEvents() {
           <Link
             key={e.id}
             className="panel coord-event-row"
-            to={`/core/events/${e.id}/host`}
+            to={
+              e.event_kind === "SIMPLE" && e.lifecycle === "DRAFT"
+                ? `/create/${e.id}`
+                : `/core/events/${e.id}/host`
+            }
           >
-            <img src="images/food.jpg" alt="Food prepared for a shared meal" />
+            {e.cover_key !== "none" && (
+              <img src={`images/${e.cover_key ?? "food"}.jpg`} alt="" />
+            )}
             <div>
               <StatusBadge>{label(e.lifecycle)}</StatusBadge>
-              <h2>{e.title}</h2>
-              <p>{date(e.starts_at)} · Toronto</p>
+              <h2>{e.title || "Untitled event"}</h2>
+              <p>
+                {e.starts_at ? date(e.starts_at) : "Date to be decided"} ·
+                Toronto
+              </p>
             </div>
             <ArrowRight aria-hidden="true" />
           </Link>
@@ -423,9 +443,18 @@ function HostContent({ id }: { id: string }) {
     <main id="main" tabIndex={-1} className="host-main">
       <WidePortalShell nav={nav}>
         <header className="workspace-event coord-hero">
-          <img src="images/food.jpg" alt="A meal prepared for sharing" />
+          {data.version.cover_key !== "none" && (
+            <img
+              src={`images/${data.version.cover_key ?? "food"}.jpg`}
+              alt=""
+            />
+          )}
           <div>
-            <span className="eyebrow">Community · Private test event</span>
+            <span className="eyebrow">
+              {data.event.event_kind === "SIMPLE"
+                ? "Personal event · Host view"
+                : "Community · Private test event"}
+            </span>
             <h1>{data.version.title}</h1>
             <p>
               {date(data.version.starts_at, data.version.timezone)} ·{" "}
@@ -475,7 +504,10 @@ function HostContent({ id }: { id: string }) {
                 <h2>Current event</h2>
                 <p>{date(data.version.starts_at, data.version.timezone)}</p>
                 <p className="small muted">
-                  {data.version.timezone} · capacity 20
+                  {data.version.timezone}
+                  {data.version.capacity
+                    ? ` · Participation limit ${data.version.capacity}`
+                    : ""}
                 </p>
                 <p>{data.version.description}</p>
                 <div className="coord-actions">

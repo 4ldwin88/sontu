@@ -343,3 +343,66 @@ it("keeps dismissal, exception and expired participant authority distinct", asyn
   expect((await command("create_fixture")).error_code).toBe("UNAUTHORIZED");
   await asHost();
 });
+
+it("creates empty personal drafts, validates publication and preserves versioned configuration", async () => {
+  await asHost();
+  const op = randomUUID();
+  const created = await command("create_draft", {}, 1, op);
+  expect(created.status).toBe("ready");
+  event = created.event_id;
+  version = created.current_version;
+  let p = await projection();
+  expect(p.event.event_kind).toBe("SIMPLE");
+  expect(p.participants).toEqual([]);
+  expect((await command("publish", { confirmed: true })).error_code).toBe(
+    "PUBLISH_BLOCKED",
+  );
+  const input = {
+    title: "A birthday dinner",
+    description: "Bring a story.",
+    starts_at: "2030-09-16T23:00:00Z",
+    ends_at: "2030-09-17T01:00:00Z",
+    timezone: "America/Vancouver",
+    venue_label: "Private garden",
+    cover_key: "sunset",
+    capacity: "8",
+  };
+  expect(
+    (await command("save_draft", { ...input, capacity: "0" })).error_code,
+  ).toBe("INVALID_INPUT");
+  expect(
+    (await command("save_draft", { ...input, timezone: "Invented/Zone" }))
+      .error_code,
+  ).toBe("INVALID_INPUT");
+  expect(
+    (await command("save_draft", { ...input, ends_at: input.starts_at }))
+      .error_code,
+  ).toBe("INVALID_INPUT");
+  const savedOp = randomUUID(),
+    before = version;
+  const saved = await command("save_draft", input, before, savedOp);
+  expect(saved.status).toBe("ready");
+  expect(await command("save_draft", input, before, savedOp)).toEqual(saved);
+  expect((await command("save_draft", input, before)).error_code).toBe(
+    "STALE_CONFLICT",
+  );
+  await asHost(stranger);
+  expect((await command("save_draft", input)).status).toBe("denied");
+  await asHost();
+  expect((await command("publish")).error_code).toBe("PUBLISH_BLOCKED");
+  expect((await command("publish", { confirmed: true })).status).toBe("ready");
+  expect((await command("save_draft", input)).error_code).toBe("INVALID_STATE");
+  expect(
+    (
+      await command("change_time", {
+        confirmed: true,
+        starts_at: "2030-09-16T23:30:00Z",
+      })
+    ).status,
+  ).toBe("ready");
+  p = await projection();
+  expect(p.version.cover_key).toBe("sunset");
+  expect(p.version.capacity).toBe(8);
+  expect(p.participants).toEqual([]);
+  expect(p.cases).toEqual([]);
+});

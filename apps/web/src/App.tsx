@@ -1,3 +1,4 @@
+import { Creation } from "./creation";
 import {
   CoreEntry,
   CoreHost,
@@ -54,7 +55,6 @@ import {
   SystemState,
   Tabs,
   TextAction,
-  TextField,
   TrustBadge,
 } from "../../../packages/ui-web";
 import {
@@ -294,9 +294,7 @@ function Events() {
   const view = eventViews.includes(current as (typeof eventViews)[number])
     ? current
     : "Upcoming";
-  const [create, setCreate] = useState(false);
-  const [name, setName] = useState("");
-  const [attempt, setAttempt] = useState(false);
+  const navigate = useNavigate();
   const collection = eventsForView(events, view);
   return (
     <main {...mainProps} className="events-page">
@@ -359,12 +357,12 @@ function Events() {
               <p>
                 A few people. A shared idea. One place to bring it together.
               </p>
-              <Button onClick={() => setCreate(true)}>
+              <Button onClick={() => navigate("/create")}>
                 <Plus size={18} />
                 Create Event
               </Button>
               <p className="small muted">
-                Design preview · event creation is not activated.
+                Create a personal event or resume a saved draft.
               </p>
             </>
           ) : (
@@ -380,36 +378,6 @@ function Events() {
           )}
         </aside>
       </div>
-      {create && (
-        <Modal
-          title="Bring an idea to life"
-          onClose={() => {
-            setCreate(false);
-            setAttempt(false);
-          }}
-        >
-          <p>
-            This is a design preview. No event will be created or published.
-          </p>
-          <TextField
-            label="Event name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            error={
-              attempt && !name.trim()
-                ? "Give your event a name to preview the next step."
-                : undefined
-            }
-          />
-          <Button onClick={() => setAttempt(true)}>Preview next step</Button>
-          {attempt && name.trim() && (
-            <p role="status">
-              “{name}” is only a local preview. Creation continues after the
-              design checkpoint is approved.
-            </p>
-          )}
-        </Modal>
-      )}
     </main>
   );
 }
@@ -1050,6 +1018,8 @@ export default function App() {
             }
           />
         </Route>
+        <Route path="/create" element={<Creation />} />
+        <Route path="/create/:eventId" element={<Creation />} />
         <Route path="/core" element={<CoreEntry />} />
         <Route path="/core/events/:eventId/host" element={<CoreHost />} />
         <Route path="/respond/:token" element={<ParticipantResponse />} />

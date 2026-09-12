@@ -27,6 +27,8 @@ export interface EventVersion {
   ends_at: string;
   timezone: string;
   venue_label: string;
+  cover_key?: string;
+  capacity?: number | null;
   materiality_class: string;
 }
 export interface Participant {
@@ -54,6 +56,7 @@ export interface Evidence {
 export interface HostProjection {
   event: {
     id: string;
+    event_kind?: "FIXTURE" | "SIMPLE";
     lifecycle: "DRAFT" | "PUBLISHED" | "CANCELLED" | "CLOSED";
     current_version_number: number;
   };
@@ -101,6 +104,8 @@ export function validateTimeChange(startsAt: string, endsAt: string): boolean {
   );
 }
 export const errorMessages: Record<string, string> = {
+  PUBLISH_BLOCKED:
+    "Add a title, location and valid future start/end time, then review and confirm publication.",
   STALE_CONFLICT:
     "This event changed while you were viewing it. Refresh and review the current details before trying again.",
   UNAUTHORIZED: "You do not have permission to make this change.",
