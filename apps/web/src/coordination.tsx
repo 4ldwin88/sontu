@@ -438,7 +438,11 @@ function HostContent({ id }: { id: string }) {
   });
   const disabled = busy || unknown;
   return (
-    <main id="main" tabIndex={-1} className="host-main">
+    <main
+      id="main"
+      tabIndex={-1}
+      className={`host-main ${data.event.event_kind === "SIMPLE" ? "simple-host" : ""}`}
+    >
       <WidePortalShell nav={nav}>
         <header
           className={`workspace-event coord-hero${data.version.cover_key === "none" ? " no-cover" : ""}`}
@@ -511,50 +515,105 @@ function HostContent({ id }: { id: string }) {
         {section === "overview" && (
           <>
             {data.event.event_kind === "SIMPLE" && (
-              <section
-                className="panel host-guest-summary"
-                aria-label="Guest summary"
-              >
-                <h2>Your guest list</h2>
-                <p>
-                  <strong>
-                    {
-                      data.participants.filter(
-                        (p) => p.commitment_state === "CONFIRMED",
-                      ).length
-                    }
-                  </strong>{" "}
-                  attending
-                  {data.version.capacity
-                    ? ` · ${data.version.capacity} places total`
-                    : ""}
-                </p>
-                <p>
-                  {
-                    data.participants.filter(
-                      (p) =>
-                        p.invitation_state === "CREATED" &&
-                        p.commitment_state === "NO_COMMITMENT" &&
-                        !p.link_revoked,
-                    ).length
-                  }{" "}
-                  awaiting invitation response ·{" "}
-                  {
-                    data.participants.filter(
-                      (p) =>
-                        p.invitation_state === "DECLINED" ||
-                        p.commitment_state === "RELEASED_DECLINED",
-                    ).length
-                  }{" "}
-                  declined or withdrawn
-                </p>
-                <Button
-                  variant="secondary"
-                  onClick={() => setSection("participants")}
+              <>
+                <section
+                  className="host-status-strip"
+                  aria-label="Event status"
                 >
-                  Manage guests
-                </Button>
-              </section>
+                  <CalendarDays size={24} />
+                  <div>
+                    <span className="small muted">Event status</span>
+                    <strong>
+                      {unknown
+                        ? "Update unconfirmed"
+                        : data.event.lifecycle === "CANCELLED"
+                          ? "Cancelled"
+                          : data.suggestion?.suggestion_state === "SUGGESTED" ||
+                              (c && aggregate.unresolved > 0)
+                            ? "Needs your attention"
+                            : label(data.event.lifecycle)}
+                    </strong>
+                  </div>
+                </section>
+                <section
+                  className="host-guest-summary"
+                  aria-label="Guest summary"
+                >
+                  <div className="section-heading">
+                    <h2>Key stats</h2>
+                    <button
+                      className="text-action"
+                      onClick={() => setSection("participants")}
+                    >
+                      Manage guests
+                    </button>
+                  </div>
+                  <div className="host-stat-grid">
+                    <div>
+                      <CheckCircle2 />
+                      <strong>
+                        {
+                          data.participants.filter(
+                            (p) => p.commitment_state === "CONFIRMED",
+                          ).length
+                        }
+                      </strong>
+                      <span>Attending</span>
+                    </div>
+                    <div>
+                      <Clock3 />
+                      <strong>
+                        {
+                          data.participants.filter(
+                            (p) =>
+                              p.invitation_state === "CREATED" &&
+                              p.commitment_state === "NO_COMMITMENT" &&
+                              !p.link_revoked,
+                          ).length
+                        }
+                      </strong>
+                      <span>Awaiting response</span>
+                    </div>
+                    <div>
+                      <ArrowRight />
+                      <strong>
+                        {
+                          data.participants.filter(
+                            (p) =>
+                              p.invitation_state === "DECLINED" ||
+                              p.commitment_state === "RELEASED_DECLINED",
+                          ).length
+                        }
+                      </strong>
+                      <span>Declined / withdrawn</span>
+                    </div>
+                  </div>
+                </section>
+                <section className="host-next" aria-label="Next up">
+                  <h2>Next up</h2>
+                  <button
+                    className="host-next-action"
+                    onClick={() => setSection("participants")}
+                  >
+                    <span className="host-action-icon">
+                      <ArrowRight />
+                    </span>
+                    <span>
+                      <strong>
+                        {data.participants.length
+                          ? "Review your guest list"
+                          : "Bring people together"}
+                      </strong>
+                      <small>
+                        {data.participants.length
+                          ? "See responses and manage invitations"
+                          : "Create a private invitation link"}
+                      </small>
+                    </span>
+                    <ArrowRight size={18} />
+                  </button>
+                </section>
+              </>
             )}
             <div className="coord-summary">
               <section className="panel">
@@ -594,87 +653,89 @@ function HostContent({ id }: { id: string }) {
                   )}
                 </div>
               </section>
-              <section className="panel">
-                <Clock3 />
-                <h2>Participant responses</h2>
-                {c ? (
-                  <>
-                    <strong className="coord-number">
-                      {aggregate.terminal} / {aggregate.total}
-                    </strong>
-                    <p>
-                      terminal responses · {aggregate.unresolved} awaiting
-                      response
-                    </p>
-                    <StatusBadge
-                      tone={
-                        c.disposition === "RESOLVED" ? "success" : "warning"
-                      }
-                    >
-                      {label(c.disposition)}
-                    </StatusBadge>
-                    {c.predecessor_case_id && (
-                      <p className="small muted">
-                        Reopened for a newer time. Earlier responses remain in
-                        history.
+              {(data.event.event_kind !== "SIMPLE" || c || data.suggestion) && (
+                <section className="panel">
+                  <Clock3 />
+                  <h2>Participant responses</h2>
+                  {c ? (
+                    <>
+                      <strong className="coord-number">
+                        {aggregate.terminal} / {aggregate.total}
+                      </strong>
+                      <p>
+                        terminal responses · {aggregate.unresolved} awaiting
+                        response
                       </p>
-                    )}
-                    {c.reason && <p>{c.reason}</p>}
-                  </>
-                ) : (
-                  <p>Reconfirmation has not been required.</p>
-                )}
-                {data.suggestion?.suggestion_state === "SUGGESTED" && (
-                  <>
-                    <p>
-                      The time changed. Require affected participants to
-                      reconfirm or release their commitment?
-                    </p>
-                    <div className="coord-actions">
-                      <Button
-                        disabled={disabled}
-                        onClick={() => open("accept")}
+                      <StatusBadge
+                        tone={
+                          c.disposition === "RESOLVED" ? "success" : "warning"
+                        }
                       >
-                        Require reconfirmation
-                      </Button>
-                      <Button
-                        disabled={disabled}
-                        variant="secondary"
-                        onClick={() => open("dismiss")}
-                      >
-                        Not required
-                      </Button>
-                    </div>
-                  </>
-                )}
-                {data.suggestion?.suggestion_state === "DISMISSED" && (
-                  <p>
-                    Host chose not to require reconfirmation. This is not
-                    evidence that participants confirmed the new time.
-                  </p>
-                )}
-                {c &&
-                  ["OPEN_UNRESOLVED", "PENDING_EXTERNAL"].includes(
-                    c.disposition,
-                  ) && (
-                    <div className="coord-actions">
-                      <Button
-                        disabled={disabled}
-                        variant="quiet"
-                        onClick={() => open("waive")}
-                      >
-                        Waive requirement
-                      </Button>
-                      <Button
-                        disabled={disabled}
-                        variant="quiet"
-                        onClick={() => open("exception")}
-                      >
-                        Record exception
-                      </Button>
-                    </div>
+                        {label(c.disposition)}
+                      </StatusBadge>
+                      {c.predecessor_case_id && (
+                        <p className="small muted">
+                          Reopened for a newer time. Earlier responses remain in
+                          history.
+                        </p>
+                      )}
+                      {c.reason && <p>{c.reason}</p>}
+                    </>
+                  ) : (
+                    <p>Reconfirmation has not been required.</p>
                   )}
-              </section>
+                  {data.suggestion?.suggestion_state === "SUGGESTED" && (
+                    <>
+                      <p>
+                        The time changed. Require affected participants to
+                        reconfirm or release their commitment?
+                      </p>
+                      <div className="coord-actions">
+                        <Button
+                          disabled={disabled}
+                          onClick={() => open("accept")}
+                        >
+                          Require reconfirmation
+                        </Button>
+                        <Button
+                          disabled={disabled}
+                          variant="secondary"
+                          onClick={() => open("dismiss")}
+                        >
+                          Not required
+                        </Button>
+                      </div>
+                    </>
+                  )}
+                  {data.suggestion?.suggestion_state === "DISMISSED" && (
+                    <p>
+                      Host chose not to require reconfirmation. This is not
+                      evidence that participants confirmed the new time.
+                    </p>
+                  )}
+                  {c &&
+                    ["OPEN_UNRESOLVED", "PENDING_EXTERNAL"].includes(
+                      c.disposition,
+                    ) && (
+                      <div className="coord-actions">
+                        <Button
+                          disabled={disabled}
+                          variant="quiet"
+                          onClick={() => open("waive")}
+                        >
+                          Waive requirement
+                        </Button>
+                        <Button
+                          disabled={disabled}
+                          variant="quiet"
+                          onClick={() => open("exception")}
+                        >
+                          Record exception
+                        </Button>
+                      </div>
+                    )}
+                </section>
+              )}
             </div>
             {data.event.event_kind !== "SIMPLE" && (
               <section className="panel coord-provider">
@@ -749,22 +810,24 @@ function HostContent({ id }: { id: string }) {
                 </details>
               </section>
             )}
-            <section className="panel">
-              <h2>Message delivery</h2>
-              {data.communications.length ? (
-                data.communications.map((s) => (
-                  <p key={s.dispatch_state}>
-                    {s.count} {label(s.dispatch_state).toLowerCase()} ·
-                    simulated
-                  </p>
-                ))
-              ) : (
-                <p>No material-change messages queued.</p>
-              )}
-              <p className="muted">
-                Delivered messages do not count as participant responses.
-              </p>
-            </section>
+            {data.event.event_kind !== "SIMPLE" && (
+              <section className="panel">
+                <h2>Message delivery</h2>
+                {data.communications.length ? (
+                  data.communications.map((s) => (
+                    <p key={s.dispatch_state}>
+                      {s.count} {label(s.dispatch_state).toLowerCase()} ·
+                      simulated
+                    </p>
+                  ))
+                ) : (
+                  <p>No material-change messages queued.</p>
+                )}
+                <p className="muted">
+                  Delivered messages do not count as participant responses.
+                </p>
+              </section>
+            )}
             {data.event.lifecycle === "PUBLISHED" && (
               <Button
                 variant="quiet"
@@ -1354,7 +1417,10 @@ export function CoreSignOut({ onBack }: { onBack: () => void }) {
         <p role="status">Checking your session…</p>
       ) : active ? (
         <>
-          <p>You are signed in to the host workspace.</p>
+          <p>
+            Sign out of Sontu on this device? Your events and participation will
+            remain saved.
+          </p>
           <Button
             onClick={async () => {
               const { error } = await supabase.auth.signOut();
@@ -1362,7 +1428,7 @@ export function CoreSignOut({ onBack }: { onBack: () => void }) {
               else setActive(false);
             }}
           >
-            Sign out of host account
+            Sign out
           </Button>
         </>
       ) : (

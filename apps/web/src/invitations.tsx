@@ -1,3 +1,4 @@
+import { ChevronLeft } from "lucide-react";
 /* oxlint-disable react/set-state-in-effect, react/only-export-components -- Auth and server projections are external state; this module shares its projection hook with Events. */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams, useLocation } from "react-router-dom";
@@ -571,7 +572,7 @@ export function ConnectedEventHub() {
   const state = useMyEvents();
   const event = state.items.find((e) => e.id === eventId);
   return (
-    <main id="main" tabIndex={-1} className="coord-response">
+    <main id="main" tabIndex={-1} className="coord-response connected-hub">
       <SessionGate>
         {state.loading ? (
           <p role="status">Loading event…</p>
@@ -582,26 +583,35 @@ export function ConnectedEventHub() {
           </div>
         ) : event?.hosting ? (
           <>
-            <span className="eyebrow">Your event</span>
-            {event.cover_key !== "none" && (
-              <img
-                className="coord-response-image"
-                src={`images/${event.cover_key}.jpg`}
-                alt=""
-              />
-            )}
-            <h1>{event.title || "Untitled event"}</h1>
-            <div className="coord-actions">
-              <StatusBadge tone="info">You’re hosting</StatusBadge>
-              <StatusBadge>
-                {event.lifecycle === "CANCELLED"
-                  ? "Cancelled"
-                  : event.lifecycle === "DRAFT"
-                    ? "Draft"
-                    : hostingGroup(event) === "History & cancelled"
-                      ? "Ended"
-                      : "Published"}
-              </StatusBadge>
+            <Link
+              to="/events?view=Hosting"
+              className="icon-button"
+              aria-label="Back to Events"
+            >
+              <ChevronLeft size={26} />
+            </Link>
+            <div className="connected-hub-identity">
+              <span className="eyebrow">Your event</span>
+              {event.cover_key !== "none" && (
+                <img
+                  className="coord-response-image"
+                  src={`images/${event.cover_key}.jpg`}
+                  alt=""
+                />
+              )}
+              <h1>{event.title || "Untitled event"}</h1>
+              <div className="coord-actions">
+                <StatusBadge tone="info">You’re hosting</StatusBadge>
+                <StatusBadge>
+                  {event.lifecycle === "CANCELLED"
+                    ? "Cancelled"
+                    : event.lifecycle === "DRAFT"
+                      ? "Draft"
+                      : hostingGroup(event) === "History & cancelled"
+                        ? "Ended"
+                        : "Published"}
+                </StatusBadge>
+              </div>
             </div>
             {event.lifecycle === "CANCELLED" && (
               <p className="coord-feedback" role="status">

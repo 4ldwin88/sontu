@@ -65,7 +65,9 @@ test("account portal registers, resumes minimum profile, and keeps real identity
   await command("invite_participant", { display_name: "Jay", email, token });
   await page.goto("/#/invite/" + token);
   await page.getByRole("link", { name: "Sign in with your account" }).click();
-  await page.getByRole("link", { name: "Create an account", exact: true }).click();
+  await page
+    .getByRole("link", { name: "Create an account", exact: true })
+    .click();
   await expect(
     page.getByRole("button", { name: "Continue with Google" }),
   ).toBeDisabled();
@@ -192,8 +194,22 @@ test("account portal registers, resumes minimum profile, and keeps real identity
       () => document.documentElement.scrollWidth <= innerWidth + 1,
     ),
   ).toBe(true);
+  // The invited participant can also create an event with this same account.
+  await page.goto("/#/events?view=Hosting");
+  await page.getByRole("button", { name: "Create Event", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Start a new draft", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "The idea", exact: true }),
+  ).toBeVisible();
   await page.goto("/#/sign-out");
-  await page.getByRole("button", { name: "Sign out of host account" }).click();
+  await expect(
+    page.getByText(
+      "Sign out of Sontu on this device? Your events and participation will remain saved.",
+    ),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Sign out" }).click();
   await expect(page.getByText("No account is signed in.")).toBeVisible();
   await page.goto("/#/home");
   await page.getByRole("button", { name: "Profile and appearance" }).click();

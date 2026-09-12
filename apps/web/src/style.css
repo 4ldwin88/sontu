@@ -3062,3 +3062,208 @@ button.back-link {
   color: var(--text-primary);
   font: inherit;
 }
+
+/* Reviewed mobile host board: status, key stats, next action, then details. */
+.host-status-strip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--selected);
+  border-radius: 12px;
+  margin: 12px 0 20px;
+}
+.host-status-strip strong {
+  display: block;
+  font-size: 1rem;
+}
+.host-status-strip svg,
+.host-stat-grid svg {
+  color: var(--interactive-primary);
+}
+.simple-host h2 {
+  font-size: 1rem;
+  margin: 0 0 12px;
+}
+.host-guest-summary .section-heading {
+  margin: 0 0 10px;
+  align-items: center;
+}
+.host-guest-summary .section-heading h2 {
+  margin: 0;
+}
+.host-guest-summary .text-action {
+  min-height: 44px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.host-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.host-stat-grid > div {
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 10px;
+}
+.host-stat-grid strong {
+  font-size: 1.35rem;
+}
+.host-stat-grid span {
+  grid-column: 1/-1;
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+}
+.host-next {
+  margin: 20px 0;
+}
+.host-next-action {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  font: inherit;
+  color: var(--text-primary);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  cursor: pointer;
+}
+.host-next-action > span:nth-child(2) {
+  flex: 1;
+}
+.host-next-action strong,
+.host-next-action small {
+  display: block;
+}
+.host-next-action small {
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+.host-action-icon {
+  color: var(--interactive-primary);
+}
+.simple-host .coord-summary {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+}
+.simple-host .coord-summary .panel {
+  padding: 20px;
+}
+.simple-host .coord-summary .panel > svg {
+  display: none;
+}
+.simple-host .coord-summary p {
+  margin: 8px 0;
+  font-size: 0.875rem;
+}
+.simple-host .host-guest-summary {
+  padding: 0;
+}
+.simple-host .coord-auth {
+  max-width: none;
+  margin: 20px 0;
+}
+.simple-host .event-list-row {
+  min-width: 0;
+}
+.events-page .hosting-group > h2 {
+  font-size: 0.9rem;
+  margin: 20px 0 10px;
+  color: var(--text-secondary);
+}
+.events-page .event-list-row > .text-action {
+  padding: 10px 16px;
+  min-height: 44px;
+}
+@media (min-width: 901px) {
+  .simple-host .workspace-event.coord-hero {
+    position: relative;
+    overflow: hidden;
+    min-height: 240px;
+    padding: 28px;
+    border-radius: 20px;
+    border: 0;
+    align-items: flex-end;
+    background: var(--surface);
+  }
+  .simple-host .workspace-event.coord-hero > img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 0;
+  }
+  .simple-host .workspace-event.coord-hero:not(.no-cover)::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(transparent, rgba(0, 0, 0, 0.85));
+  }
+  .simple-host .workspace-event.coord-hero > div {
+    position: relative;
+    z-index: 1;
+  }
+  .simple-host .workspace-event.coord-hero:not(.no-cover) h1,
+  .simple-host .workspace-event.coord-hero:not(.no-cover) p,
+  .simple-host .workspace-event.coord-hero:not(.no-cover) .muted {
+    color: white;
+  }
+  .simple-host .host-stat-grid > div {
+    grid-template-columns: 28px auto 1fr;
+    padding: 20px;
+  }
+  .simple-host .host-stat-grid span {
+    grid-column: auto;
+  }
+}
+.diagnostic-panel {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+.diagnostic-report {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 0.75rem;
+}
+.connected-hub {
+  max-width: 760px;
+}
+.connected-hub > .icon-button {
+  margin-bottom: 12px;
+}
+.connected-hub-identity {
+  margin-bottom: 24px;
+}
+.connected-hub-identity h1 {
+  font-size: clamp(1.5rem, 4vw, 2.1rem);
+  letter-spacing: -0.035em;
+  margin: 16px 0 8px;
+}
+.connected-hub-identity .coord-response-image {
+  height: clamp(220px, 38vw, 360px);
+  margin-top: 12px;
+}
+.connected-hub > .panel {
+  padding: 20px;
+  margin-bottom: 16px;
+}
+.connected-hub > .panel h2 {
+  font-size: 1rem;
+  margin-top: 0;
+}
+.connected-hub > .panel p {
+  line-height: 1.6;
+}

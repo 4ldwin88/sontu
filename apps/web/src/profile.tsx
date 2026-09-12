@@ -1,3 +1,7 @@
+import {
+  clearDiagnostics,
+  diagnosticEntries,
+} from "../../../packages/data/diagnostics";
 import { useAccount } from "./account-state";
 import { useState } from "react";
 import { Link } from "react-router-dom";
@@ -223,10 +227,65 @@ export function ProfileUtilityPage({
       <p className="muted">{p.intro}</p>
       <section className="panel">
         <p>{p.body}</p>
+        {kind === "help" && <DiagnosticPanel />}
         {kind === "connections" && (
           <TextAction to="/discover">Explore events</TextAction>
         )}
       </section>
     </main>
+  );
+}
+
+function DiagnosticPanel() {
+  const [entries, setEntries] = useState(diagnosticEntries),
+    [message, setMessage] = useState("");
+  return (
+    <section className="diagnostic-panel">
+      <h2>Error diagnostics</h2>
+      <p className="small muted">
+        Recent errors from this tab only. No screen recording, passwords,
+        invitation links, account identities or event details. Nothing is sent
+        automatically.
+      </p>
+      <p>{entries.length} recent error records</p>
+      <div className="coord-actions">
+        <Button
+          variant="secondary"
+          onClick={async () => {
+            const current = diagnosticEntries();
+            setEntries(current);
+            try {
+              await navigator.clipboard.writeText(
+                JSON.stringify({ app: "Sontu", diagnostics: current }, null, 2),
+              );
+              setMessage(
+                "Diagnostics copied. Share them with your bug report.",
+              );
+            } catch {
+              setMessage("Copy unavailable. You can select the report below.");
+            }
+          }}
+        >
+          Copy diagnostics
+        </Button>
+        <Button
+          variant="quiet"
+          onClick={() => {
+            clearDiagnostics();
+            setEntries([]);
+            setMessage("Diagnostics cleared.");
+          }}
+        >
+          Clear diagnostics
+        </Button>
+      </div>
+      {message && <p role="status">{message}</p>}
+      <details>
+        <summary>View diagnostic report</summary>
+        <pre className="diagnostic-report">
+          {JSON.stringify(entries, null, 2)}
+        </pre>
+      </details>
+    </section>
   );
 }

@@ -1,3 +1,4 @@
+import { recordDiagnostic } from "./diagnostics";
 import { createClient } from "@supabase/supabase-js";
 import type { CommandResult, HostProjection } from "../domain/coordination";
 // Publishable key only. All authorization and consequential writes are enforced by RPCs.
@@ -13,10 +14,13 @@ export async function rpc<T>(
   args: Record<string, unknown>,
 ): Promise<T> {
   const { data, error } = await supabase.rpc(name, args);
-  if (error)
+  if (error) {
+    recordDiagnostic("request_failed");
     throw new TransportUnknown(
       "The server could not confirm the outcome. Refresh or retry the same request.",
     );
+  }
+  if (data?.status === "denied") recordDiagnostic("access_denied");
   return data as T;
 }
 export const hostRead = (id: string) =>

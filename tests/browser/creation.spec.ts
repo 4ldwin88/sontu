@@ -89,6 +89,12 @@ test("host resumes a draft and publishes only reviewed valid event details", asy
   await expect(
     page.getByText("America/Vancouver · Participation limit 8"),
   ).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "Event status", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "Next up", exact: true }),
+  ).toBeVisible();
   await page.screenshot({
     path: info.outputPath("host-overview-light.png"),
     animations: "disabled",
@@ -145,6 +151,10 @@ test("host resumes a draft and publishes only reviewed valid event details", asy
   await expect(
     page.getByText("America/Vancouver", { exact: true }),
   ).toBeVisible();
+  await page.screenshot({
+    path: info.outputPath("event-hub.png"),
+    animations: "disabled",
+  });
   await page.getByRole("link", { name: "Manage event", exact: true }).click();
   await page
     .getByRole("button", { name: "Manage guests", exact: true })

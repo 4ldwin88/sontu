@@ -24,3 +24,12 @@ Do not infer the founder's failure is hosting access, incorrect recipient accoun
 ## Next acceptance evidence
 
 Compare compact and wide connected host screenshots directly with the cited boards. For links, verify the actual generated URL in the intended live access context, then exercise matching and wrong recipient sessions. Keep isolated CI evidence separate from live-site evidence.
+
+
+## Founder follow-up and correction
+
+The founder confirmed that the live invitation succeeds after signing out of the host session, creating the named invitee account, and signing in. The earlier denial is therefore not evidence of a broken link. All users are potential hosts and participants; UX section 30.26 now explicitly locks neutral account language.
+
+Implemented reconciliation: compact Event status, Key stats and Next up; a wide event banner; inactive simple-event reconfirmation and simulated message panels hidden; clearer Event Hub hierarchy; neutral sign-out. Real counts only, no generated check-in/page-view metrics or broad operations expansion.
+
+Diagnostics: bounded session-local error category/time/reference records, accessible in Help & Support for deliberate copying. No remote ingestion, session replay, raw error text, request payloads, URLs, identities or invitation tokens. These diagnostics do not let an agent silently observe a user's session.
