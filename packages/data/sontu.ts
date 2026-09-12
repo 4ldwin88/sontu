@@ -1,6 +1,6 @@
 import { recordDiagnostic } from "./diagnostics";
 import { createClient } from "@supabase/supabase-js";
-import type { CommandResult, HostProjection } from "../domain/coordination";
+import type { CommandResult, EventOperationsProjection, HostProjection } from "../domain/coordination";
 // Publishable key only. All authorization and consequential writes are enforced by RPCs.
 export const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL ??
@@ -42,6 +42,16 @@ export const hostCommand = (
     input,
     operation_id,
   });
+export const eventOperationsRead = (event_id: string) =>
+  rpc<EventOperationsProjection>("sontu_event_operations_projection", { event_id });
+export const eventOperationsCommand = (
+  cmd: string,
+  event_id: string,
+  item_id: string | null,
+  input: Record<string, unknown>,
+) => rpc<CommandResult>("sontu_event_operations_command", {
+  cmd, event_id, item_id, input, operation_id: crypto.randomUUID(),
+});
 export function createParticipantToken() {
   return Array.from(crypto.getRandomValues(new Uint8Array(32)), (b) =>
     b.toString(16).padStart(2, "0"),

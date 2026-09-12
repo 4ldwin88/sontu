@@ -274,6 +274,25 @@ test("host resumes a draft and publishes only reviewed valid event details", asy
   await page.getByRole("link", { name: "View event", exact: true }).click();
   await expect(page.getByText("Bring a favourite dish.")).toBeVisible();
   await page.getByRole("link", { name: "Manage event", exact: true }).click();
+  await modules.getByRole("button", { name: "To do", exact: true }).click();
+  await expect(page.getByText("Nothing here yet.", { exact: true })).toBeVisible();
+  await page.getByLabel("Task", { exact: true }).fill("Confirm table setup");
+  await page.getByRole("button", { name: "Add task", exact: true }).click();
+  await expect(page.getByText("Confirm table setup", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Complete", exact: true }).click();
+  await expect(page.getByText("Completed", { exact: true })).toBeVisible();
+  await modules.getByRole("button", { name: "Resources", exact: true }).click();
+  await page.getByLabel("Resource", { exact: true }).fill("Folding tables");
+  await page.getByLabel("Quantity", { exact: true }).fill("2");
+  await page.getByLabel("Note", { exact: true }).fill("Check the garage");
+  await page.getByRole("button", { name: "Add resource", exact: true }).click();
+  await expect(page.getByText("Folding tables · 2", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Mark ready", exact: true }).click();
+  await expect(page.getByText(/Ready · Check the garage/)).toBeVisible();
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  await page.reload();
+  await expect(page.getByText("Folding tables · 2", { exact: true })).toBeVisible();
+  await modules.getByRole("button", { name: "Overview", exact: true }).click();
   await page.getByRole("button", { name: "Cancel event", exact: true }).click();
   await expect(
     page

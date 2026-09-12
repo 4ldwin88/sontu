@@ -23,6 +23,8 @@ import { Button, StatusBadge, TextField } from "../../../packages/ui-web";
 import { FocusedWorkspaceShell, WidePortalShell, Modal } from "./shells";
 import {
   createParticipantToken,
+  eventOperationsCommand,
+  eventOperationsRead,
   hostCommand,
   hostRead,
   rpc,
@@ -36,6 +38,7 @@ import {
 import type {
   HostProjection,
   CommandResult,
+  EventOperationsProjection,
 } from "../../../packages/domain/coordination";
 
 // A pending request is recovery metadata, never authoritative event state.
@@ -395,7 +398,7 @@ function HostContent({ id }: { id: string }) {
   };
   const nav = (
     <nav className="workspace-nav" aria-label="Event workspace modules">
-      {["overview", "participants", "history"].map((s) => (
+      {["overview", "participants", "todo", "resources", "history"].map((s) => (
         <button
           key={s}
           aria-current={section === s ? "page" : undefined}
@@ -1066,6 +1069,8 @@ function HostContent({ id }: { id: string }) {
             </section>
           </>
         )}
+        {section === "todo" && <EventOperations eventId={id} kind="todo" />}
+        {section === "resources" && <EventOperations eventId={id} kind="resources" />}
         {modal === "change_schedule" && editSource && (
           <ScheduleEditor
             version={editSource.version}
@@ -1343,6 +1348,73 @@ interface ParticipantView {
     actionable: boolean;
   };
 }
+function EventOperations({ eventId, kind }: { eventId: string; kind: "todo" | "resources" }) {
+  const [data, setData] = useState<EventOperationsProjection | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [title, setTitle] = useState("");
+  const [quantity, setQuantity] = useState("1");
+  const [note, setNote] = useState("");
+  const load = useCallback(async () => {
+    try {
+      const next = await eventOperationsRead(eventId);
+      if (next.status !== "ready") throw new Error();
+      setData(next);
+      setError("");
+    } catch { setError("Unable to load event operations. Please retry."); }
+  }, [eventId]);
+  useEffect(() => { void load(); }, [load]);
+  const run = async (cmd: string, itemId: string | null, input: Record<string, unknown>) => {
+    setBusy(true); setError("");
+    try {
+      const result = await eventOperationsCommand(cmd, eventId, itemId, input);
+      if (result.status !== "ready") {
+        setError(errorMessages[result.error_code ?? ""] ?? "That update could not be saved.");
+        return;
+      }
+      setTitle(""); setQuantity("1"); setNote("");
+      await load();
+    } catch { setError("The result is unconfirmed. Refresh before trying again."); }
+    finally { setBusy(false); }
+  };
+  const items = kind === "todo" ? data?.todos ?? [] : data?.resources ?? [];
+  return (
+    <section className="panel event-operations" aria-labelledby={`${kind}-heading`}>
+      <div className="section-heading">
+        <div>
+          <span className="eyebrow">Event-scoped</span>
+          <h2 id={`${kind}-heading`}>{kind === "todo" ? "To Do" : "Resources"}</h2>
+          <p className="muted">{kind === "todo" ? "Keep the immediate event work visible." : "Track only what this event needs and whether it is ready."}</p>
+        </div>
+      </div>
+      {error && <Feedback message={error} onRetry={() => void load()} />}
+      {!data && !error && <p role="status">Loading…</p>}
+      <form className="operation-add" onSubmit={(e) => {
+        e.preventDefault();
+        void run(kind === "todo" ? "add_todo" : "add_resource", null,
+          kind === "todo" ? { title } : { label: title, quantity: Number(quantity), note });
+      }}>
+        <TextField label={kind === "todo" ? "Task" : "Resource"} value={title} maxLength={120} required onChange={(e) => setTitle(e.target.value)} />
+        {kind === "resources" && <>
+          <TextField label="Quantity" type="number" value={quantity} min="1" max="100000" required onChange={(e) => setQuantity(e.target.value)} />
+          <TextField label="Note" value={note} maxLength={240} onChange={(e) => setNote(e.target.value)} />
+        </>}
+        <Button disabled={busy}>{busy ? "Saving…" : kind === "todo" ? "Add task" : "Add resource"}</Button>
+      </form>
+      {data && items.length === 0 && <div className="operation-empty"><strong>Nothing here yet.</strong><p>Add only what helps this event happen.</p></div>}
+      <ul className="operation-list">
+        {kind === "todo" ? data?.todos.map((item) => <li key={item.id}>
+          <div><strong>{item.title}</strong><span>{item.state === "DONE" ? "Completed" : "Open"}</span></div>
+          <Button variant="secondary" disabled={busy} onClick={() => void run("set_todo_state", item.id, { state: item.state === "DONE" ? "OPEN" : "DONE" })}>{item.state === "DONE" ? "Reopen" : "Complete"}</Button>
+        </li>) : data?.resources.map((item) => <li key={item.id}>
+          <div><strong>{item.label} · {item.quantity}</strong><span>{item.state === "READY" ? "Ready" : "Needed"}{item.note ? ` · ${item.note}` : ""}</span></div>
+          <Button variant="secondary" disabled={busy} onClick={() => void run("set_resource_state", item.id, { state: item.state === "READY" ? "NEEDED" : "READY" })}>{item.state === "READY" ? "Mark needed" : "Mark ready"}</Button>
+        </li>)}
+      </ul>
+    </section>
+  );
+}
+
 export function ParticipantResponse() {
   const { token } = useParams();
   const [data, setData] = useState<ParticipantView | null>(null),

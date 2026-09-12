@@ -80,6 +80,12 @@ export interface HostProjection {
     metadata: Record<string, unknown>;
   }[];
 }
+export interface EventOperationsProjection {
+  status: CommandStatus;
+  error_code?: string;
+  todos: { id: string; title: string; due_at: string | null; state: "OPEN" | "DONE" }[];
+  resources: { id: string; label: string; quantity: number; state: "NEEDED" | "READY"; note: string | null }[];
+}
 export function settlement(responses: ResponseState[]) {
   const terminal = responses.filter(
     (s) => s === "RECONFIRMED" || s === "RELEASED_DECLINED",
