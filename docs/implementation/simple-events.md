@@ -21,3 +21,19 @@ Do not silently carry the synthetic bearer model into real protected invitations
 ## Verification
 
 33 unit/domain/PostgreSQL integration tests pass with lint, types and production build. Browser coverage adds draft recovery after lost response, timezone entry, saved-draft resumption, review accessibility/reflow and publication across compact/medium/wide, while retaining the existing 48 tests. See the PR's CI results for observed browser completion.
+
+## Founder decision and implementation: 3B–3C
+
+The founder approved recipient email verification for named private invitations, without mandatory Sontu account/profile setup. New events now default to the device's IANA timezone; saved event timezones do not change when the device travels. Device detection requires no location permission and falls back to UTC when unavailable. The detected zone is part of the persisted idempotent creation request and validated by PostgreSQL.
+
+Invitations record a normalized recipient email separately from commitment and reconfirmation. Only the matching Auth-verified email can read or respond; forwarding a token alone grants nothing. Passwordless verification creates a minimal security identity/session in Supabase Auth, not a public profile or a required password/onboarding flow. No user-editable metadata is trusted. Base-table access stays denied, and the older synthetic response RPC cannot bypass real-invitation verification.
+
+Acceptance revalidates current event version, lifecycle and capacity under the event lock. Declining does not fabricate commitment. Withdrawal releases participation and settles an applicable response requirement without rewriting history. Revoking a link removes its access, not an existing commitment. New invitations never reserve capacity or report email delivery. The host manually shares the generated named link; automated invitation delivery remains out of scope.
+
+Verified email relationships and ownership project into Invited, Upcoming and Hosting, and the Event Hub uses that same event identity. Interest/save is not yet activated for real events. Anonymous browsing retains the existing design fixtures; authenticated Events displays actual accessible simple-event relationships.
+
+### Delivery activation boundary
+
+The email-code UI is built and tested against isolated Auth with captured local mail. Hosted email-code requests remain gated by `VITE_INVITATION_VERIFICATION_ENABLED` until SMTP, sender identity and both Auth verification templates are configured and verified. Local templates in `supabase/templates/verification.html` include the OTP; configuration must also be applied to hosted Magic Link and signup confirmation templates. No hosted Auth settings are silently changed by the local test config. Current hosted SMTP/template configuration has not been verified through the available connector.
+
+Supabase's default sender only delivers to project team addresses and is unsuitable for general invitees: https://supabase.com/docs/guides/auth/auth-smtp . Custom SMTP and a verified sender are required for external testers. The existing Sites owner-private gate also remains; external hosting access is activated only together with a working verification path. Do not claim real external invitation delivery or public test readiness before those steps.

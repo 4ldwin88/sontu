@@ -54,3 +54,11 @@ export function draftBlockers(d: DraftFields, now = Date.now()): string[] {
     issues.push("Choose an end time after the start.");
   return issues;
 }
+
+export function deviceTimezone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
+}

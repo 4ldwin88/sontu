@@ -53,9 +53,9 @@ async function asHost(id = host) {
 beforeAll(async () => {
   db = new PGlite();
   await db.exec(
-    "create role anon; create role authenticated; create schema auth; create table auth.users(id uuid primary key); create function auth.uid() returns uuid language sql as $$ select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$; grant usage on schema auth to anon,authenticated;",
+    "create role anon; create role authenticated; create schema auth; create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz,is_anonymous boolean default false); create function auth.uid() returns uuid language sql as $$ select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$; grant usage on schema auth to anon,authenticated;",
   );
-  await sql("insert into auth.users values($1),($2)", [host, stranger]);
+  await sql("insert into auth.users(id) values($1),($2)", [host, stranger]);
   const dir = resolve(process.cwd(), "../../supabase/migrations");
   for (const name of readdirSync(dir)
     .filter((n) => n.endsWith(".sql"))
@@ -405,4 +405,149 @@ it("creates empty personal drafts, validates publication and preserves versioned
   expect(p.version.capacity).toBe(8);
   expect(p.participants).toEqual([]);
   expect(p.cases).toEqual([]);
+});
+
+it("requires recipient email verification, enforces capacity and keeps invitations distinct from reconfirmation", async () => {
+  await asHost();
+  const created = await command(
+    "create_draft",
+    { timezone: "Asia/Ho_Chi_Minh" },
+    1,
+  );
+  expect(created.status).toBe("ready");
+  event = created.event_id;
+  version = created.current_version;
+  expect((await projection()).version.timezone).toBe("Asia/Ho_Chi_Minh");
+  await command("save_draft", {
+    title: "Named invitations",
+    description: "Only verified recipients",
+    starts_at: "2030-10-16T23:00:00Z",
+    ends_at: "2030-10-17T01:00:00Z",
+    timezone: "Asia/Ho_Chi_Minh",
+    venue_label: "Protected garden",
+    cover_key: "none",
+    capacity: "1",
+  });
+  await command("publish", { confirmed: true });
+  const token = randomBytes(32).toString("hex"),
+    token2 = randomBytes(32).toString("hex");
+  expect(
+    (
+      await command("invite_participant", {
+        display_name: "Alice",
+        email: "Alice@Sontu.example",
+        token,
+      })
+    ).status,
+  ).toBe("ready");
+  expect(
+    (
+      await command("invite_participant", {
+        display_name: "Bob",
+        email: "bob@sontu.example",
+        token: token2,
+      })
+    ).status,
+  ).toBe("ready");
+  expect(
+    (await projection()).participants.every(
+      (p: any) => p.commitment_state === "NO_COMMITMENT",
+    ),
+  ).toBe(true);
+  expect(
+    (
+      await command("invite_participant", {
+        display_name: "Duplicate",
+        email: "alice@sontu.example",
+        token: randomBytes(32).toString("hex"),
+      })
+    ).error_code,
+  ).toBe("ALREADY_INVITED");
+  async function access(
+    t = token,
+    decision: string | null = null,
+    op = randomUUID(),
+    expected = version,
+  ) {
+    return (
+      await sql<{ r: any }>(
+        "select public.sontu_simple_access($1,null,$2,$3,$4) r",
+        [t, decision, expected, op],
+      )
+    )[0].r;
+  }
+  await asHost("");
+  expect((await access()).error_code).toBe("VERIFY_EMAIL");
+  expect((await response(token)).error_code).toBe("VERIFY_EMAIL");
+  await sql(
+    "update auth.users set email='wrong@sontu.example',email_confirmed_at=now() where id=$1",
+    [stranger],
+  );
+  await asHost(stranger);
+  expect((await access()).error_code).toBe("INVITATION_UNAVAILABLE");
+  expect((await response(token)).error_code).toBe("INVITATION_UNAVAILABLE");
+  await sql(
+    "update auth.users set email='alice@sontu.example',email_confirmed_at=null where id=$1",
+    [stranger],
+  );
+  expect((await access()).error_code).toBe("VERIFY_EMAIL");
+  await sql("update auth.users set email_confirmed_at=now() where id=$1", [
+    stranger,
+  ]);
+  const initial = await access();
+  expect(initial.event.title).toBe("Named invitations");
+  expect(initial.participant.commitment_state).toBe("NO_COMMITMENT");
+  expect(initial.participants).toBeUndefined();
+  const op = randomUUID();
+  const accepted = await access(token, "ACCEPT_INVITE", op);
+  expect(accepted.status).toBe("ready");
+  expect(await access(token, "ACCEPT_INVITE", op)).toEqual(accepted);
+  const mine = (await sql<{ r: any }>("select public.sontu_my_events() r"))[0].r
+    .events;
+  expect(mine[0].commitment_state).toBe("CONFIRMED");
+  expect(mine[0].hosting).toBe(false);
+  await sql("update auth.users set email='bob@sontu.example' where id=$1", [
+    stranger,
+  ]);
+  expect((await access(token2, "ACCEPT_INVITE")).error_code).toBe(
+    "CAPACITY_FULL",
+  );
+  await asHost();
+  await command("change_time", {
+    confirmed: true,
+    starts_at: "2030-10-16T23:30:00Z",
+  });
+  await command("accept", { confirmed: true });
+  let p = await projection();
+  expect(
+    p.participants.filter((p: any) => p.response === "AWAITING_RESPONSE"),
+  ).toHaveLength(1);
+  await sql("update auth.users set email='alice@sontu.example' where id=$1", [
+    stranger,
+  ]);
+  await asHost(stranger);
+  expect(
+    (await access(token, "RECONFIRMED", randomUUID(), version - 1)).error_code,
+  ).toBe("STALE_CONFLICT");
+  expect((await access(token, "WITHDRAW")).status).toBe("ready");
+  await asHost();
+  expect((await projection()).cases[0].disposition).toBe("RESOLVED");
+  await asHost(stranger);
+  await sql("update auth.users set email='bob@sontu.example' where id=$1", [
+    stranger,
+  ]);
+  expect((await access(token2, "ACCEPT_INVITE")).status).toBe("ready");
+  await asHost();
+  p = await projection();
+  const bob = p.participants.find(
+    (p: any) => p.invitation_email === "bob@sontu.example",
+  );
+  await command("revoke_link", { participant_id: bob.id });
+  await asHost(stranger);
+  expect((await access(token2)).error_code).toBe("INVITATION_UNAVAILABLE");
+  await asHost();
+  expect(
+    (await projection()).participants.find((p: any) => p.id === bob.id)
+      .commitment_state,
+  ).toBe("CONFIRMED");
 });

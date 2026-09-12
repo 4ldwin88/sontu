@@ -42,6 +42,9 @@ test("host resumes a draft and publishes only reviewed valid event details", asy
   await expect(
     page.getByRole("heading", { name: "When & where", exact: true }),
   ).toBeVisible();
+  await expect(page.getByLabel("Event timezone")).toHaveValue(
+    await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone),
+  );
   await page.getByLabel("Event timezone").selectOption("America/Vancouver");
   await page.getByLabel("Start date and time").fill("2030-09-16T18:00");
   await page.getByLabel("End date and time").fill("2030-09-16T21:00");

@@ -306,6 +306,8 @@ function HostContent({ id }: { id: string }) {
     [unknown, setUnknown] = useState(() => !!recover<Action>(id)),
     [success, setSuccess] = useState(""),
     [modal, setModal] = useState<string | null>(null),
+    [inviteName, setInviteName] = useState(""),
+    [inviteEmail, setInviteEmail] = useState(""),
     [reason, setReason] = useState(""),
     [time, setTime] = useState(""),
     [description, setDescription] = useState(""),
@@ -357,10 +359,18 @@ function HostContent({ id }: { id: string }) {
         if (r.token) {
           const name =
             data?.participants.find((p) => p.id === action.input.participant_id)
-              ?.display_name ?? "Participant";
+              ?.display_name ??
+            inviteName ??
+            "Participant";
           setLink({
             name,
-            url: location.origin + location.pathname + "#/respond/" + r.token,
+            url:
+              location.origin +
+              location.pathname +
+              (data?.event.event_kind === "SIMPLE"
+                ? "#/invite/"
+                : "#/respond/") +
+              r.token,
           });
         }
       } else
@@ -724,16 +734,57 @@ function HostContent({ id }: { id: string }) {
               <div>
                 <h2>People coming together</h2>
                 <p className="muted">
-                  Twelve synthetic relationships. Response links are private and
-                  scoped to one person.
+                  {data.event.event_kind === "SIMPLE"
+                    ? "Named invitations require the recipient’s verified email. Creating a link does not send an email or confirm participation."
+                    : "Twelve synthetic relationships. Response links are private and scoped to one person."}
                 </p>
               </div>
             </div>
+            {data.event.event_kind === "SIMPLE" &&
+              data.event.lifecycle === "PUBLISHED" && (
+                <form
+                  className="coord-auth"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    act("invite_participant", {
+                      display_name: inviteName,
+                      email: inviteEmail,
+                      token: createParticipantToken(),
+                    });
+                  }}
+                >
+                  <TextField
+                    label="Invitee name"
+                    required
+                    maxLength={80}
+                    value={inviteName}
+                    onChange={(e) => setInviteName(e.target.value)}
+                  />
+                  <TextField
+                    label="Invitee email"
+                    type="email"
+                    required
+                    maxLength={254}
+                    value={inviteEmail}
+                    onChange={(e) => setInviteEmail(e.target.value)}
+                  />
+                  <Button disabled={disabled}>Create invitation link</Button>
+                </form>
+              )}
             <ul className="coord-participants">
               {data.participants.map((p) => (
                 <li key={p.id}>
                   <div>
                     <strong>{p.display_name}</strong>
+                    {p.invitation_email && (
+                      <p className="small muted">
+                        {p.invitation_email} ·{" "}
+                        {p.invitation_state === "CREATED"
+                          ? "Awaiting invitation response"
+                          : label(p.invitation_state ?? "")}{" "}
+                        {p.link_revoked ? " · Link revoked" : ""}
+                      </p>
+                    )}
                     <p>
                       {p.response
                         ? label(p.response)
@@ -942,8 +993,9 @@ function HostContent({ id }: { id: string }) {
             onClose={() => setLink(null)}
           >
             <p>
-              This link authorizes only {link.name}’s response. Creating another
-              link replaces the previous one.
+              {data.event.event_kind === "SIMPLE"
+                ? "The named recipient must verify their email before viewing or responding. Forwarding this link does not grant another person access. Share it directly with the invitee; no email has been sent."
+                : `This link authorizes only ${link.name}’s response. Creating another link replaces the previous one.`}
             </p>
             <a
               className="button primary"

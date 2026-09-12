@@ -35,6 +35,9 @@ export interface Participant {
   id: string;
   display_name: string;
   commitment_state: string;
+  invitation_state?: string;
+  invitation_email?: string;
+  link_revoked?: boolean;
   response: ResponseState | null;
 }
 export interface Consequence {
@@ -104,6 +107,13 @@ export function validateTimeChange(startsAt: string, endsAt: string): boolean {
   );
 }
 export const errorMessages: Record<string, string> = {
+  VERIFY_EMAIL: "Verify the email address this invitation was sent to.",
+  INVITATION_UNAVAILABLE:
+    "This invitation is unavailable for the verified email address.",
+  ALREADY_INVITED:
+    "This email already has an invitation. Use its existing participant row to replace the link.",
+  CAPACITY_FULL:
+    "This event is full. Your invitation does not reserve a place.",
   PUBLISH_BLOCKED:
     "Add a title, location and valid future start/end time, then review and confirm publication.",
   STALE_CONFLICT:

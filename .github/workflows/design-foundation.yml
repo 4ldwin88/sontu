@@ -21,7 +21,7 @@ jobs:
         with:
           version: 2.117.0
       - name: Start isolated Auth and database
-        run: supabase start -x realtime,storage-api,imgproxy,mailpit,postgres-meta,studio,edge-runtime,logflare,vector,supavisor
+        run: supabase start -x realtime,storage-api,imgproxy,postgres-meta,studio,edge-runtime,logflare,vector,supavisor
       - name: Prepare disposable browser identity
         run: |
           supabase status -o json > /tmp/sontu-local-status.json

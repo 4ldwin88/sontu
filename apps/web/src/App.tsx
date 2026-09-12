@@ -1,3 +1,10 @@
+import {
+  Invitation,
+  ConnectedEventHub,
+  useMyEvents,
+  forView,
+  SimpleEventCard,
+} from "./invitations";
 import { Creation } from "./creation";
 import {
   CoreEntry,
@@ -289,6 +296,7 @@ function Discover() {
   );
 }
 function Events() {
+  const real = useMyEvents();
   const [params, setParams] = useSearchParams();
   const current = params.get("view") ?? "Upcoming";
   const view = eventViews.includes(current as (typeof eventViews)[number])
@@ -326,12 +334,28 @@ function Events() {
           </p>
         </div>
         <span className="count">
-          {collection.length} {collection.length === 1 ? "event" : "events"}
+          {real.signed ? forView(real.items, view).length : collection.length}{" "}
+          events
         </span>
       </div>
       <div className="events-layout">
         <div className="events-list">
-          {collection.length ? (
+          {real.signed ? (
+            real.loading ? (
+              <p role="status">Loading your events…</p>
+            ) : real.error ? (
+              <div role="alert">
+                <p>{real.error}</p>
+                <Button onClick={real.reload}>Retry</Button>
+              </div>
+            ) : forView(real.items, view).length ? (
+              forView(real.items, view).map((e) => (
+                <SimpleEventCard key={e.id} event={e} view={view} />
+              ))
+            ) : (
+              <p>No {view.toLowerCase()} events yet.</p>
+            )
+          ) : collection.length ? (
             collection.map((e) => (
               <div className="event-list-row" key={e.identity.id}>
                 <EventCard event={e} variant="compact-square" />
@@ -1018,6 +1042,8 @@ export default function App() {
             }
           />
         </Route>
+        <Route path="/invite/:token" element={<Invitation />} />
+        <Route path="/my-events/:eventId" element={<ConnectedEventHub />} />
         <Route path="/create" element={<Creation />} />
         <Route path="/create/:eventId" element={<Creation />} />
         <Route path="/core" element={<CoreEntry />} />

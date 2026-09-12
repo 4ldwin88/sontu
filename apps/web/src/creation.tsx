@@ -8,6 +8,7 @@ import { hostCommand, hostRead, rpc } from "../../../packages/data/sontu";
 import { errorMessages } from "../../../packages/domain/coordination";
 import {
   emptyDraft,
+  deviceTimezone,
   wallTime,
   instantForWall,
   draftBlockers,
@@ -92,14 +93,14 @@ function CreateEntry() {
       cmd: "create_draft",
       event: null,
       version: 1,
-      input: {},
+      input: { timezone: deviceTimezone() },
       op: crypto.randomUUID(),
       next: 0,
     };
     pending.current = req;
     keep("new", req);
     try {
-      const r = await hostCommand(req.cmd, null, 1, {}, req.op);
+      const r = await hostCommand(req.cmd, null, 1, req.input, req.op);
       if (r.status === "ready") {
         keep("new", null);
         pending.current = null;
@@ -394,8 +395,9 @@ function DraftEditor({ id }: { id: string }) {
                 </select>
               </label>
               <p className="small muted">
-                Times below use this timezone. Changing the timezone preserves
-                the moment and updates its displayed local time.
+                New events start in your device timezone. Times below use the
+                saved event timezone. Changing it preserves the moment and
+                updates its displayed local time.
               </p>
               {(["starts_at", "ends_at"] as const).map((k) => (
                 <TextField
