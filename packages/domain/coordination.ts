@@ -1,0 +1,115 @@
+export type ResponseState =
+  "AWAITING_RESPONSE" | "RECONFIRMED" | "RELEASED_DECLINED";
+export type Disposition =
+  | "OPEN_UNRESOLVED"
+  | "PENDING_EXTERNAL"
+  | "RESOLVED"
+  | "WAIVED"
+  | "SUPERSEDED"
+  | "EXCEPTION";
+export type ProviderState =
+  "CONFIRMED" | "UNKNOWN" | "PENDING" | "FAILED" | "STALE";
+export type CommandStatus = "ready" | "error" | "denied" | "pending_unknown";
+export interface CommandResult {
+  status: CommandStatus;
+  operation_id?: string;
+  event_id?: string;
+  current_version?: number;
+  error_code?: string;
+  token?: string;
+}
+export interface EventVersion {
+  id: string;
+  version_number: number;
+  title: string;
+  description: string;
+  starts_at: string;
+  ends_at: string;
+  timezone: string;
+  venue_label: string;
+  materiality_class: string;
+}
+export interface Participant {
+  id: string;
+  display_name: string;
+  commitment_state: string;
+  response: ResponseState | null;
+}
+export interface Consequence {
+  id: string;
+  applicable_event_version_id: string;
+  disposition: Disposition;
+  row_version: number;
+  predecessor_case_id: string | null;
+  reason: string | null;
+}
+export interface Evidence {
+  id: string;
+  observed_status: ProviderState;
+  applicable_event_version_id: string;
+  authoritative_at: string;
+  source_kind: string;
+  external_evidence_id: string;
+}
+export interface HostProjection {
+  event: {
+    id: string;
+    lifecycle: "DRAFT" | "PUBLISHED" | "CANCELLED" | "CLOSED";
+    current_version_number: number;
+  };
+  version: EventVersion;
+  versions: EventVersion[];
+  participants: Participant[];
+  cases: Consequence[];
+  suggestion: {
+    id: string;
+    suggestion_state: "SUGGESTED" | "ACCEPTED" | "DISMISSED" | "NONE";
+  } | null;
+  provider: Evidence | null;
+  communications: { dispatch_state: string; count: number }[];
+  audit: {
+    id: string;
+    audit_kind: string;
+    created_at: string;
+    metadata: Record<string, unknown>;
+  }[];
+}
+export function settlement(responses: ResponseState[]) {
+  const terminal = responses.filter(
+    (s) => s === "RECONFIRMED" || s === "RELEASED_DECLINED",
+  ).length;
+  return {
+    total: responses.length,
+    terminal,
+    unresolved: responses.length - terminal,
+    settled: responses.length > 0 && terminal === responses.length,
+  };
+}
+export function providerOutcome(
+  evidence: Evidence | null,
+  versionId: string,
+): ProviderState {
+  if (!evidence) return "UNKNOWN";
+  return evidence.applicable_event_version_id === versionId
+    ? evidence.observed_status
+    : "STALE";
+}
+export function validateTimeChange(startsAt: string, endsAt: string): boolean {
+  return (
+    Number.isFinite(Date.parse(startsAt)) &&
+    Date.parse(startsAt) < Date.parse(endsAt)
+  );
+}
+export const errorMessages: Record<string, string> = {
+  STALE_CONFLICT:
+    "This event changed while you were viewing it. Refresh and review the current details before trying again.",
+  UNAUTHORIZED: "You do not have permission to make this change.",
+  TOKEN_INVALID:
+    "This response link is unavailable or has been replaced. Ask the host for a new link.",
+  TOKEN_EXPIRED: "This response link has expired. Ask the host for a new link.",
+  INVALID_STATE: "This action is no longer available in the current state.",
+  INVALID_CONFIRMATION: "Review and explicitly confirm this change first.",
+  INVALID_INPUT: "Check the supplied details and try again.",
+  IDEMPOTENCY_MISMATCH:
+    "This retry does not match the original request. Refresh before starting a new action.",
+};
