@@ -1,3 +1,9 @@
+import {
+  CoreEntry,
+  CoreHost,
+  ParticipantResponse,
+  CoreSignOut,
+} from "./coordination";
 import { initialProfile } from "../../../packages/test-fixtures/profile";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -349,6 +355,7 @@ function Events() {
                 <CalendarDays />
               </span>
               <h2>Something good starts with you.</h2>
+              <TextAction to="/core">Open working host events</TextAction>
               <p>
                 A few people. A shared idea. One place to bring it together.
               </p>
@@ -933,7 +940,10 @@ export default function App() {
   const navigate = useNavigate();
   const profileOrigin = useRef("/home");
   const openDrawer = (panel: "profile" | "notifications") => {
-    if (panel === "profile" && /^\/(home|discover|events|feed)(\/|$)/.test(location.pathname)) {
+    if (
+      panel === "profile" &&
+      /^\/(home|discover|events|feed)(\/|$)/.test(location.pathname)
+    ) {
       profileOrigin.current = location.pathname + location.search;
     }
     setDrawer(panel);
@@ -1017,7 +1027,13 @@ export default function App() {
               <Route
                 key={kind}
                 path={`/${kind}`}
-                element={<ProfileUtilityPage kind={kind} onBack={backToProfile} />}
+                element={
+                  kind === "sign-out" ? (
+                    <CoreSignOut onBack={backToProfile} />
+                  ) : (
+                    <ProfileUtilityPage kind={kind} onBack={backToProfile} />
+                  )
+                }
               />
             ),
           )}
@@ -1034,6 +1050,9 @@ export default function App() {
             }
           />
         </Route>
+        <Route path="/core" element={<CoreEntry />} />
+        <Route path="/core/events/:eventId/host" element={<CoreHost />} />
+        <Route path="/respond/:token" element={<ParticipantResponse />} />
         <Route path="/events/:eventId/host" element={<HostWorkspace />} />
         <Route path="/host/events/:eventId" element={<HostWorkspace />} />
       </Routes>

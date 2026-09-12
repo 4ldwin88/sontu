@@ -2539,3 +2539,169 @@ button.back-link {
   cursor: pointer;
   font: inherit;
 }
+
+/* Core Validation reuses the approved shells and semantic surfaces. */
+.coord-entry {
+  max-width: 960px;
+  margin: auto;
+  padding: 32px 20px;
+}
+.coord-auth {
+  max-width: 480px;
+  margin: 48px auto;
+}
+.coord-auth form {
+  display: grid;
+  gap: 20px;
+}
+.coord-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+.coord-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+.coord-number {
+  display: block;
+  font-size: 2.4rem;
+  line-height: 1.3;
+}
+.coord-feedback {
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--warning);
+  border-radius: 12px;
+  background: var(--surface);
+  margin: 16px 0;
+}
+.coord-success {
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.coord-event-list {
+  display: grid;
+  gap: 16px;
+  margin-top: 24px;
+}
+.coord-event-row {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  color: inherit;
+  text-decoration: none;
+}
+.coord-event-row img {
+  width: 96px;
+  height: 96px;
+  object-fit: cover;
+  border-radius: 12px;
+}
+.coord-event-row h2 {
+  font-size: 1.15rem;
+}
+.coord-hero > img {
+  width: 120px;
+  height: 120px;
+  object-fit: cover;
+  border-radius: 16px;
+}
+.coord-provider {
+  margin-top: 20px;
+}
+.coord-provider details {
+  margin-top: 20px;
+}
+.coord-provider summary {
+  cursor: pointer;
+  min-height: 44px;
+  padding-block: 12px;
+}
+.coord-participants {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.coord-participants li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 20px 0;
+  border-bottom: 1px solid var(--border);
+}
+.coord-participants p {
+  margin: 4px 0 0;
+}
+.coord-participants .coord-actions {
+  margin: 0;
+}
+.coord-history {
+  padding-left: 24px;
+}
+.coord-history li {
+  padding: 12px 0;
+}
+.coord-response {
+  max-width: 600px;
+  padding: 32px 20px;
+  margin: auto;
+}
+.coord-response-image {
+  width: 100%;
+  height: 240px;
+  object-fit: cover;
+  border-radius: 20px;
+  margin-top: 20px;
+}
+@media (max-width: 650px) {
+  .coord-summary {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .coord-participants li {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .coord-hero > img {
+    width: 88px;
+    height: 88px;
+  }
+  .coord-event-row {
+    flex-wrap: wrap;
+  }
+  .coord-auth {
+    margin: 20px auto;
+  }
+}
+
+/* Refresh is consequential on the working host surface at every width. */
+.workspace-event.coord-hero > .button {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+@media (max-width: 900px) {
+  .workspace-event.coord-hero > .button {
+    margin-top: 12px;
+  }
+}
+.coord-provider + .panel {
+  margin-top: 20px;
+}
+@media (max-width: 900px) {
+  .workspace-event.coord-hero {
+    display: grid;
+    grid-template-columns: 88px minmax(0, 1fr);
+  }
+  .workspace-event.coord-hero > img {
+    width: 88px;
+    height: 88px;
+  }
+  .workspace-event.coord-hero > .button {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+}

@@ -1,7 +1,7 @@
 name: Design foundation checks
 on:
   push:
-    branches: [checkpoint/design-foundation]
+    branches: [checkpoint/design-foundation, checkpoint/core-validation]
   pull_request:
 permissions:
   contents: read
@@ -17,6 +17,17 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npx playwright install --with-deps chromium
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.117.0
+      - name: Start isolated Auth and database
+        run: supabase start -x realtime,storage-api,imgproxy,mailpit,postgres-meta,studio,edge-runtime,logflare,vector,supavisor
+      - name: Prepare disposable browser identity
+        run: |
+          supabase status -o json > /tmp/sontu-local-status.json
+          node scripts/prepare-local-browser.mjs
+      - name: Build against isolated backend
+        run: npm run build
       - run: npx playwright test
       - uses: actions/upload-artifact@v4
         if: always()
