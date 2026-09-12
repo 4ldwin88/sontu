@@ -2683,15 +2683,23 @@ button.back-link {
   }
 }
 
-/* Refresh is consequential on the working host surface at every width. */
-.workspace-event.coord-hero > .button {
-  display: inline-flex;
-  flex-shrink: 0;
+/* Keep working host identity and utilities compact without shrinking touch targets. */
+.workspace-event.coord-hero .host-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
 }
-@media (max-width: 900px) {
-  .workspace-event.coord-hero > .button {
-    margin-top: 12px;
-  }
+.workspace-event.coord-hero .host-header-actions .button {
+  display: inline-flex;
+  min-height: 44px;
+  margin: 0;
+}
+.host-refresh {
+  flex: 0 0 44px;
+}
+.host-guest-summary {
+  margin-bottom: 16px;
 }
 .coord-provider + .panel {
   margin-top: 20px;
@@ -2699,15 +2707,43 @@ button.back-link {
 @media (max-width: 900px) {
   .workspace-event.coord-hero {
     display: grid;
-    grid-template-columns: 88px minmax(0, 1fr);
+    grid-template-columns: 64px minmax(0, 1fr);
+    gap: 12px;
+    align-items: start;
+    padding-bottom: 12px;
   }
   .workspace-event.coord-hero > img {
-    width: 88px;
-    height: 88px;
+    width: 64px;
+    height: 64px;
+    border-radius: 12px;
   }
-  .workspace-event.coord-hero > .button {
+  .workspace-event.coord-hero.no-cover {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .workspace-event.coord-hero .host-header-actions {
     grid-column: 1 / -1;
-    justify-self: start;
+    justify-content: flex-end;
+  }
+  .workspace-event.coord-hero h1 {
+    margin: 0;
+    font-size: 1.15rem;
+  }
+  .workspace-event.coord-hero p {
+    font-size: 0.8rem;
+    line-height: 1.4;
+  }
+  .host-main .compact-workspace-nav .workspace-nav {
+    margin-top: 0;
+    margin-bottom: 12px;
+  }
+  .host-guest-summary {
+    padding: 16px;
+  }
+  .host-guest-summary h2 {
+    margin-top: 0;
+  }
+  .host-guest-summary p {
+    margin: 8px 0;
   }
 }
 

@@ -439,7 +439,9 @@ function HostContent({ id }: { id: string }) {
   return (
     <main id="main" tabIndex={-1} className="host-main">
       <WidePortalShell nav={nav}>
-        <header className="workspace-event coord-hero">
+        <header
+          className={`workspace-event coord-hero${data.version.cover_key === "none" ? " no-cover" : ""}`}
+        >
           {data.version.cover_key !== "none" && (
             <img
               src={`images/${data.version.cover_key ?? "food"}.jpg`}
@@ -463,15 +465,22 @@ function HostContent({ id }: { id: string }) {
               Version {data.event.current_version_number}
             </span>
           </div>
-          {data.event.event_kind === "SIMPLE" && (
-            <Link className="button secondary" to={`/my-events/${id}`}>
-              View event
-            </Link>
-          )}
-          <Button variant="secondary" onClick={() => void load()}>
-            <RefreshCw size={16} />
-            Refresh status
-          </Button>
+          <div className="host-header-actions">
+            {data.event.event_kind === "SIMPLE" && (
+              <Link className="button secondary" to={`/my-events/${id}`}>
+                View event
+              </Link>
+            )}
+            <button
+              type="button"
+              className="icon-button host-refresh"
+              aria-label="Refresh status"
+              title="Refresh status"
+              onClick={() => void load()}
+            >
+              <RefreshCw size={20} />
+            </button>
+          </div>
         </header>
         <div className="compact-workspace-nav">{nav}</div>
         {error && (
@@ -501,7 +510,10 @@ function HostContent({ id }: { id: string }) {
         {section === "overview" && (
           <>
             {data.event.event_kind === "SIMPLE" && (
-              <section className="panel" aria-label="Guest summary">
+              <section
+                className="panel host-guest-summary"
+                aria-label="Guest summary"
+              >
                 <h2>Your guest list</h2>
                 <p>
                   <strong>

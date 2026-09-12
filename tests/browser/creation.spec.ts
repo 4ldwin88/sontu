@@ -89,6 +89,21 @@ test("host resumes a draft and publishes only reviewed valid event details", asy
   await expect(
     page.getByText("America/Vancouver · Participation limit 8"),
   ).toBeVisible();
+  await page.screenshot({
+    path: info.outputPath("host-overview-light.png"),
+    fullPage: false,
+  });
+  await page.evaluate(() => (document.documentElement.dataset.theme = "dark"));
+  await page.screenshot({
+    path: info.outputPath("host-overview-dark.png"),
+    fullPage: false,
+  });
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  const guestAction = await page
+    .getByRole("button", { name: "Manage guests", exact: true })
+    .boundingBox();
+  expect(guestAction).not.toBeNull();
+  expect(guestAction!.y + guestAction!.height).toBeLessThan(650);
   await page.reload();
   await expect(
     page.getByRole("heading", {
