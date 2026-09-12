@@ -35,12 +35,14 @@ test("account portal registers, resumes minimum profile, and keeps real identity
     page.getByRole("button", { name: "Continue with Apple" }),
   ).toBeDisabled();
   await expect(page.getByLabel("First name", { exact: true })).toHaveCount(0);
+  await expect(page.locator('.password-rules [data-met="false"]')).toHaveCount(5);
   await page.getByLabel("Email", { exact: true }).fill(email);
   await page.getByLabel("Password", { exact: true }).fill("weak");
   await expect(
     page.getByRole("button", { name: "Create account", exact: true }),
   ).toBeDisabled();
   await page.getByLabel("Password", { exact: true }).fill(password);
+  await expect(page.locator('.password-rules [data-met="true"]')).toHaveCount(5);
   await page.getByRole("button", { name: "Show password" }).click();
   await expect(page.getByLabel("Password", { exact: true })).toHaveAttribute(
     "type",
@@ -138,6 +140,6 @@ test("account portal registers, resumes minimum profile, and keeps real identity
   await expect(
     page
       .getByRole("dialog")
-      .getByRole("link", { name: "Sign in/Sign up", exact: true }),
+      .getByRole("link", { name: "Sign in/Create Account", exact: true }),
   ).toBeVisible();
 });

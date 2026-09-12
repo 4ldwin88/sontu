@@ -2984,3 +2984,10 @@ button.back-link {
   font-weight: 600;
   color: var(--interactive-primary);
 }
+
+.password-rules li[data-met="false"] {
+  color: var(--error);
+}
+.password-rules li[data-met="true"] {
+  color: var(--success);
+}

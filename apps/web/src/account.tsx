@@ -74,15 +74,16 @@ export function AccountPortal() {
     [error, setError] = useState(""),
     [submitted, setSubmitted] = useState(false);
   const checks = passwordChecks(password);
-  // Deployment gate, not an authorization control. Server Auth policy must be verified before enabling.
+  // This owner-private beta uses an explicit testing notice, not invented production policies.
   const terms = import.meta.env.VITE_TERMS_URL,
     privacy = import.meta.env.VITE_PRIVACY_URL,
     policyVersion = import.meta.env.VITE_LEGAL_VERSION;
-  const registrationReady =
-    import.meta.env.VITE_REGISTRATION_ENABLED === "true" &&
+  const hasPolicies =
     /^https:\/\//.test(terms ?? "") &&
     /^https:\/\//.test(privacy ?? "") &&
     !!policyVersion;
+  const registrationReady =
+    import.meta.env.VITE_REGISTRATION_ENABLED !== "false";
   if (account.session)
     return (
       <Navigate
@@ -149,8 +150,16 @@ export function AccountPortal() {
                   password,
                   options: {
                     data: {
-                      sontu_legal_version: policyVersion,
-                      sontu_legal_accepted: true,
+                      ...(hasPolicies
+                        ? {
+                            sontu_legal_version: policyVersion,
+                            sontu_legal_accepted: true,
+                          }
+                        : {
+                            sontu_beta_notice_version:
+                              "private-testing-2026-09-12",
+                            sontu_beta_notice_acknowledged: true,
+                          }),
                     },
                   },
                 });
@@ -158,7 +167,11 @@ export function AccountPortal() {
                   setError(
                     error.code === "weak_password"
                       ? "Your password does not meet the required rules."
-                      : "Could not complete registration. Check your details or try again later.",
+                      : error.code === "email_address_not_authorized"
+                        ? "Supabase currently allows confirmation emails only to project-team addresses. Use your project email for this test."
+                        : error.status === 429
+                          ? "Too many email requests. Please wait before trying again."
+                          : "Could not complete registration. Check your details or try again later.",
                   );
                 else {
                   setPassword("");
@@ -216,7 +229,7 @@ export function AccountPortal() {
             <>
               <ul id="password-rules" className="password-rules">
                 {checks.map((c) => (
-                  <li key={c.label}>
+                  <li key={c.label} data-met={c.met}>
                     {c.met ? (
                       <Check size={16} aria-label="Met" />
                     ) : (
@@ -234,17 +247,26 @@ export function AccountPortal() {
                     checked={accepted}
                     onChange={(e) => setAccepted(e.target.checked)}
                   />
-                  <span>
-                    I agree to the{" "}
-                    <a href={terms} target="_blank" rel="noreferrer">
-                      Terms of Service
-                    </a>{" "}
-                    and acknowledge the{" "}
-                    <a href={privacy} target="_blank" rel="noreferrer">
-                      Privacy Policy
-                    </a>
-                    .
-                  </span>
+                  {hasPolicies ? (
+                    <span>
+                      I agree to the{" "}
+                      <a href={terms} target="_blank" rel="noreferrer">
+                        Terms of Service
+                      </a>{" "}
+                      and acknowledge the{" "}
+                      <a href={privacy} target="_blank" rel="noreferrer">
+                        Privacy Policy
+                      </a>
+                      .
+                    </span>
+                  ) : (
+                    <span>
+                      I understand this is a private test: Sontu stores my
+                      account, profile and event data in its dedicated Supabase
+                      project. Test data may be reset. I will use only my own
+                      test accounts and avoid sensitive information.
+                    </span>
+                  )}
                 </label>
               ) : (
                 <p
@@ -252,9 +274,8 @@ export function AccountPortal() {
                   className="account-notice"
                   role="status"
                 >
-                  New accounts aren’t enabled yet. Meeting the password rules
-                  won’t unlock registration. Beta terms and account settings
-                  still need to be finalized.
+                  Registration is temporarily paused. Existing accounts can
+                  still sign in.
                 </p>
               )}
             </>

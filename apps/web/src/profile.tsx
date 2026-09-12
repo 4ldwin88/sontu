@@ -34,7 +34,7 @@ export function ProfileDrawerContent({
         <h2>Make room for real life.</h2>
         <p>Sign in to your events or create your Sontu account.</p>
         <Link to="/sign-in" className="account-menu-entry">
-          Sign in/Sign up
+          Sign in/Create Account
         </Link>
         <nav aria-label="Profile utilities">
           {destinations

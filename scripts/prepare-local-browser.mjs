@@ -29,5 +29,5 @@ if (profile.error || profile.data.status !== "ready")
 console.log("::add-mask::" + password);
 appendFileSync(
   process.env.GITHUB_ENV,
-  `VITE_REGISTRATION_ENABLED=true\nVITE_TERMS_URL=https://example.com/test-terms\nVITE_PRIVACY_URL=https://example.com/test-privacy\nVITE_LEGAL_VERSION=isolated-test-only\nVITE_INVITATION_VERIFICATION_ENABLED=true\nSONTU_TEST_MAIL_URL=http://127.0.0.1:54324\nVITE_SUPABASE_URL=${status.API_URL}\nVITE_SUPABASE_PUBLISHABLE_KEY=${status.ANON_KEY}\nSONTU_TEST_EMAIL=${email}\nSONTU_TEST_PASSWORD=${password}\nSONTU_TEST_API=${status.API_URL}\nSONTU_TEST_KEY=${status.ANON_KEY}\n`,
+  `VITE_REGISTRATION_ENABLED=true\nVITE_INVITATION_VERIFICATION_ENABLED=true\nSONTU_TEST_MAIL_URL=http://127.0.0.1:54324\nVITE_SUPABASE_URL=${status.API_URL}\nVITE_SUPABASE_PUBLISHABLE_KEY=${status.ANON_KEY}\nSONTU_TEST_EMAIL=${email}\nSONTU_TEST_PASSWORD=${password}\nSONTU_TEST_API=${status.API_URL}\nSONTU_TEST_KEY=${status.ANON_KEY}\n`,
 );
