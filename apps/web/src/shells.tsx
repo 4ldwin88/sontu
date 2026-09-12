@@ -316,6 +316,29 @@ export function UtilityDrawer({
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const gesture = useRef<{ x: number; y: number; time: number } | null>(null);
+  const closing = useRef(false);
+  const dismissBySwipe = () => {
+    if (closing.current) return;
+    closing.current = true;
+    if (
+      !ref.current ||
+      matchMedia("(prefers-reduced-motion: reduce)").matches
+    ) {
+      onClose();
+      return;
+    }
+    ref.current
+      .animate(
+        [
+          { transform: "translateX(0)" },
+          { transform: `translateX(${side === "left" ? "-100%" : "100%"})` },
+        ],
+        { duration: 180, easing: "ease-in", fill: "forwards" },
+      )
+      .finished.then(onClose)
+      .catch(() => {});
+  };
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
     const overflow = document.body.style.overflow;
@@ -331,6 +354,45 @@ export function UtilityDrawer({
       ref={ref}
       className={`utility-drawer drawer-${side}`}
       aria-label={title}
+      onTouchStart={(e) => {
+        gesture.current = null;
+        if (
+          e.touches.length !== 1 ||
+          (e.target as HTMLElement).closest(
+            "button,input,select,textarea,[data-no-swipe]",
+          )
+        )
+          return;
+        const t = e.touches[0];
+        const bounds = e.currentTarget.getBoundingClientRect();
+        if (t.clientX < bounds.left || t.clientX > bounds.right) return;
+        gesture.current = { x: t.clientX, y: t.clientY, time: Date.now() };
+      }}
+      onTouchMove={(e) => {
+        if (
+          gesture.current &&
+          (e.touches.length !== 1 ||
+            Math.abs(e.touches[0].clientY - gesture.current.y) > 45)
+        )
+          gesture.current = null;
+      }}
+      onTouchCancel={() => {
+        gesture.current = null;
+      }}
+      onTouchEnd={(e) => {
+        const start = gesture.current;
+        gesture.current = null;
+        if (!start || e.changedTouches.length !== 1) return;
+        const dx = e.changedTouches[0].clientX - start.x;
+        const dy = e.changedTouches[0].clientY - start.y;
+        if (
+          (side === "left" ? dx < -70 : dx > 70) &&
+          Math.abs(dy) < 45 &&
+          Math.abs(dx) > Math.abs(dy) * 1.8 &&
+          Date.now() - start.time < 700
+        )
+          dismissBySwipe();
+      }}
       onKeyDown={(e) => {
         if (e.key !== "Tab") return;
         const controls = Array.from(

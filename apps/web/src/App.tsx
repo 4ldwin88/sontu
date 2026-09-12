@@ -15,7 +15,6 @@ import {
   List,
   MapPin,
   Plus,
-  SlidersHorizontal,
   Users,
 } from "lucide-react";
 import type {
@@ -940,17 +939,6 @@ export default function App() {
       >
         Skip to content
       </a>
-      <div className="preview-ribbon">
-        Design preview <span>· Sample events, no real bookings</span>
-        <button
-          onClick={() => setDrawer("profile")}
-          aria-label="Appearance and preview settings"
-          aria-haspopup="dialog"
-        >
-          <SlidersHorizontal size={14} />
-          Appearance
-        </button>
-      </div>
       <RouteFocus />
       <Routes>
         <Route element={<AppShell onOpen={setDrawer} />}>

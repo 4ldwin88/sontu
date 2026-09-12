@@ -233,3 +233,62 @@ test("sideways root gestures respect controls, direction and boundaries", async 
   await swipe(".feed-item", 100);
   await expect(page).toHaveURL(/#\/events$/);
 });
+
+test("clean chrome and outward drawer dismissal gestures", async ({ page }) => {
+  await page.goto("/#/home");
+  await expect(page.locator(".preview-ribbon")).toHaveCount(0);
+  await expect
+    .poll(async () =>
+      Math.round((await page.locator(".top-utilities").boundingBox())!.y),
+    )
+    .toBe(0);
+  const swipe = async (dx: number, dy = 0) => {
+    await page.locator(".drawer-heading h2").evaluate(
+      (el, { dx, dy }) => {
+        const rect = el.getBoundingClientRect();
+        const x = rect.x + 20,
+          y = rect.y + 10;
+        const t = (xx: number, yy: number) =>
+          new Touch({ identifier: 1, target: el, clientX: xx, clientY: yy });
+        el.dispatchEvent(
+          new TouchEvent("touchstart", { bubbles: true, touches: [t(x, y)] }),
+        );
+        el.dispatchEvent(
+          new TouchEvent("touchend", {
+            bubbles: true,
+            touches: [],
+            changedTouches: [t(x + dx, y + dy)],
+          }),
+        );
+      },
+      { dx, dy },
+    );
+  };
+  await page.getByRole("button", { name: "Profile and appearance" }).click();
+  await swipe(100);
+  await expect(
+    page.getByRole("dialog", { name: "Profile", exact: true }),
+  ).toBeVisible();
+  await swipe(-100, 100);
+  await expect(
+    page.getByRole("dialog", { name: "Profile", exact: true }),
+  ).toBeVisible();
+  await swipe(-100);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Profile and appearance" }),
+  ).toBeFocused();
+  await page
+    .getByRole("button", { name: "Notifications", exact: true })
+    .click();
+  await swipe(-100);
+  await expect(
+    page.getByRole("dialog", { name: "Notifications", exact: true }),
+  ).toBeVisible();
+  await swipe(100);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page).toHaveURL(/#\/home$/);
+  await expect(
+    page.getByRole("button", { name: "Notifications", exact: true }),
+  ).toBeFocused();
+});
