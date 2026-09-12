@@ -104,14 +104,19 @@ img {
 }
 .skip-link {
   position: fixed;
-  top: -100px;
+  top: 8px;
   left: 16px;
   padding: 12px 20px;
   background: var(--surface);
   z-index: 100;
 }
-.skip-link:focus {
-  top: 8px;
+.skip-link:not(:focus) {
+  clip-path: inset(50%);
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  white-space: nowrap;
+  padding: 0;
 }
 .preview-ribbon {
   min-height: 30px;
@@ -2918,4 +2923,12 @@ button.back-link {
   .account-world p {
     line-height: 1.6;
   }
+}
+
+.account-form .field {
+  margin: 0;
+}
+.account-form .legal-check a,
+.account-switch a {
+  text-decoration: underline;
 }

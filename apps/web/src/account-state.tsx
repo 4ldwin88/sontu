@@ -48,14 +48,22 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     [profileError, setError] = useState(""),
     [epoch, setEpoch] = useState(0);
   const generation = useRef(0);
+  const activeUser = useRef<string | null>(null);
+  const userId = session?.user.id;
   useEffect(() => {
     const { data } = supabase.auth.onAuthStateChange((_event, s) => {
-      generation.current++;
+      const id = s?.user.id ?? null;
       setSession(s);
-      setProfile(null);
-      setError("");
-      setChecking(!!s);
-      setEpoch((n) => n + 1);
+      if (id !== activeUser.current) {
+        activeUser.current = id;
+        generation.current++;
+        setProfile(null);
+        setError("");
+        setChecking(!!s);
+        setEpoch((n) => n + 1);
+      } else if (!s) setChecking(false);
+      // SIGNED_IN also fires on tab focus. Same-user refresh must not
+      // unmount a host workspace, discard a draft, or close its dialogs.
     });
     return () => {
       generation.current++;
@@ -63,7 +71,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     };
   }, []);
   useEffect(() => {
-    if (!session) return;
+    if (!userId) return;
     let live = true;
     const g = generation.current;
     setChecking(true);
@@ -85,7 +93,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     return () => {
       live = false;
     };
-  }, [session, epoch]);
+  }, [userId, epoch]);
   return (
     <Context.Provider
       value={{

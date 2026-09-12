@@ -1,5 +1,11 @@
 import { useState, type ReactNode } from "react";
-import { Link, Navigate, useLocation, useSearchParams } from "react-router-dom";
+import {
+  Link,
+  Navigate,
+  useLocation,
+  useNavigate,
+  useSearchParams,
+} from "react-router-dom";
 import { ArrowLeft, Check, Eye, EyeOff, Circle, UserRound } from "lucide-react";
 import { Button, TextField } from "../../../packages/ui-web";
 import { supabase } from "../../../packages/data/sontu";
@@ -366,6 +372,7 @@ export function AccountEntryGate({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 export function RealProfile({ onBack }: { onBack: () => void }) {
+  const navigate = useNavigate();
   const a = useAccount(),
     p = a.profile;
   const [params] = useSearchParams();
@@ -405,6 +412,7 @@ export function RealProfile({ onBack }: { onBack: () => void }) {
                 revision: p.revision,
               });
               if (r.status === "ready") {
+                navigate("/profile", { replace: true });
                 a.reload();
                 setEditing(false);
               } else
