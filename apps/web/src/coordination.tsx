@@ -1,4 +1,5 @@
 import { ChevronLeft } from "lucide-react";
+import { instantForWall, wallTime } from "../../../packages/domain/draft";
 import { useAccount } from "./account-state";
 /* oxlint-disable react/set-state-in-effect -- Effects initiate asynchronous reads from the external backend. */
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -373,12 +374,7 @@ function HostContent({ id }: { id: string }) {
     setModal(kind);
     if (data) {
       setDescription(data.version.description);
-      const start = new Date(data.version.starts_at);
-      setTime(
-        new Date(start.getTime() - start.getTimezoneOffset() * 60000)
-          .toISOString()
-          .slice(0, 16),
-      );
+      setTime(wallTime(data.version.starts_at, data.version.timezone));
     }
   };
   const nav = (
@@ -480,6 +476,49 @@ function HostContent({ id }: { id: string }) {
         )}
         {section === "overview" && (
           <>
+            {data.event.event_kind === "SIMPLE" && (
+              <section className="panel" aria-label="Guest summary">
+                <h2>Your guest list</h2>
+                <p>
+                  <strong>
+                    {
+                      data.participants.filter(
+                        (p) => p.commitment_state === "CONFIRMED",
+                      ).length
+                    }
+                  </strong>{" "}
+                  attending
+                  {data.version.capacity
+                    ? ` · ${data.version.capacity} places total`
+                    : ""}
+                </p>
+                <p>
+                  {
+                    data.participants.filter(
+                      (p) =>
+                        p.invitation_state === "CREATED" &&
+                        p.commitment_state === "NO_COMMITMENT" &&
+                        !p.link_revoked,
+                    ).length
+                  }{" "}
+                  awaiting invitation response ·{" "}
+                  {
+                    data.participants.filter(
+                      (p) =>
+                        p.invitation_state === "DECLINED" ||
+                        p.commitment_state === "RELEASED_DECLINED",
+                    ).length
+                  }{" "}
+                  declined or withdrawn
+                </p>
+                <Button
+                  variant="secondary"
+                  onClick={() => setSection("participants")}
+                >
+                  Manage guests
+                </Button>
+              </section>
+            )}
             <div className="coord-summary">
               <section className="panel">
                 <CalendarDays />
@@ -853,8 +892,19 @@ function HostContent({ id }: { id: string }) {
               onSubmit={(e) => {
                 e.preventDefault();
                 const input: Record<string, unknown> = { confirmed: true };
-                if (modal === "change_time")
-                  input.starts_at = new Date(time).toISOString();
+                if (modal === "change_time") {
+                  const instant = instantForWall(time, data.version.timezone);
+                  if (
+                    !instant ||
+                    Date.parse(instant) >= Date.parse(data.version.ends_at)
+                  ) {
+                    setError(
+                      "Choose an unambiguous start time before the event ends. Daylight-saving gaps and repeated times cannot be saved.",
+                    );
+                    return;
+                  }
+                  input.starts_at = instant;
+                }
                 if (modal === "cosmetic_edit") input.description = description;
                 if (["waive", "exception"].includes(modal) && c) {
                   input.case_id = c.id;
@@ -871,8 +921,12 @@ function HostContent({ id }: { id: string }) {
                     Current time:{" "}
                     {date(data.version.starts_at, data.version.timezone)}.
                   </p>
+                  <p className="small muted">
+                    Event timezone: {data.version.timezone}. The event keeps
+                    this timezone when you travel.
+                  </p>
                   <TextField
-                    label="New start time (your time zone)"
+                    label="New start time (event time zone)"
                     type="datetime-local"
                     required
                     value={time}
@@ -880,9 +934,9 @@ function HostContent({ id }: { id: string }) {
                   />
                   <p>
                     Review the new time:{" "}
-                    {Number.isFinite(Date.parse(time))
+                    {instantForWall(time, data.version.timezone)
                       ? date(
-                          new Date(time).toISOString(),
+                          instantForWall(time, data.version.timezone)!,
                           data.version.timezone,
                         )
                       : "Enter a valid time"}{" "}
