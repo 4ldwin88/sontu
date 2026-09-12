@@ -331,6 +331,23 @@ export function UtilityDrawer({
       ref={ref}
       className={`utility-drawer drawer-${side}`}
       aria-label={title}
+      onKeyDown={(e) => {
+        if (e.key !== "Tab") return;
+        const controls = Array.from(
+          e.currentTarget.querySelectorAll<HTMLElement>(
+            'button:not(:disabled),a[href],input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex="0"]',
+          ),
+        ).filter((el) => el.getClientRects().length > 0);
+        const first = controls[0],
+          last = controls.at(-1);
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last?.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first?.focus();
+        }
+      }}
       onCancel={onClose}
       onClick={(e) => {
         if (e.target === e.currentTarget) {
