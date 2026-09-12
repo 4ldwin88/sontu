@@ -1,6 +1,6 @@
 /* oxlint-disable react/set-state-in-effect, react/only-export-components -- Auth and server projections are external state; this module shares its projection hook with Events. */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useLocation } from "react-router-dom";
 import {
   Button,
   TextField,
@@ -183,6 +183,8 @@ export function SimpleEventCard({
   );
 }
 export function EmailVerification({ onVerified }: { onVerified: () => void }) {
+  const location = useLocation();
+  const accountNext = encodeURIComponent(location.pathname + location.search);
   const [email, setEmail] = useState(""),
     [code, setCode] = useState(""),
     [sent, setSent] = useState(false),
@@ -193,18 +195,25 @@ export function EmailVerification({ onVerified }: { onVerified: () => void }) {
       <section className="panel">
         <h1>Private invitation</h1>
         <p>
-          Email verification is not available yet. The host needs to finish the
-          email-delivery setup before new guests can verify their invitations.
+          Use the email address the host invited. Sign in with an existing
+          verified account, or create an account and confirm your email. Email
+          delivery may be limited during the beta.
         </p>
         <p>Your event details remain protected.</p>
-        <Link className="text-action" to="/core">
-          Already have a test login?
+        <Link className="button primary" to={"/sign-in?next=" + accountNext}>
+          Sign in
+        </Link>
+        <Link className="button secondary" to={"/sign-up?next=" + accountNext}>
+          Create account
         </Link>
       </section>
     );
   return (
     <section className="panel coord-auth">
       <h1>Verify your invitation</h1>
+      <Link className="text-action" to={"/sign-in?next=" + accountNext}>
+        Sign in with your account
+      </Link>
       <p>
         Use the email address the host invited. No password or profile setup is
         needed.

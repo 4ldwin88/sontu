@@ -281,6 +281,7 @@ function HostContent({ id }: { id: string }) {
     [unknown, setUnknown] = useState(() => !!recover<Action>(id)),
     [success, setSuccess] = useState(""),
     [modal, setModal] = useState<string | null>(null),
+    [copyMessage, setCopyMessage] = useState(""),
     [inviteName, setInviteName] = useState(""),
     [inviteEmail, setInviteEmail] = useState(""),
     [reason, setReason] = useState(""),
@@ -1124,7 +1125,10 @@ function HostContent({ id }: { id: string }) {
         {link && (
           <Modal
             title={`${link.name} response link`}
-            onClose={() => setLink(null)}
+            onClose={() => {
+              setLink(null);
+              setCopyMessage("");
+            }}
           >
             <p>
               {data.event.event_kind === "SIMPLE"
@@ -1139,12 +1143,33 @@ function HostContent({ id }: { id: string }) {
             >
               Open participant response
             </a>
+            <Button
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(link.url);
+                  setCopyMessage("Link copied. No email has been sent.");
+                } catch {
+                  setCopyMessage(
+                    "Could not copy automatically. Select and copy the link below.",
+                  );
+                }
+              }}
+            >
+              Copy invitation link
+            </Button>
+            {copyMessage && <p role="status">{copyMessage}</p>}
             <TextField
               label="Private response link"
               readOnly
               value={link.url}
             />
-            <Button variant="secondary" onClick={() => setLink(null)}>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setLink(null);
+                setCopyMessage("");
+              }}
+            >
               Done
             </Button>
           </Modal>

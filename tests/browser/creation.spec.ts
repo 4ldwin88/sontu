@@ -159,6 +159,52 @@ test("host resumes a draft and publishes only reviewed valid event details", asy
     .getByLabel("Guest status", { exact: true })
     .selectOption("attending");
   await expect(page.getByText("0 guests shown", { exact: true })).toBeVisible();
+  await page.getByLabel("Guest status", { exact: true }).selectOption("all");
+  await page.getByLabel("Invitee name").fill("Dinner guest");
+  await page
+    .getByLabel("Invitee email")
+    .fill(`dinner-${info.project.name}@sontu.example`);
+  await page.getByRole("button", { name: "Create invitation link" }).click();
+  const invitationDialog = page.getByRole("dialog");
+  const invitationLink = invitationDialog.getByLabel("Private response link");
+  await expect(invitationLink).toHaveValue(/#\/invite\/[a-f0-9]+$/);
+  // Exercise a real clipboard failure without falsely reporting a copied link.
+  await page.evaluate(() =>
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: async () => {
+          throw new Error("Denied");
+        },
+      },
+    }),
+  );
+  await invitationDialog
+    .getByRole("button", { name: "Copy invitation link" })
+    .click();
+  await expect(invitationDialog.getByRole("status")).toContainText(
+    "Could not copy automatically",
+  );
+  await page.evaluate(() =>
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async () => {} },
+    }),
+  );
+  await invitationDialog
+    .getByRole("button", { name: "Copy invitation link" })
+    .click();
+  await expect(invitationDialog.getByRole("status")).toContainText(
+    "Link copied",
+  );
+  await page.screenshot({
+    path: info.outputPath("invitation-link.png"),
+    animations: "disabled",
+  });
+  await invitationDialog
+    .getByRole("button", { name: "Done", exact: true })
+    .click();
+  await expect(page.getByText("Dinner guest", { exact: true })).toBeVisible();
   const modules = page
     .getByRole("navigation", { name: "Event workspace modules" })
     .filter({ visible: true });

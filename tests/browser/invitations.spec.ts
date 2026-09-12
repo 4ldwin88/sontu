@@ -65,6 +65,22 @@ test("verified invitee accepts and reconfirms through connected Events", async (
     page.getByRole("heading", { name: "Verify your invitation" }),
   ).toBeVisible();
   await expect(page.getByText("Private garden")).toHaveCount(0);
+  // Account entry preserves the invitation; signing in alone cannot grant access.
+  await page.getByRole("link", { name: "Sign in with your account" }).click();
+  await page
+    .getByLabel("Email", { exact: true })
+    .fill(process.env.SONTU_TEST_EMAIL!);
+  await page
+    .getByLabel("Password", { exact: true })
+    .fill(process.env.SONTU_TEST_PASSWORD!);
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(page).toHaveURL(new RegExp("#/invite/" + token + "$"));
+  await expect(
+    page.getByRole("heading", { name: "Invitation unavailable" }),
+  ).toBeVisible();
+  await expect(page.getByText("Private garden")).toHaveCount(0);
+  await page.getByRole("button", { name: "Use another email" }).click();
+  await expect(page.getByLabel("Invited email")).toBeVisible();
   await page.getByLabel("Invited email").fill(email);
   await page.getByRole("button", { name: "Email me a code" }).click();
   await expect(page.getByLabel("Verification code")).toBeVisible();
