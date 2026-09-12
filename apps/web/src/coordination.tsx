@@ -814,8 +814,9 @@ function HostContent({ id }: { id: string }) {
                 onChange={(e) => setGuestQuery(e.target.value)}
               />
               <label>
-                Guest status
+                <span id="guest-status-label">Guest status</span>
                 <select
+                  aria-labelledby="guest-status-label"
                   value={guestFilter}
                   onChange={(e) => setGuestFilter(e.target.value)}
                 >
