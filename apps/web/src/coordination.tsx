@@ -1,6 +1,7 @@
 import { ChevronLeft } from "lucide-react";
 import { instantForWall, wallTime } from "../../../packages/domain/draft";
 import { useAccount } from "./account-state";
+import { ScheduleEditor } from "./schedule-editor";
 /* oxlint-disable react/set-state-in-effect -- Effects initiate asynchronous reads from the external backend. */
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
@@ -270,6 +271,7 @@ export function CoreHost() {
   );
 }
 function HostContent({ id }: { id: string }) {
+  const [editSource, setEditSource] = useState<HostProjection | null>(null);
   const [data, setData] = useState<HostProjection | null>(null),
     [section, setSection] = useState("overview"),
     [guestQuery, setGuestQuery] = useState(""),
@@ -349,11 +351,18 @@ function HostContent({ id }: { id: string }) {
               r.token,
           });
         }
-      } else
+      } else {
         setError(
           errorMessages[r.error_code ?? ""] ??
             "The action could not be completed.",
         );
+        if (r.error_code === "STALE_CONFLICT") {
+          await load();
+          setError(
+            "This event changed while you were editing. Close this form and reopen it to review the latest details.",
+          );
+        }
+      }
     } catch {
       setUnknown(true);
       setError(
@@ -373,6 +382,9 @@ function HostContent({ id }: { id: string }) {
       });
   };
   const open = (kind: string) => {
+    setError("");
+    setSuccess("");
+    setEditSource(data);
     setReason("");
     setModal(kind);
     if (data) {
@@ -637,9 +649,17 @@ function HostContent({ id }: { id: string }) {
                       <>
                         <Button
                           disabled={disabled}
-                          onClick={() => open("change_time")}
+                          onClick={() =>
+                            open(
+                              data.event.event_kind === "SIMPLE"
+                                ? "change_schedule"
+                                : "change_time",
+                            )
+                          }
                         >
-                          Change start time
+                          {data.event.event_kind === "SIMPLE"
+                            ? "Edit schedule & location"
+                            : "Change start time"}
                         </Button>
                         <Button
                           disabled={disabled}
@@ -675,8 +695,8 @@ function HostContent({ id }: { id: string }) {
                       </StatusBadge>
                       {c.predecessor_case_id && (
                         <p className="small muted">
-                          Reopened for a newer time. Earlier responses remain in
-                          history.
+                          Reopened for changed event details. Earlier responses
+                          remain in history.
                         </p>
                       )}
                       {c.reason && <p>{c.reason}</p>}
@@ -687,7 +707,7 @@ function HostContent({ id }: { id: string }) {
                   {data.suggestion?.suggestion_state === "SUGGESTED" && (
                     <>
                       <p>
-                        The time changed. Require affected participants to
+                        Event details changed. Require affected participants to
                         reconfirm or release their commitment?
                       </p>
                       <div className="coord-actions">
@@ -710,7 +730,7 @@ function HostContent({ id }: { id: string }) {
                   {data.suggestion?.suggestion_state === "DISMISSED" && (
                     <p>
                       Host chose not to require reconfirmation. This is not
-                      evidence that participants confirmed the new time.
+                      evidence that participants confirmed the changed details.
                     </p>
                   )}
                   {c &&
@@ -976,7 +996,11 @@ function HostContent({ id }: { id: string }) {
                     <strong>
                       Version {v.version_number} · {label(v.materiality_class)}
                     </strong>
-                    <p>{date(v.starts_at, v.timezone)}</p>
+                    <p>
+                      {date(v.starts_at, v.timezone)} —{" "}
+                      {date(v.ends_at, v.timezone)}
+                    </p>
+                    <p>{v.venue_label}</p>
                     <p className="muted">{v.description}</p>
                   </li>
                 ))}
@@ -1017,7 +1041,42 @@ function HostContent({ id }: { id: string }) {
             </section>
           </>
         )}
-        {modal && (
+        {modal === "change_schedule" && editSource && (
+          <ScheduleEditor
+            version={editSource.version}
+            affected={
+              editSource.participants.filter(
+                (p) => p.commitment_state === "CONFIRMED",
+              ).length
+            }
+            busy={busy}
+            blocked={unknown}
+            feedback={
+              error && (
+                <Feedback
+                  message={error}
+                  unknown={unknown}
+                  onRetry={() =>
+                    unknown && pending.current
+                      ? void run(pending.current)
+                      : void load()
+                  }
+                />
+              )
+            }
+            onClose={() => setModal(null)}
+            onSave={(input) => {
+              if (!pending.current)
+                void run({
+                  cmd: "change_schedule",
+                  input,
+                  version: editSource.event.current_version_number,
+                  op: crypto.randomUUID(),
+                });
+            }}
+          />
+        )}
+        {modal && modal !== "change_schedule" && (
           <Modal title={label(modal)} onClose={() => !busy && setModal(null)}>
             <form
               onSubmit={(e) => {
@@ -1121,7 +1180,7 @@ function HostContent({ id }: { id: string }) {
                     (
                       {
                         accept:
-                          "Require each affected participant to reconfirm or release their commitment for this time?",
+                          "Require each affected participant to reconfirm or release their commitment for these event details?",
                         dismiss:
                           "Record why reconfirmation is not needed. This does not confirm participant availability.",
                         waive:
@@ -1345,6 +1404,7 @@ export function ParticipantResponse() {
           />
           <h1>{data.event.title}</h1>
           <p>{date(data.event.starts_at, data.event.timezone)}</p>
+          <p>Ends {date(data.event.ends_at, data.event.timezone)}</p>
           <p className="muted">
             {data.event.venue_label} · {data.event.timezone}
           </p>
@@ -1354,7 +1414,7 @@ export function ParticipantResponse() {
               <p>This event has been cancelled. No response is requested.</p>
             ) : data.participant?.actionable ? (
               <>
-                <p>The event time has changed. Can you still make it?</p>
+                <p>The event details have changed. Can you still make it?</p>
                 <div className="coord-actions">
                   <Button
                     disabled={busy || unknown}
@@ -1377,7 +1437,7 @@ export function ParticipantResponse() {
                 <CheckCircle2 />
                 <p>
                   {data.participant.response === "RECONFIRMED"
-                    ? "You have reconfirmed for this time."
+                    ? "You have reconfirmed for these event details."
                     : "Your release has been recorded."}
                 </p>
               </div>

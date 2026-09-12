@@ -148,7 +148,7 @@ test("authenticated host and scoped participants complete the core workflow", as
     .getByRole("button", { name: "I can still make it", exact: true })
     .click();
   await expect(
-    guest.getByText("You have reconfirmed for this time."),
+    guest.getByText("You have reconfirmed for these event details."),
   ).toBeVisible();
   expect(
     (

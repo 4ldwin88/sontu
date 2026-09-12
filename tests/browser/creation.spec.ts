@@ -83,7 +83,7 @@ test("host resumes a draft and publishes only reviewed valid event details", asy
     .getByRole("button", { name: "Publish event", exact: true })
     .click();
   await expect(
-    page.getByRole("button", { name: "Change start time" }),
+    page.getByRole("button", { name: "Edit schedule & location" }),
   ).toBeVisible();
   await expect(
     page
@@ -159,6 +159,38 @@ test("host resumes a draft and publishes only reviewed valid event details", asy
     path: info.outputPath("event-hub.png"),
     animations: "disabled",
   });
+  await page.getByRole("link", { name: "Manage event", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Edit schedule & location", exact: true })
+    .click();
+  const editor = page.getByRole("dialog");
+  await editor.getByLabel("Start date and time").fill("2030-09-17T18:30");
+  await editor.getByLabel("End date and time").fill("2030-09-17T22:00");
+  await editor
+    .getByLabel("Location", { exact: true })
+    .fill("The covered terrace");
+  await editor.getByRole("button", { name: "Review changes" }).click();
+  await expect(
+    editor.getByRole("heading", { name: "Review event changes" }),
+  ).toBeVisible();
+  await expect(
+    editor.getByText("Previously: The garden", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    editor.getByText("Now: The covered terrace", { exact: true }),
+  ).toBeVisible();
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  await page.screenshot({
+    path: info.outputPath("schedule-review.png"),
+    animations: "disabled",
+  });
+  await editor.getByRole("button", { name: "Save event changes" }).click();
+  await expect(editor).toHaveCount(0);
+  await page.getByRole("link", { name: "View event", exact: true }).click();
+  await expect(
+    page.getByText("The covered terrace", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText(/Ends.*10:00/)).toBeVisible();
   await page.getByRole("link", { name: "Manage event", exact: true }).click();
   await page
     .getByRole("button", { name: "Manage guests", exact: true })

@@ -1,6 +1,6 @@
 # Hosting design reconciliation — September 12
 
-Status: confirmed composition drift; copied-link live failure unresolved.
+Status: reconciled and deployed as Sites version 21; founder confirmed live invitation succeeds.
 
 ## Evidence
 
@@ -21,9 +21,9 @@ Host-generated URLs use browser origin + pathname + hash invitation token. Local
 
 Do not infer the founder's failure is hosting access, incorrect recipient account, malformed URL, expiry/revocation, or authentication without the actual failing screen/URL shape. Request a screenshot of what appears after opening the copied link; do not request a password or expose private invitation tokens in logs/reports. No access controls were changed and no live-link fix is claimed.
 
-## Next acceptance evidence
+## Acceptance evidence
 
-Compare compact and wide connected host screenshots directly with the cited boards. For links, verify the actual generated URL in the intended live access context, then exercise matching and wrong recipient sessions. Keep isolated CI evidence separate from live-site evidence.
+Commit bc705a746c6eee8f6c61a9adc27933d4266c3fbe passed lint, typecheck, 38 local tests and all 60 browser checks. Inspected captured compact light hosting, compact Event Hub, and wide dark hosting against the cited boards. CI run 34720221809 is isolated authenticated evidence, not observation of the founder’s live session.
 
 
 ## Founder follow-up and correction

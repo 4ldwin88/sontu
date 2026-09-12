@@ -3267,3 +3267,9 @@ button.back-link {
 .connected-hub > .panel p {
   line-height: 1.6;
 }
+
+.schedule-review { margin: 20px 0; }
+.schedule-review > div { padding: 12px 0; border-bottom: 1px solid var(--border); }
+.schedule-review dt { font-weight: 650; }
+.schedule-review dd { margin: 6px 0 0; overflow-wrap: anywhere; }
+.schedule-review dd span, .schedule-review dd strong { display: block; }

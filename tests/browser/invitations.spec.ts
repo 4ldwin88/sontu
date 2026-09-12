@@ -147,12 +147,18 @@ test("verified invitee accepts and reconfirms through connected Events", async (
     path: info.outputPath("connected-upcoming.png"),
     fullPage: true,
   });
-  await cmd("change_time", {
+  await cmd("change_schedule", {
     confirmed: true,
     starts_at: "2030-09-16T23:30:00Z",
+    ends_at: "2030-09-17T02:00:00Z",
+    venue_label: "Sheltered pavilion",
   });
   await cmd("accept", { confirmed: true });
   await page.goto("/#/invite/" + token);
+  await expect(
+    page.getByText("Sheltered pavilion · Asia/Ho_Chi_Minh", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText(/Ends.*9:00/)).toBeVisible();
   await page.getByRole("button", { name: "I can still make it" }).click();
   await expect(page.getByText("You’re going.", { exact: true })).toBeVisible();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);

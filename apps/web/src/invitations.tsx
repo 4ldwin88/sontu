@@ -469,6 +469,7 @@ function InvitationContent({
           )}
           <h1>{e.title}</h1>
           <p>{when(e.starts_at, e.timezone)}</p>
+          <p>Ends {when(e.ends_at, e.timezone)}</p>
           <p>
             {e.venue_label} · {e.timezone}
           </p>
@@ -481,7 +482,7 @@ function InvitationContent({
               <p>Responses are closed for this event.</p>
             ) : p.reconfirmation_required ? (
               <>
-                <p>The time changed. Can you still make it?</p>
+                <p>The event details changed. Can you still make it?</p>
                 <div className="coord-actions">
                   <Button
                     disabled={busy || unknown}
