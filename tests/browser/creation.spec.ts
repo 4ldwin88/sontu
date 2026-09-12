@@ -96,4 +96,10 @@ test("host resumes a draft and publishes only reviewed valid event details", asy
       exact: true,
     }),
   ).toBeVisible();
+  await page.goto("/#/events");
+  await page.getByRole("tab", { name: "Upcoming", exact: true }).click();
+  await expect(page.getByRole("link").filter({ hasText: `Garden dinner ${info.project.name}` }).first()).toBeVisible();
+  await page.getByRole("tab", { name: "Hosting", exact: true }).click();
+  await expect(page.getByRole("link").filter({ hasText: `Garden dinner ${info.project.name}` }).first()).toBeVisible();
+
 });

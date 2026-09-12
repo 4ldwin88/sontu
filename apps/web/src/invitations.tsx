@@ -80,7 +80,8 @@ export function forView(items: MyEvent[], view: string) {
     view === "Hosting"
       ? e.hosting
       : view === "Upcoming"
-        ? e.commitment_state === "CONFIRMED"
+        ? e.lifecycle === "PUBLISHED" &&
+          (e.hosting || e.commitment_state === "CONFIRMED")
         : view === "Invited"
           ? e.commitment_state === "NO_COMMITMENT" &&
             e.invitation_state !== "DECLINED"
