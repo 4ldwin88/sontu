@@ -1,0 +1,2 @@
+-- Application fixture creation is exercised through the authorized create_fixture command.
+-- CI auth users are created through Auth admin APIs by scripts/prepare-local-browser.mjs.

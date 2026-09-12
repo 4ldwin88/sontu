@@ -1,3 +1,4 @@
+import { CoreEntry, CoreHost, ParticipantResponse } from "./coordination";
 import { initialProfile } from "../../../packages/test-fixtures/profile";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -349,6 +350,7 @@ function Events() {
                 <CalendarDays />
               </span>
               <h2>Something good starts with you.</h2>
+              <TextAction to="/core">Open working host events</TextAction>
               <p>
                 A few people. A shared idea. One place to bring it together.
               </p>
@@ -1034,6 +1036,9 @@ export default function App() {
             }
           />
         </Route>
+        <Route path="/core" element={<CoreEntry />} />
+        <Route path="/core/events/:eventId/host" element={<CoreHost />} />
+        <Route path="/respond/:token" element={<ParticipantResponse />} />
         <Route path="/events/:eventId/host" element={<HostWorkspace />} />
         <Route path="/host/events/:eventId" element={<HostWorkspace />} />
       </Routes>
