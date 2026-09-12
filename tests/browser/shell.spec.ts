@@ -15,7 +15,12 @@ for (const route of routes) {
     await expect(page.locator("main")).toBeVisible();
     await page.locator("img").evaluateAll(async (images) => {
       await Promise.all(
-        images.map((i) => (i as HTMLImageElement).decode().catch(() => {})),
+        images.map((i) =>
+          (() => {
+            (i as HTMLImageElement).loading = "eager";
+            return (i as HTMLImageElement).decode().catch(() => {});
+          })(),
+        ),
       );
     });
     const host = route.includes("/host") || route.startsWith("host/");
