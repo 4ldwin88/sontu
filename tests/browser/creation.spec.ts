@@ -85,7 +85,11 @@ test("host resumes a draft and publishes only reviewed valid event details", asy
   await expect(
     page.getByRole("button", { name: "Change start time" }),
   ).toBeVisible();
-  await expect(page.getByText("Published", { exact: true })).toBeVisible();
+  await expect(
+    page
+      .getByRole("region", { name: "Event status", exact: true })
+      .getByText("Published", { exact: true }),
+  ).toBeVisible();
   await expect(
     page.getByText("America/Vancouver · Participation limit 8"),
   ).toBeVisible();
