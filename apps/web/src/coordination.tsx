@@ -271,6 +271,7 @@ export function CoreHost() {
   );
 }
 function HostContent({ id }: { id: string }) {
+  const account = useAccount();
   const [editSource, setEditSource] = useState<HostProjection | null>(null);
   const [data, setData] = useState<HostProjection | null>(null),
     [section, setSection] = useState("overview"),
@@ -431,7 +432,21 @@ function HostContent({ id }: { id: string }) {
       ? data.provider.applicable_event_version_id
       : data.version.id,
   );
+  const hostName =
+    account.profile?.display_name || account.profile?.first_name || "You";
+  const hostGoing =
+    data.event.event_kind === "SIMPLE" && data.event.lifecycle === "PUBLISHED";
+  const isSelf = (p: { invitation_email?: string }) =>
+    data.event.event_kind === "SIMPLE" &&
+    !!p.invitation_email &&
+    p.invitation_email.toLowerCase() ===
+      account.session?.user.email?.toLowerCase();
+  const showHost =
+    data.event.event_kind === "SIMPLE" &&
+    (guestFilter === "all" || (guestFilter === "attending" && hostGoing)) &&
+    `${hostName} host`.toLowerCase().includes(guestQuery.trim().toLowerCase());
   const visibleGuests = data.participants.filter((p) => {
+    if (isSelf(p)) return false;
     const matches = `${p.display_name} ${p.invitation_email ?? ""}`
       .toLowerCase()
       .includes(guestQuery.trim().toLowerCase());
@@ -564,13 +579,12 @@ function HostContent({ id }: { id: string }) {
                     <div>
                       <CheckCircle2 />
                       <strong>
-                        {
-                          data.participants.filter(
-                            (p) => p.commitment_state === "CONFIRMED",
-                          ).length
-                        }
+                        {data.participants.filter(
+                          (p) =>
+                            p.commitment_state === "CONFIRMED" && !isSelf(p),
+                        ).length + (hostGoing ? 1 : 0)}
                       </strong>
-                      <span>Attending</span>
+                      <span>Going</span>
                     </div>
                     <div>
                       <Clock3 />
@@ -917,7 +931,7 @@ function HostContent({ id }: { id: string }) {
                   onChange={(e) => setGuestFilter(e.target.value)}
                 >
                   <option value="all">All guests</option>
-                  <option value="attending">Attending</option>
+                  <option value="attending">Going</option>
                   <option value="pending">Awaiting response</option>
                   <option value="declined">Declined or withdrawn</option>
                 </select>
@@ -930,10 +944,21 @@ function HostContent({ id }: { id: string }) {
               </p>
             )}
             <p className="small muted" role="status">
-              {visibleGuests.length}{" "}
-              {visibleGuests.length === 1 ? "guest" : "guests"} shown
+              {visibleGuests.length + (showHost ? 1 : 0)}{" "}
+              {visibleGuests.length + (showHost ? 1 : 0) === 1
+                ? "person"
+                : "people"}{" "}
+              shown
             </p>
             <ul className="coord-participants">
+              {showHost && (
+                <li aria-label="Event host">
+                  <div>
+                    <strong>{hostName}</strong> <StatusBadge>Host</StatusBadge>
+                    <p>{hostGoing ? "Going" : label(data.event.lifecycle)}</p>
+                  </div>
+                </li>
+              )}
               {visibleGuests.map((p) => (
                 <li key={p.id}>
                   <div>

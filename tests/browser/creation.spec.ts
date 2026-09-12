@@ -199,12 +199,17 @@ test("host resumes a draft and publishes only reviewed valid event details", asy
     page.getByText("No guests yet.", { exact: false }),
   ).toBeVisible();
   await page.getByLabel("Search guests").fill("nobody");
-  await expect(page.getByText("0 guests shown", { exact: true })).toBeVisible();
+  await expect(page.getByText("0 people shown", { exact: true })).toBeVisible();
   await page.getByLabel("Search guests").fill("");
   await page
     .getByLabel("Guest status", { exact: true })
     .selectOption("attending");
-  await expect(page.getByText("0 guests shown", { exact: true })).toBeVisible();
+  await expect(page.getByText("1 person shown", { exact: true })).toBeVisible();
+  await expect(
+    page
+      .getByRole("listitem", { name: "Event host" })
+      .getByText("Host", { exact: true }),
+  ).toBeVisible();
   await page.getByLabel("Guest status", { exact: true }).selectOption("all");
   await page.getByLabel("Invitee name").fill("Dinner guest");
   await page

@@ -5,6 +5,7 @@ import {
   RealProfile,
 } from "./account";
 import { useAccount } from "./account-state";
+import { DevNotes } from "./dev-notes";
 import {
   Invitation,
   ConnectedEventHub,
@@ -1016,6 +1017,7 @@ export default function App() {
         Skip to content
       </a>
       <RouteFocus />
+      <DevNotes />
       <Routes>
         <Route path="/sign-in" element={<AccountPortal key="signin" />} />
         <Route path="/sign-up" element={<AccountPortal key="signup" />} />

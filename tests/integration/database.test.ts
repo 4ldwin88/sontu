@@ -736,3 +736,46 @@ describe("reviewed published schedule and location", () => {
     ).toBe("INVALID_STATE");
   });
 });
+
+describe("explicit beta dev notes", () => {
+  it("keeps notes private to their author and rejects impersonation", async () => {
+    await asHost();
+    await db.exec("set role authenticated");
+    try {
+      const id = randomUUID();
+      await sql(
+        "insert into public.sontu_dev_notes(id,body,screen) values($1,'Improve spacing','hosting')",
+        [id],
+      );
+      expect(
+        await sql("select body from public.sontu_dev_notes where id=$1", [id]),
+      ).toEqual([{ body: "Improve spacing" }]);
+      await asHost(stranger);
+      expect(
+        await sql("select body from public.sontu_dev_notes where id=$1", [id]),
+      ).toEqual([]);
+      await expect(
+        sql(
+          "insert into public.sontu_dev_notes(id,user_id,body,screen) values($1,$2,'Wrong owner','home')",
+          [randomUUID(), host],
+        ),
+      ).rejects.toThrow();
+      await expect(
+        sql(
+          "insert into public.sontu_dev_notes(id,body,screen) values($1,'Secret path','/invite/private-token')",
+          [randomUUID()],
+        ),
+      ).rejects.toThrow();
+      await asHost("");
+      await expect(
+        sql(
+          "insert into public.sontu_dev_notes(id,body,screen) values($1,'Signed out','home')",
+          [randomUUID()],
+        ),
+      ).rejects.toThrow();
+    } finally {
+      await db.exec("reset role");
+      await asHost();
+    }
+  });
+});

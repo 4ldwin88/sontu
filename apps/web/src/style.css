@@ -3273,3 +3273,14 @@ button.back-link {
 .schedule-review dt { font-weight: 650; }
 .schedule-review dd { margin: 6px 0 0; overflow-wrap: anywhere; }
 .schedule-review dd span, .schedule-review dd strong { display: block; }
+
+.dev-notes-fab { position: fixed; z-index: 1000; right: 16px; bottom: calc(86px + env(safe-area-inset-bottom)); display: flex; align-items: center; gap: 4px; min-height: 48px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 28px; color: var(--on-interactive); background: var(--interactive-primary); box-shadow: 0 4px 18px #0003; cursor: pointer; }
+.dev-notes-fab span { font-size: .75rem; font-weight: 600; }
+.dev-note-field { display: grid; gap: 8px; margin: 16px 0; font-weight: 600; }
+.dev-note-field textarea { width: 100%; min-height: 130px; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--text-primary); font: inherit; resize: vertical; }
+.dev-note-history { margin-top: 24px; }
+.dev-note-history ul { list-style: none; padding: 0; }
+.dev-note-history li { padding: 12px 0; border-top: 1px solid var(--border); }
+.dev-note-history p { white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (min-width: 901px) { .dev-notes-fab { bottom: 24px; } }
+.dev-notes-fab[hidden] { display: none; }
