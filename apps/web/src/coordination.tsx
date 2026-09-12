@@ -618,75 +618,79 @@ function HostContent({ id }: { id: string }) {
                   )}
               </section>
             </div>
-            <section className="panel coord-provider">
-              <div>
-                <span className="eyebrow">External arrangement</span>
-                <h2>Venue service confirmation</h2>
-                <StatusBadge
-                  tone={provider === "CONFIRMED" ? "success" : "warning"}
-                >
-                  {label(provider)}
-                </StatusBadge>
-                <p>
-                  {provider === "CONFIRMED"
-                    ? "The simulated provider confirms the current time. No Sontu-managed case is needed."
-                    : "Provider confirmation is unresolved. It does not become confirmed because the event was updated."}
-                </p>
-                <p className="small muted">
-                  Simulated provider evidence ·{" "}
-                  {data.provider
-                    ? date(data.provider.authoritative_at)
-                    : "No evidence received"}
-                </p>
-              </div>
-              <details>
-                <summary>Test provider and delivery outcomes</summary>
-                <p className="small muted">
-                  These controls run simulated adapters. They send no external
-                  messages.
-                </p>
-                <div className="coord-actions">
-                  {["CONFIRMED", "UNKNOWN", "PENDING", "FAILED", "STALE"].map(
-                    (s) => (
-                      <Button
-                        key={s}
-                        variant="secondary"
-                        disabled={disabled}
-                        onClick={() =>
-                          act("simulate_provider", {
-                            provider_status: s,
-                            evidence_id: crypto.randomUUID(),
-                            authoritative_at: new Date().toISOString(),
-                          })
-                        }
-                      >
-                        {label(s)}
-                      </Button>
-                    ),
-                  )}
-                </div>
-                <div className="coord-actions">
-                  <Button
-                    variant="secondary"
-                    disabled={disabled}
-                    onClick={() =>
-                      act("simulate_delivery", { delivery_status: "DELIVERED" })
-                    }
+            {data.event.event_kind !== "SIMPLE" && (
+              <section className="panel coord-provider">
+                <div>
+                  <span className="eyebrow">External arrangement</span>
+                  <h2>Venue service confirmation</h2>
+                  <StatusBadge
+                    tone={provider === "CONFIRMED" ? "success" : "warning"}
                   >
-                    Simulate delivered messages
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    disabled={disabled}
-                    onClick={() =>
-                      act("simulate_delivery", { delivery_status: "FAILED" })
-                    }
-                  >
-                    Simulate delivery failure
-                  </Button>
+                    {label(provider)}
+                  </StatusBadge>
+                  <p>
+                    {provider === "CONFIRMED"
+                      ? "The simulated provider confirms the current time. No Sontu-managed case is needed."
+                      : "Provider confirmation is unresolved. It does not become confirmed because the event was updated."}
+                  </p>
+                  <p className="small muted">
+                    Simulated provider evidence ·{" "}
+                    {data.provider
+                      ? date(data.provider.authoritative_at)
+                      : "No evidence received"}
+                  </p>
                 </div>
-              </details>
-            </section>
+                <details>
+                  <summary>Test provider and delivery outcomes</summary>
+                  <p className="small muted">
+                    These controls run simulated adapters. They send no external
+                    messages.
+                  </p>
+                  <div className="coord-actions">
+                    {["CONFIRMED", "UNKNOWN", "PENDING", "FAILED", "STALE"].map(
+                      (s) => (
+                        <Button
+                          key={s}
+                          variant="secondary"
+                          disabled={disabled}
+                          onClick={() =>
+                            act("simulate_provider", {
+                              provider_status: s,
+                              evidence_id: crypto.randomUUID(),
+                              authoritative_at: new Date().toISOString(),
+                            })
+                          }
+                        >
+                          {label(s)}
+                        </Button>
+                      ),
+                    )}
+                  </div>
+                  <div className="coord-actions">
+                    <Button
+                      variant="secondary"
+                      disabled={disabled}
+                      onClick={() =>
+                        act("simulate_delivery", {
+                          delivery_status: "DELIVERED",
+                        })
+                      }
+                    >
+                      Simulate delivered messages
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      disabled={disabled}
+                      onClick={() =>
+                        act("simulate_delivery", { delivery_status: "FAILED" })
+                      }
+                    >
+                      Simulate delivery failure
+                    </Button>
+                  </div>
+                </details>
+              </section>
+            )}
             <section className="panel">
               <h2>Message delivery</h2>
               {data.communications.length ? (
