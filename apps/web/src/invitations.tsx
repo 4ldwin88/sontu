@@ -1,7 +1,12 @@
 /* oxlint-disable react/set-state-in-effect, react/only-export-components -- Auth and server projections are external state; this module shares its projection hook with Events. */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Button, TextField, StatusBadge } from "../../../packages/ui-web";
+import {
+  Button,
+  TextField,
+  StatusBadge,
+  EventImage,
+} from "../../../packages/ui-web";
 import { rpc, supabase } from "../../../packages/data/sontu";
 import { errorMessages } from "../../../packages/domain/coordination";
 import { SessionGate } from "./coordination";
@@ -95,25 +100,35 @@ export function SimpleEventCard({
       : `/my-events/${e.id}`;
   return (
     <div className="event-list-row">
-      <Link className="panel coord-event-row" to={to}>
-        {e.cover_key !== "none" && (
-          <img src={`images/${e.cover_key}.jpg`} alt="" />
-        )}
-        <div>
-          <StatusBadge>
-            {e.lifecycle === "CANCELLED"
-              ? "Cancelled"
-              : view === "Hosting"
-                ? "Hosting"
-                : e.commitment_state === "CONFIRMED"
-                  ? "Going"
-                  : "Invited"}
-          </StatusBadge>
-          <h2>{e.title || "Untitled event"}</h2>
-          <p>{when(e.starts_at, e.timezone)}</p>
-          <p className="muted">{e.venue_label}</p>
-        </div>
-      </Link>
+      <article className="event-card compact-square">
+        <Link className="event-card-link" to={to}>
+          {e.cover_key !== "none" ? (
+            <EventImage image={{ src: `images/${e.cover_key}.jpg`, alt: "" }} />
+          ) : (
+            <div
+              className="image-fallback"
+              role="img"
+              aria-label="No cover image"
+            >
+              No cover
+            </div>
+          )}
+          <div className="event-card-copy">
+            <StatusBadge>
+              {e.lifecycle === "CANCELLED"
+                ? "Cancelled"
+                : view === "Hosting"
+                  ? "Hosting"
+                  : e.commitment_state === "CONFIRMED"
+                    ? "Going"
+                    : "Invited"}
+            </StatusBadge>
+            <h3>{e.title || "Untitled event"}</h3>
+            <span className="event-date">{when(e.starts_at, e.timezone)}</span>
+            <p className="muted">{e.venue_label}</p>
+          </div>
+        </Link>
+      </article>
       {e.hosting && (
         <Link
           className="text-action"

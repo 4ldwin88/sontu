@@ -304,6 +304,9 @@ function Events() {
     : "Upcoming";
   const navigate = useNavigate();
   const collection = eventsForView(events, view);
+  const count = real.signed
+    ? forView(real.items, view).length
+    : collection.length;
   return (
     <main {...mainProps} className="events-page">
       <Tabs
@@ -334,8 +337,7 @@ function Events() {
           </p>
         </div>
         <span className="count">
-          {real.signed ? forView(real.items, view).length : collection.length}{" "}
-          events
+          {count} {count === 1 ? "event" : "events"}
         </span>
       </div>
       <div className="events-layout">
