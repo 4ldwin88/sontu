@@ -12,11 +12,9 @@ Draft mutation uses the same transaction, ownership, operation identity, expecte
 
 Publication makes the event active in the owner's workspace. It does not distribute invitations or publicly expose event facts. The new participant limit is configuration only until the invitation/commitment slice implements authoritative capacity enforcement.
 
-## Decision needed before 3B
+## Invitation decision — resolved
 
-For real private invitations, determine whether possession of a forwarded link is sufficient authority to respond as its named invitee, or whether that person must verify identity (without necessarily creating an account). The current Core Validation links deliberately use the first, low-assurance model for synthetic participants. UX private-access rules explicitly say a token is an access input, not proof of the person; later domain authority permits accountless low-consequence participation when policy permits. These do not select a real-invitation forwarding policy.
-
-Do not silently carry the synthetic bearer model into real protected invitations. Keep hosting owner-private and existing test response behavior unchanged until this decision. Invitation status, initial commitment and later reconfirmation must remain distinct. Slice 3C's consumer relationship projection follows 3B; an unverified email or display-name match must never claim an account relationship.
+The founder approved matching-recipient email verification without password or profile onboarding. Forwarding a named private link does not grant another person access. The later implementation section below records this approved rule and the separate email-delivery activation boundary.
 
 ## Verification
 
@@ -37,3 +35,5 @@ Verified email relationships and ownership project into Invited, Upcoming and Ho
 The email-code UI is built and tested against isolated Auth with captured local mail. Hosted email-code requests remain gated by `VITE_INVITATION_VERIFICATION_ENABLED` until SMTP, sender identity and both Auth verification templates are configured and verified. Local templates in `supabase/templates/verification.html` include the OTP; configuration must also be applied to hosted Magic Link and signup confirmation templates. No hosted Auth settings are silently changed by the local test config. Current hosted SMTP/template configuration has not been verified through the available connector.
 
 Supabase's default sender only delivers to project team addresses and is unsuitable for general invitees: https://supabase.com/docs/guides/auth/auth-smtp . Custom SMTP and a verified sender are required for external testers. The existing Sites owner-private gate also remains; external hosting access is activated only together with a working verification path. Do not claim real external invitation delivery or public test readiness before those steps.
+
+Verification update: 34 domain/PostgreSQL tests and 54 browser tests pass, including actual email-code issuance/capture/verification on isolated local Auth, wrong-code rejection, connected Events, acceptance, reconfirmation and revoked-link denial. Hosted verification with existing synthetic verified identities also proves concurrent last-place acceptance returns exactly one success. No hosted verification email was sent. CI evidence: https://github.com/4ldwin88/sontu/actions/runs/34707282665 .

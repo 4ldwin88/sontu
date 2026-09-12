@@ -48,12 +48,14 @@ function journal(key: string, value: unknown) {
 }
 const interrupted =
   "A previous request was interrupted. Retry the same request to recover its authoritative outcome.";
-const date = (value: string, zone = "America/Toronto") =>
-  new Intl.DateTimeFormat("en-CA", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: zone,
-  }).format(new Date(value));
+const date = (value: string | null, zone = "America/Toronto") =>
+  value
+    ? new Intl.DateTimeFormat("en-CA", {
+        dateStyle: "medium",
+        timeStyle: "short",
+        timeZone: zone,
+      }).format(new Date(value))
+    : "Schedule not set";
 const label = (s: string) =>
   s
     .toLowerCase()
