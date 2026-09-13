@@ -737,6 +737,28 @@ describe("reviewed published schedule and location", () => {
   });
 });
 
+describe("event-scoped team and role privacy", () => {
+  it("separates operational role, attendance and public badge visibility", async () => {
+    await asHost();
+    await sql("update auth.users set email='owner@sontu.test' where id=$1",[host]);
+    await sql("update auth.users set email='teammate@sontu.test',email_confirmed_at=now() where id=$1",[stranger]);
+    const added=(await sql<{r:any}>("select public.sontu_team_command('add_member',$1,null,$2,$3) r",[event,randomUUID(),JSON.stringify({email:"teammate@sontu.test",role:"VOLUNTEER",attends_event:true,public_visibility:"EVENT_TEAM"})]))[0].r;
+    expect(added.status).toBe("ready");
+    let team=(await sql<{r:any}>("select public.sontu_team_projection($1) r",[event]))[0].r;
+    expect(team.members[0]).toMatchObject({role:"VOLUNTEER",attends_event:true,public_visibility:"EVENT_TEAM"});
+    await sql("select public.sontu_team_command('update_member',$1,$2,$3,$4)",[event,added.item_id,randomUUID(),JSON.stringify({attends_event:false,public_visibility:"HIDDEN"})]);
+    team=(await sql<{r:any}>("select public.sontu_team_projection($1) r",[event]))[0].r;
+    expect(team.members[0]).toMatchObject({role:"VOLUNTEER",attends_event:false,public_visibility:"HIDDEN"});
+    const todo=(await sql<{r:any}>("select public.sontu_event_operations_command('add_todo',$1,null,$2,$3) r",[event,randomUUID(),JSON.stringify({title:"Set signs"})]))[0].r;
+    expect((await sql<{r:any}>("select public.sontu_assign_operation_item('todo',$1,$2,$3,$4) r",[event,todo.item_id,added.item_id,randomUUID()]))[0].r.status).toBe("ready");
+    expect((await sql<{r:any}>("select public.sontu_event_operations_projection($1) r",[event]))[0].r.todos.find((x:any)=>x.id===todo.item_id).assignee_team_member_id).toBe(added.item_id);
+    await asHost(stranger);
+    expect((await sql<{r:any}>("select public.sontu_team_projection($1) r",[event]))[0].r.error_code).toBe("UNAUTHORIZED");
+    expect((await sql<{r:any}>("select public.sontu_event_operations_projection($1) r",[event]))[0].r.status).toBe("ready");
+    await asHost();
+  });
+});
+
 describe("explicit beta dev notes", () => {
   it("keeps notes private to their author and rejects impersonation", async () => {
     await asHost();
