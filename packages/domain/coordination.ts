@@ -83,9 +83,13 @@ export interface HostProjection {
 export interface EventOperationsProjection {
   status: CommandStatus;
   error_code?: string;
-  todos: { id: string; title: string; due_at: string | null; state: "OPEN" | "DONE" }[];
-  resources: { id: string; label: string; quantity: number; state: "NEEDED" | "READY"; note: string | null }[];
+  todos: { id: string; title: string; due_at: string | null; state: "OPEN" | "DONE"; assignee_team_member_id: string | null }[];
+  resources: { id: string; label: string; quantity: number; state: "NEEDED" | "READY"; note: string | null; assignee_team_member_id: string | null }[];
 }
+export type TeamRole = "CO_HOST" | "EVENT_MANAGER" | "CHECK_IN_STAFF" | "VOLUNTEER" | "PHOTOGRAPHER";
+export type TeamVisibility = "EVENT_TEAM" | "PUBLIC_ROLE" | "HIDDEN";
+export interface TeamMember { id: string; user_id: string; email: string; display_name: string; role: TeamRole; attends_event: boolean; public_visibility: TeamVisibility }
+export interface TeamProjection { status: CommandStatus; error_code?: string; members: TeamMember[] }
 export function settlement(responses: ResponseState[]) {
   const terminal = responses.filter(
     (s) => s === "RECONFIRMED" || s === "RELEASED_DECLINED",
