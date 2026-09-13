@@ -759,6 +759,27 @@ describe("event-scoped team and role privacy", () => {
   });
 });
 
+describe("auditable event check-in", () => {
+  it("admits once, reports duplicates, rejects wrong-event use and permits check-in staff", async () => {
+    await asHost();
+    const created=await command("create_draft",{timezone:"America/Toronto"}); event=created.event_id; version=created.current_version;
+    await command("save_draft",{title:"Check-in test",description:"Admission test",starts_at:"2030-10-01T22:00:00Z",ends_at:"2030-10-02T00:00:00Z",timezone:"America/Toronto",venue_label:"Door A",cover_key:"sunset",capacity:"20"});
+    await command("publish",{confirmed:true});
+    const guest=randomUUID(); await sql("insert into sontu_private.event_participants(id,event_instance_id,display_name,commitment_state) values($1,$2,'Taylor Guest','CONFIRMED')",[guest,event]);
+    await sql("update auth.users set email='teammate@sontu.test' where id=$1",[stranger]);
+    await sql("select public.sontu_team_command('add_member',$1,null,$2,$3)",[event,randomUUID(),JSON.stringify({email:"teammate@sontu.test",role:"CHECK_IN_STAFF",attends_event:false,public_visibility:"HIDDEN"})]);
+    await asHost(stranger);
+    expect((await sql<{r:any}>("select public.sontu_check_in_projection($1) r",[event]))[0].r.counts).toEqual({eligible:1,admitted:0});
+    const first=(await sql<{r:any}>("select public.sontu_check_in_command($1,$2,$3) r",[event,guest,randomUUID()]))[0].r;
+    expect(first.result).toBe("ADMITTED");
+    const duplicate=(await sql<{r:any}>("select public.sontu_check_in_command($1,$2,$3) r",[event,guest,randomUUID()]))[0].r;
+    expect(duplicate.result).toBe("ALREADY_USED");
+    expect((await sql<{r:any}>("select public.sontu_check_in_command($1,$2,$3) r",[event,randomUUID(),randomUUID()]))[0].r.result).toBe("INVALID");
+    expect((await sql<{count:number}>("select count(*)::int count from sontu_private.audit_entries where event_instance_id=$1 and audit_kind='CHECK_IN_ATTEMPT'",[event]))[0].count).toBe(3);
+    await asHost();
+  });
+});
+
 describe("explicit beta dev notes", () => {
   it("keeps notes private to their author and rejects impersonation", async () => {
     await asHost();
