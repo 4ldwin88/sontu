@@ -778,6 +778,20 @@ describe("auditable event check-in", () => {
     expect((await sql<{count:number}>("select count(*)::int count from sontu_private.audit_entries where event_instance_id=$1 and audit_kind='CHECK_IN_ATTEMPT'",[event]))[0].count).toBe(3);
     await asHost();
   });
+  it("blocks premature closeout and preserves an honest attendance snapshot", async () => {
+    await asHost();
+    const todo=(await sql<{r:any}>("select public.sontu_event_operations_command('add_todo',$1,null,$2,$3) r",[event,randomUUID(),JSON.stringify({title:"Final sweep"})]))[0].r;
+    expect((await sql<{r:any}>("select public.sontu_close_event($1,$2,true) r",[event,randomUUID()]))[0].r.error_code).toBe("OPEN_TODOS");
+    await sql("select public.sontu_event_operations_command('set_todo_state',$1,$2,$3,$4)",[event,todo.item_id,randomUUID(),JSON.stringify({state:"DONE"})]);
+    const op=randomUUID();
+    const closed=(await sql<{r:any}>("select public.sontu_close_event($1,$2,true) r",[event,op]))[0].r;
+    expect(closed).toMatchObject({status:"ready",lifecycle:"CLOSED"});
+    expect((await sql<{r:any}>("select public.sontu_close_event($1,$2,true) r",[event,op]))[0].r).toEqual(closed);
+    const results=(await sql<{r:any}>("select public.sontu_results_projection($1) r",[event]))[0].r;
+    expect(results.lifecycle).toBe("CLOSED");
+    expect(results.closeout).toMatchObject({confirmed:1,admitted:1,attendance_unknown:0});
+    expect((await projection()).event.lifecycle).toBe("CLOSED");
+  });
 });
 
 describe("explicit beta dev notes", () => {
