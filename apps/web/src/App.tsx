@@ -18,6 +18,7 @@ import { Creation } from "./creation";
 import {
   CoreEntry,
   CoreHost,
+  CheckInWorkspace,
   ParticipantResponse,
   CoreSignOut,
 } from "./coordination";
@@ -1105,6 +1106,7 @@ export default function App() {
         <Route path="/create/:eventId" element={<Creation />} />
         <Route path="/core" element={<CoreEntry />} />
         <Route path="/core/events/:eventId/host" element={<CoreHost />} />
+        <Route path="/core/events/:eventId/check-in" element={<CheckInWorkspace />} />
         <Route path="/respond/:token" element={<ParticipantResponse />} />
         <Route path="/events/:eventId/host" element={<HostWorkspace />} />
         <Route path="/host/events/:eventId" element={<HostWorkspace />} />
