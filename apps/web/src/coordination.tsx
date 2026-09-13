@@ -25,12 +25,14 @@ import {
   createParticipantToken,
   checkInParticipant,
   checkInRead,
+  closeEvent,
   eventOperationsCommand,
   eventOperationsRead,
   assignOperationItem,
   hostCommand,
   hostRead,
   rpc,
+  resultsRead,
   supabase,
   teamCommand,
   teamRead,
@@ -45,6 +47,7 @@ import type {
   CommandResult,
   EventOperationsProjection,
   CheckInProjection,
+  EventResultsProjection,
   TeamMember,
   TeamProjection,
 } from "../../../packages/domain/coordination";
@@ -406,7 +409,7 @@ function HostContent({ id }: { id: string }) {
   };
   const nav = (
     <nav className="workspace-nav" aria-label="Event workspace modules">
-      {["overview", "participants", "team", "todo", "resources", "check-in", "history"].map((s) => (
+      {["overview", "participants", "team", "todo", "resources", "check-in", "results", "history"].map((s) => (
         <button
           key={s}
           aria-current={section === s ? "page" : undefined}
@@ -1082,6 +1085,7 @@ function HostContent({ id }: { id: string }) {
         {section === "resources" && <EventOperations eventId={id} kind="resources" />}
         {section === "team" && <TeamPanel eventId={id} />}
         {section === "check-in" && <CheckInPanel eventId={id} />}
+        {section === "results" && <EventResults eventId={id} onClosed={load} />}
         {modal === "change_schedule" && editSource && (
           <ScheduleEditor
             version={editSource.version}
@@ -1358,6 +1362,19 @@ interface ParticipantView {
     response: string | null;
     actionable: boolean;
   };
+}
+function EventResults({eventId,onClosed}:{eventId:string;onClosed:()=>Promise<void>}) {
+ const [data,setData]=useState<EventResultsProjection|null>(null); const [busy,setBusy]=useState(false); const [error,setError]=useState(""); const [success,setSuccess]=useState("");
+ const load=useCallback(async()=>{try{const r=await resultsRead(eventId);if(r.status!=="ready")throw new Error();setData(r);setError("");}catch{setError("Unable to load the event closeout status.");}},[eventId]); useEffect(()=>{void load();},[load]);
+ const blockers=data?data.summary.open_todos+data.summary.needed_resources+data.summary.unresolved_obligations:0;
+ const finish=async()=>{if(!data||busy||blockers>0||!confirm("Complete this event and freeze its operational results? This cannot be undone."))return;setBusy(true);setError("");try{const r=await closeEvent(eventId);if(r.status!=="ready"){const messages:Record<string,string>={UNRESOLVED_OBLIGATIONS:"Resolve or explicitly disposition every open obligation first.",OPEN_TODOS:"Complete the remaining event tasks first.",NEEDED_RESOURCES:"Resolve the remaining needed resources first."};setError(messages[r.error_code??""]??"The event could not be completed.");return;}setSuccess("Event completed. Its operational results are now preserved in history.");await Promise.all([load(),onClosed()]);}catch{setError("The completion result is unknown. Refresh before trying again.");}finally{setBusy(false);}};
+ return <section className="panel event-operations" aria-labelledby="results-heading"><div className="section-heading"><div><span className="eyebrow">Operational outcome</span><h2 id="results-heading">Results &amp; Closeout</h2><p className="muted">Reconcile the event before completing it. Unverified attendance remains unknown—not quietly rewritten as a no-show.</p></div>{data&&<StatusBadge>{label(data.lifecycle)}</StatusBadge>}</div>
+  {error&&<Feedback message={error} onRetry={()=>void load()}/>} {success&&<p className="coord-success" role="status">{success}</p>} {!data&&!error&&<p role="status">Loading results…</p>}
+  {data&&<><div className="metric-grid"><article><strong>{data.summary.confirmed}</strong><span>Confirmed</span></article><article><strong>{data.summary.admitted}</strong><span>Admitted</span></article><article><strong>{data.summary.attendance_unknown}</strong><span>Attendance unknown</span></article><article><strong>{data.summary.declined_or_withdrawn}</strong><span>Declined or withdrawn</span></article></div>
+   <h3>Closeout checks</h3><ul className="coord-history"><li><strong>{data.summary.unresolved_obligations===0?"Ready":"Blocked"} · Obligations</strong><p>{data.summary.unresolved_obligations} unresolved</p></li><li><strong>{data.summary.open_todos===0?"Ready":"Blocked"} · To Do</strong><p>{data.summary.open_todos} open</p></li><li><strong>{data.summary.needed_resources===0?"Ready":"Blocked"} · Resources</strong><p>{data.summary.needed_resources} still needed</p></li></ul>
+   {data.closeout?<div className="coord-feedback"><strong>Completed {date(data.closeout.closed_at)}</strong><p>Snapshot preserved: {data.closeout.admitted} admitted; {data.closeout.attendance_unknown} attendance unknown.</p></div>:<Button disabled={busy||blockers>0||data.lifecycle!=="PUBLISHED"} onClick={()=>void finish()}>{busy?"Completing…":"Complete event"}</Button>}
+  </>}
+ </section>;
 }
 export function CheckInWorkspace() {
   const {eventId}=useParams();
