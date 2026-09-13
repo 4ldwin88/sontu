@@ -291,6 +291,7 @@ test("host resumes a draft and publishes only reviewed valid event details", asy
   await expect(page.getByText(/Ready · Check the garage/)).toBeVisible();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await page.reload();
+  await modules.getByRole("button", { name: "Resources", exact: true }).click();
   await expect(page.getByText("Folding tables · 2", { exact: true })).toBeVisible();
   await modules.getByRole("button", { name: "Overview", exact: true }).click();
   await page.getByRole("button", { name: "Cancel event", exact: true }).click();
