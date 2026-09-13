@@ -90,6 +90,14 @@ export type TeamRole = "CO_HOST" | "EVENT_MANAGER" | "CHECK_IN_STAFF" | "VOLUNTE
 export type TeamVisibility = "EVENT_TEAM" | "PUBLIC_ROLE" | "HIDDEN";
 export interface TeamMember { id: string; user_id: string; email: string; display_name: string; role: TeamRole; attends_event: boolean; public_visibility: TeamVisibility }
 export interface TeamProjection { status: CommandStatus; error_code?: string; members: TeamMember[] }
+export interface CheckInProjection {
+  status: CommandStatus;
+  error_code?: string;
+  event: { id: string; lifecycle: string; title: string; starts_at: string; timezone: string };
+  counts: { eligible: number; admitted: number };
+  participants: { id: string; display_name: string; commitment_state: string; checked_in_at: string | null }[];
+}
+export interface CheckInResult extends CommandResult { result?: "ADMITTED" | "ALREADY_USED" | "WRONG_EVENT" | "INVALID" | "UNABLE_TO_VERIFY" }
 export function settlement(responses: ResponseState[]) {
   const terminal = responses.filter(
     (s) => s === "RECONFIRMED" || s === "RELEASED_DECLINED",
