@@ -70,7 +70,7 @@ const date = (value: string | null, zone = "America/Toronto") =>
       }).format(new Date(value))
     : "Schedule not set";
 const label = (s: string) =>
-  s
+  s === "todo" ? "To Do" : s
     .toLowerCase()
     .replaceAll("_", " ")
     .replace(/^./, (x) => x.toUpperCase());

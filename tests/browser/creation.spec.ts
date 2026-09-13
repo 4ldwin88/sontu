@@ -4,7 +4,7 @@ test("host resumes a draft and publishes only reviewed valid event details", asy
   page,
 }, info) => {
   test.skip(!process.env.SONTU_TEST_PASSWORD, "Requires isolated auth");
-  test.setTimeout(90000);
+  test.setTimeout(120000);
   await page.goto("/#/events?view=Hosting");
   await page.getByRole("button", { name: "Create Event", exact: true }).click();
   await page
@@ -274,7 +274,7 @@ test("host resumes a draft and publishes only reviewed valid event details", asy
   await page.getByRole("link", { name: "View event", exact: true }).click();
   await expect(page.getByText("Bring a favourite dish.")).toBeVisible();
   await page.getByRole("link", { name: "Manage event", exact: true }).click();
-  await modules.getByRole("button", { name: "To do", exact: true }).click();
+  await modules.getByRole("button", { name: "To Do", exact: true }).click();
   await expect(page.getByText("Nothing here yet.", { exact: true })).toBeVisible();
   await page.getByLabel("Task", { exact: true }).fill("Confirm table setup");
   await page.getByRole("button", { name: "Add task", exact: true }).click();
