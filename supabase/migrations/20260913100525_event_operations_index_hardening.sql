@@ -1,0 +1,3 @@
+create index event_check_ins_participant_idx on sontu_private.event_check_ins(participant_id);
+create index event_operations_requests_actor_idx on sontu_private.event_operations_requests(actor_user_id);
+create index event_operations_requests_event_idx on sontu_private.event_operations_requests(event_instance_id);
