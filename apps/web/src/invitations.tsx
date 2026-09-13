@@ -1,6 +1,7 @@
+import { ChevronLeft } from "lucide-react";
 /* oxlint-disable react/set-state-in-effect, react/only-export-components -- Auth and server projections are external state; this module shares its projection hook with Events. */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useLocation } from "react-router-dom";
 import {
   Button,
   TextField,
@@ -14,6 +15,8 @@ export interface MyEvent {
   id: string;
   title: string;
   starts_at: string | null;
+  ends_at: string | null;
+  description: string;
   timezone: string;
   venue_label: string;
   cover_key: string;
@@ -22,7 +25,7 @@ export interface MyEvent {
   commitment_state: string | null;
   invitation_state: string | null;
 }
-const when = (value: string | null, zone: string) =>
+export const when = (value: string | null, zone: string) =>
   value
     ? new Intl.DateTimeFormat("en-CA", {
         dateStyle: "medium",
@@ -80,16 +83,52 @@ export function forView(items: MyEvent[], view: string) {
     view === "Hosting"
       ? e.hosting
       : view === "Upcoming"
-        ? e.commitment_state === "CONFIRMED"
+        ? e.lifecycle === "PUBLISHED" &&
+          (!e.ends_at || Date.parse(e.ends_at) > Date.now()) &&
+          (e.hosting || e.commitment_state === "CONFIRMED")
         : view === "Invited"
           ? e.commitment_state === "NO_COMMITMENT" &&
             e.invitation_state !== "DECLINED"
           : false,
   );
 }
+export function hostingGroup(e: MyEvent, now = Date.now()): string {
+  if (e.lifecycle === "DRAFT") return "Drafts";
+  if (
+    e.lifecycle !== "PUBLISHED" ||
+    (e.ends_at && Date.parse(e.ends_at) <= now)
+  )
+    return "History & cancelled";
+  if (e.starts_at && Date.parse(e.starts_at) <= now) return "In progress";
+  return "Published & upcoming";
+}
+export function HostingCollection({ items }: { items: MyEvent[] }) {
+  return (
+    <>
+      {[
+        "Drafts",
+        "Published & upcoming",
+        "In progress",
+        "History & cancelled",
+      ].map((group) => {
+        const events = items.filter((e) => hostingGroup(e) === group);
+        return events.length ? (
+          <section className="hosting-group" key={group} aria-label={group}>
+            <h2>
+              {group} <span className="small muted">({events.length})</span>
+            </h2>
+            {events.map((event) => (
+              <SimpleEventCard key={event.id} event={event} view="Hosting" />
+            ))}
+          </section>
+        ) : null;
+      })}
+    </>
+  );
+}
 export function SimpleEventCard({
   event: e,
-  view,
+  view: _view,
 }: {
   event: MyEvent;
   view: string;
@@ -117,7 +156,7 @@ export function SimpleEventCard({
             <StatusBadge>
               {e.lifecycle === "CANCELLED"
                 ? "Cancelled"
-                : view === "Hosting"
+                : e.hosting
                   ? "Hosting"
                   : e.commitment_state === "CONFIRMED"
                     ? "Going"
@@ -145,6 +184,8 @@ export function SimpleEventCard({
   );
 }
 export function EmailVerification({ onVerified }: { onVerified: () => void }) {
+  const location = useLocation();
+  const accountNext = encodeURIComponent(location.pathname + location.search);
   const [email, setEmail] = useState(""),
     [code, setCode] = useState(""),
     [sent, setSent] = useState(false),
@@ -155,18 +196,25 @@ export function EmailVerification({ onVerified }: { onVerified: () => void }) {
       <section className="panel">
         <h1>Private invitation</h1>
         <p>
-          Email verification is not available yet. The host needs to finish the
-          email-delivery setup before new guests can verify their invitations.
+          Use the email address the host invited. Sign in with an existing
+          verified account, or create an account and confirm your email. Email
+          delivery may be limited during the beta.
         </p>
         <p>Your event details remain protected.</p>
-        <Link className="text-action" to="/core">
-          Already have a test login?
+        <Link className="button primary" to={"/sign-in?next=" + accountNext}>
+          Sign in
+        </Link>
+        <Link className="button secondary" to={"/sign-up?next=" + accountNext}>
+          Create account
         </Link>
       </section>
     );
   return (
     <section className="panel coord-auth">
       <h1>Verify your invitation</h1>
+      <Link className="text-action" to={"/sign-in?next=" + accountNext}>
+        Sign in with your account
+      </Link>
       <p>
         Use the email address the host invited. No password or profile setup is
         needed.
@@ -421,6 +469,7 @@ function InvitationContent({
           )}
           <h1>{e.title}</h1>
           <p>{when(e.starts_at, e.timezone)}</p>
+          <p>Ends {when(e.ends_at, e.timezone)}</p>
           <p>
             {e.venue_label} · {e.timezone}
           </p>
@@ -433,7 +482,7 @@ function InvitationContent({
               <p>Responses are closed for this event.</p>
             ) : p.reconfirmation_required ? (
               <>
-                <p>The time changed. Can you still make it?</p>
+                <p>The event details changed. Can you still make it?</p>
                 <div className="coord-actions">
                   <Button
                     disabled={busy || unknown}
@@ -524,26 +573,67 @@ export function ConnectedEventHub() {
   const state = useMyEvents();
   const event = state.items.find((e) => e.id === eventId);
   return (
-    <main id="main" tabIndex={-1} className="coord-response">
+    <main id="main" tabIndex={-1} className="coord-response connected-hub">
       <SessionGate>
         {state.loading ? (
           <p role="status">Loading event…</p>
         ) : state.error ? (
-          <p role="alert">{state.error}</p>
+          <div role="alert">
+            <p>{state.error}</p>
+            <Button onClick={state.reload}>Retry</Button>
+          </div>
         ) : event?.hosting ? (
           <>
-            <span className="eyebrow">Your event</span>
-            {event.cover_key !== "none" && (
-              <img
-                className="coord-response-image"
-                src={`images/${event.cover_key}.jpg`}
-                alt=""
-              />
+            <Link
+              to="/events?view=Hosting"
+              className="icon-button"
+              aria-label="Back to Events"
+            >
+              <ChevronLeft size={26} />
+            </Link>
+            <div className="connected-hub-identity">
+              <span className="eyebrow">Your event</span>
+              {event.cover_key !== "none" && (
+                <img
+                  className="coord-response-image"
+                  src={`images/${event.cover_key}.jpg`}
+                  alt=""
+                />
+              )}
+              <h1>{event.title || "Untitled event"}</h1>
+              <div className="coord-actions">
+                <StatusBadge tone="info">You’re hosting</StatusBadge>
+                <StatusBadge>
+                  {event.lifecycle === "CANCELLED"
+                    ? "Cancelled"
+                    : event.lifecycle === "DRAFT"
+                      ? "Draft"
+                      : hostingGroup(event) === "History & cancelled"
+                        ? "Ended"
+                        : "Published"}
+                </StatusBadge>
+              </div>
+            </div>
+            {event.lifecycle === "CANCELLED" && (
+              <p className="coord-feedback" role="status">
+                This event is cancelled. New participation is unavailable.
+              </p>
             )}
-            <h1>{event.title || "Untitled event"}</h1>
-            <p>{when(event.starts_at, event.timezone)}</p>
-            <p>{event.venue_label}</p>
-            <StatusBadge>{event.lifecycle}</StatusBadge>
+            <section className="panel">
+              <h2>When & where</h2>
+              <p>{when(event.starts_at, event.timezone)}</p>
+              {event.ends_at && (
+                <p>Ends {when(event.ends_at, event.timezone)}</p>
+              )}
+              <p className="small muted">{event.timezone}</p>
+              <p>{event.venue_label || "Location to be decided"}</p>
+            </section>
+            <section className="panel">
+              <h2>About this event</h2>
+              <p className="event-description">
+                {event.description || "No description yet."}
+              </p>
+            </section>
             <p>
               <Link
                 className="button primary"

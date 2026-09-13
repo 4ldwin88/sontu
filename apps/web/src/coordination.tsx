@@ -1,7 +1,17 @@
+import { ChevronLeft } from "lucide-react";
+import { instantForWall, wallTime } from "../../../packages/domain/draft";
+import { useAccount } from "./account-state";
+import { ScheduleEditor } from "./schedule-editor";
 /* oxlint-disable react/set-state-in-effect -- Effects initiate asynchronous reads from the external backend. */
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import {
+  Link,
+  Navigate,
+  useLocation,
+  useNavigate,
+  useParams,
+} from "react-router-dom";
 import {
   ArrowRight,
   CalendarDays,
@@ -13,10 +23,19 @@ import { Button, StatusBadge, TextField } from "../../../packages/ui-web";
 import { FocusedWorkspaceShell, WidePortalShell, Modal } from "./shells";
 import {
   createParticipantToken,
+  checkInParticipant,
+  checkInRead,
+  closeEvent,
+  eventOperationsCommand,
+  eventOperationsRead,
+  assignOperationItem,
   hostCommand,
   hostRead,
   rpc,
+  resultsRead,
   supabase,
+  teamCommand,
+  teamRead,
 } from "../../../packages/data/sontu";
 import {
   errorMessages,
@@ -26,6 +45,11 @@ import {
 import type {
   HostProjection,
   CommandResult,
+  EventOperationsProjection,
+  CheckInProjection,
+  EventResultsProjection,
+  TeamMember,
+  TeamProjection,
 } from "../../../packages/domain/coordination";
 
 // A pending request is recovery metadata, never authoritative event state.
@@ -57,7 +81,7 @@ const date = (value: string | null, zone = "America/Toronto") =>
       }).format(new Date(value))
     : "Schedule not set";
 const label = (s: string) =>
-  s
+  s === "todo" ? "To Do" : s
     .toLowerCase()
     .replaceAll("_", " ")
     .replace(/^./, (x) => x.toUpperCase());
@@ -83,73 +107,35 @@ function Feedback({
   );
 }
 export function SessionGate({ children }: { children: ReactNode }) {
-  const [signed, setSigned] = useState<boolean | null>(null),
-    [email, setEmail] = useState(""),
-    [password, setPassword] = useState(""),
-    [error, setError] = useState(""),
-    [busy, setBusy] = useState(false);
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setSigned(!!data.session));
-    const { data } = supabase.auth.onAuthStateChange((_event, session) =>
-      setSigned(!!session),
-    );
-    return () => data.subscription.unsubscribe();
-  }, []);
-  if (signed === null)
+  const account = useAccount(),
+    location = useLocation();
+  if (account.checking)
     return (
-      <div className="panel" role="status">
+      <p role="status" className="panel">
         Checking your session…
-      </div>
-    );
-  if (signed) return <>{children}</>;
-  return (
-    <section className="panel coord-auth">
-      <span className="eyebrow">Your host workspace</span>
-      <h1>Welcome back.</h1>
-      <p>
-        Sign in to manage your Core Validation events. The design preview
-        remains available without signing in.
       </p>
-      <form
-        onSubmit={async (e) => {
-          e.preventDefault();
-          setBusy(true);
-          setError("");
-          try {
-            const { error } = await supabase.auth.signInWithPassword({
-              email,
-              password,
-            });
-            if (error)
-              setError("Could not sign in. Check your email and password.");
-          } catch {
-            setError("Unable to reach sign-in. Please retry.");
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        <TextField
-          label="Email"
-          type="email"
-          autoComplete="username"
-          required
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-        />
-        <TextField
-          label="Password"
-          type="password"
-          autoComplete="current-password"
-          required
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-        />
-        {error && <Feedback message={error} />}
-        <Button disabled={busy}>{busy ? "Signing in…" : "Sign in"}</Button>
-      </form>
-    </section>
-  );
+    );
+  if (!account.session)
+    return (
+      <Navigate
+        to={
+          "/sign-in?next=" +
+          encodeURIComponent(location.pathname + location.search)
+        }
+        replace
+      />
+    );
+  if (!account.profile)
+    return (
+      <Navigate
+        to={
+          "/account/setup?next=" +
+          encodeURIComponent(location.pathname + location.search)
+        }
+        replace
+      />
+    );
+  return <>{children}</>;
 }
 export function CoreEntry() {
   return (
@@ -291,7 +277,7 @@ interface Action {
 export function CoreHost() {
   const { eventId } = useParams();
   return (
-    <FocusedWorkspaceShell title="Host Workspace" back="/core">
+    <FocusedWorkspaceShell title="Host Workspace" back="/events?view=Hosting">
       <SessionGate>
         <HostContent key={eventId} id={eventId!} />
       </SessionGate>
@@ -299,8 +285,12 @@ export function CoreHost() {
   );
 }
 function HostContent({ id }: { id: string }) {
+  const account = useAccount();
+  const [editSource, setEditSource] = useState<HostProjection | null>(null);
   const [data, setData] = useState<HostProjection | null>(null),
     [section, setSection] = useState("overview"),
+    [guestQuery, setGuestQuery] = useState(""),
+    [guestFilter, setGuestFilter] = useState("all"),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(() =>
       recover<Action>(id) ? interrupted : "",
@@ -308,6 +298,7 @@ function HostContent({ id }: { id: string }) {
     [unknown, setUnknown] = useState(() => !!recover<Action>(id)),
     [success, setSuccess] = useState(""),
     [modal, setModal] = useState<string | null>(null),
+    [copyMessage, setCopyMessage] = useState(""),
     [inviteName, setInviteName] = useState(""),
     [inviteEmail, setInviteEmail] = useState(""),
     [reason, setReason] = useState(""),
@@ -375,11 +366,18 @@ function HostContent({ id }: { id: string }) {
               r.token,
           });
         }
-      } else
+      } else {
         setError(
           errorMessages[r.error_code ?? ""] ??
             "The action could not be completed.",
         );
+        if (r.error_code === "STALE_CONFLICT") {
+          await load();
+          setError(
+            "This event changed while you were editing. Close this form and reopen it to review the latest details.",
+          );
+        }
+      }
     } catch {
       setUnknown(true);
       setError(
@@ -399,21 +397,19 @@ function HostContent({ id }: { id: string }) {
       });
   };
   const open = (kind: string) => {
+    setError("");
+    setSuccess("");
+    setEditSource(data);
     setReason("");
     setModal(kind);
     if (data) {
       setDescription(data.version.description);
-      const start = new Date(data.version.starts_at);
-      setTime(
-        new Date(start.getTime() - start.getTimezoneOffset() * 60000)
-          .toISOString()
-          .slice(0, 16),
-      );
+      setTime(wallTime(data.version.starts_at, data.version.timezone));
     }
   };
   const nav = (
     <nav className="workspace-nav" aria-label="Event workspace modules">
-      {["overview", "participants", "history"].map((s) => (
+      {["overview", "participants", "team", "todo", "resources", "check-in", "results", "history"].map((s) => (
         <button
           key={s}
           aria-current={section === s ? "page" : undefined}
@@ -450,11 +446,48 @@ function HostContent({ id }: { id: string }) {
       ? data.provider.applicable_event_version_id
       : data.version.id,
   );
+  const hostName =
+    account.profile?.display_name || account.profile?.first_name || "You";
+  const hostGoing =
+    data.event.event_kind === "SIMPLE" && data.event.lifecycle === "PUBLISHED";
+  const isSelf = (p: { invitation_email?: string }) =>
+    data.event.event_kind === "SIMPLE" &&
+    !!p.invitation_email &&
+    p.invitation_email.toLowerCase() ===
+      account.session?.user.email?.toLowerCase();
+  const showHost =
+    data.event.event_kind === "SIMPLE" &&
+    (guestFilter === "all" || (guestFilter === "attending" && hostGoing)) &&
+    `${hostName} host`.toLowerCase().includes(guestQuery.trim().toLowerCase());
+  const visibleGuests = data.participants.filter((p) => {
+    if (isSelf(p)) return false;
+    const matches = `${p.display_name} ${p.invitation_email ?? ""}`
+      .toLowerCase()
+      .includes(guestQuery.trim().toLowerCase());
+    return (
+      matches &&
+      (guestFilter === "all" ||
+        (guestFilter === "attending" && p.commitment_state === "CONFIRMED") ||
+        (guestFilter === "pending" &&
+          p.invitation_state === "CREATED" &&
+          p.commitment_state === "NO_COMMITMENT" &&
+          !p.link_revoked) ||
+        (guestFilter === "declined" &&
+          (p.invitation_state === "DECLINED" ||
+            p.commitment_state === "RELEASED_DECLINED")))
+    );
+  });
   const disabled = busy || unknown;
   return (
-    <main id="main" tabIndex={-1} className="host-main">
+    <main
+      id="main"
+      tabIndex={-1}
+      className={`host-main ${data.event.event_kind === "SIMPLE" ? "simple-host" : ""}`}
+    >
       <WidePortalShell nav={nav}>
-        <header className="workspace-event coord-hero">
+        <header
+          className={`workspace-event coord-hero${data.version.cover_key === "none" ? " no-cover" : ""}`}
+        >
           {data.version.cover_key !== "none" && (
             <img
               src={`images/${data.version.cover_key ?? "food"}.jpg`}
@@ -478,10 +511,22 @@ function HostContent({ id }: { id: string }) {
               Version {data.event.current_version_number}
             </span>
           </div>
-          <Button variant="secondary" onClick={() => void load()}>
-            <RefreshCw size={16} />
-            Refresh status
-          </Button>
+          <div className="host-header-actions">
+            {data.event.event_kind === "SIMPLE" && (
+              <Link className="button secondary" to={`/my-events/${id}`}>
+                View event
+              </Link>
+            )}
+            <button
+              type="button"
+              className="icon-button host-refresh"
+              aria-label="Refresh status"
+              title="Refresh status"
+              onClick={() => void load()}
+            >
+              <RefreshCw size={20} />
+            </button>
+          </div>
         </header>
         <div className="compact-workspace-nav">{nav}</div>
         {error && (
@@ -510,6 +555,106 @@ function HostContent({ id }: { id: string }) {
         )}
         {section === "overview" && (
           <>
+            {data.event.event_kind === "SIMPLE" && (
+              <>
+                <section
+                  className="host-status-strip"
+                  aria-label="Event status"
+                >
+                  <CalendarDays size={24} />
+                  <div>
+                    <span className="small muted">Event status</span>
+                    <strong>
+                      {unknown
+                        ? "Update unconfirmed"
+                        : data.event.lifecycle === "CANCELLED"
+                          ? "Cancelled"
+                          : data.suggestion?.suggestion_state === "SUGGESTED" ||
+                              (c && aggregate.unresolved > 0)
+                            ? "Needs your attention"
+                            : label(data.event.lifecycle)}
+                    </strong>
+                  </div>
+                </section>
+                <section
+                  className="host-guest-summary"
+                  aria-label="Guest summary"
+                >
+                  <div className="section-heading">
+                    <h2>Key stats</h2>
+                    <button
+                      className="text-action"
+                      onClick={() => setSection("participants")}
+                    >
+                      Manage guests
+                    </button>
+                  </div>
+                  <div className="host-stat-grid">
+                    <div>
+                      <CheckCircle2 />
+                      <strong>
+                        {data.participants.filter(
+                          (p) =>
+                            p.commitment_state === "CONFIRMED" && !isSelf(p),
+                        ).length + (hostGoing ? 1 : 0)}
+                      </strong>
+                      <span>Going</span>
+                    </div>
+                    <div>
+                      <Clock3 />
+                      <strong>
+                        {
+                          data.participants.filter(
+                            (p) =>
+                              p.invitation_state === "CREATED" &&
+                              p.commitment_state === "NO_COMMITMENT" &&
+                              !p.link_revoked,
+                          ).length
+                        }
+                      </strong>
+                      <span>Awaiting response</span>
+                    </div>
+                    <div>
+                      <ArrowRight />
+                      <strong>
+                        {
+                          data.participants.filter(
+                            (p) =>
+                              p.invitation_state === "DECLINED" ||
+                              p.commitment_state === "RELEASED_DECLINED",
+                          ).length
+                        }
+                      </strong>
+                      <span>Declined / withdrawn</span>
+                    </div>
+                  </div>
+                </section>
+                <section className="host-next" aria-label="Next up">
+                  <h2>Next up</h2>
+                  <button
+                    className="host-next-action"
+                    onClick={() => setSection("participants")}
+                  >
+                    <span className="host-action-icon">
+                      <ArrowRight />
+                    </span>
+                    <span>
+                      <strong>
+                        {data.participants.length
+                          ? "Review your guest list"
+                          : "Bring people together"}
+                      </strong>
+                      <small>
+                        {data.participants.length
+                          ? "See responses and manage invitations"
+                          : "Create a private invitation link"}
+                      </small>
+                    </span>
+                    <ArrowRight size={18} />
+                  </button>
+                </section>
+              </>
+            )}
             <div className="coord-summary">
               <section className="panel">
                 <CalendarDays />
@@ -532,9 +677,17 @@ function HostContent({ id }: { id: string }) {
                       <>
                         <Button
                           disabled={disabled}
-                          onClick={() => open("change_time")}
+                          onClick={() =>
+                            open(
+                              data.event.event_kind === "SIMPLE"
+                                ? "change_schedule"
+                                : "change_time",
+                            )
+                          }
                         >
-                          Change start time
+                          {data.event.event_kind === "SIMPLE"
+                            ? "Edit schedule & location"
+                            : "Change start time"}
                         </Button>
                         <Button
                           disabled={disabled}
@@ -548,87 +701,89 @@ function HostContent({ id }: { id: string }) {
                   )}
                 </div>
               </section>
-              <section className="panel">
-                <Clock3 />
-                <h2>Participant responses</h2>
-                {c ? (
-                  <>
-                    <strong className="coord-number">
-                      {aggregate.terminal} / {aggregate.total}
-                    </strong>
-                    <p>
-                      terminal responses · {aggregate.unresolved} awaiting
-                      response
-                    </p>
-                    <StatusBadge
-                      tone={
-                        c.disposition === "RESOLVED" ? "success" : "warning"
-                      }
-                    >
-                      {label(c.disposition)}
-                    </StatusBadge>
-                    {c.predecessor_case_id && (
-                      <p className="small muted">
-                        Reopened for a newer time. Earlier responses remain in
-                        history.
+              {(data.event.event_kind !== "SIMPLE" || c || data.suggestion) && (
+                <section className="panel">
+                  <Clock3 />
+                  <h2>Participant responses</h2>
+                  {c ? (
+                    <>
+                      <strong className="coord-number">
+                        {aggregate.terminal} / {aggregate.total}
+                      </strong>
+                      <p>
+                        terminal responses · {aggregate.unresolved} awaiting
+                        response
                       </p>
-                    )}
-                    {c.reason && <p>{c.reason}</p>}
-                  </>
-                ) : (
-                  <p>Reconfirmation has not been required.</p>
-                )}
-                {data.suggestion?.suggestion_state === "SUGGESTED" && (
-                  <>
-                    <p>
-                      The time changed. Require affected participants to
-                      reconfirm or release their commitment?
-                    </p>
-                    <div className="coord-actions">
-                      <Button
-                        disabled={disabled}
-                        onClick={() => open("accept")}
+                      <StatusBadge
+                        tone={
+                          c.disposition === "RESOLVED" ? "success" : "warning"
+                        }
                       >
-                        Require reconfirmation
-                      </Button>
-                      <Button
-                        disabled={disabled}
-                        variant="secondary"
-                        onClick={() => open("dismiss")}
-                      >
-                        Not required
-                      </Button>
-                    </div>
-                  </>
-                )}
-                {data.suggestion?.suggestion_state === "DISMISSED" && (
-                  <p>
-                    Host chose not to require reconfirmation. This is not
-                    evidence that participants confirmed the new time.
-                  </p>
-                )}
-                {c &&
-                  ["OPEN_UNRESOLVED", "PENDING_EXTERNAL"].includes(
-                    c.disposition,
-                  ) && (
-                    <div className="coord-actions">
-                      <Button
-                        disabled={disabled}
-                        variant="quiet"
-                        onClick={() => open("waive")}
-                      >
-                        Waive requirement
-                      </Button>
-                      <Button
-                        disabled={disabled}
-                        variant="quiet"
-                        onClick={() => open("exception")}
-                      >
-                        Record exception
-                      </Button>
-                    </div>
+                        {label(c.disposition)}
+                      </StatusBadge>
+                      {c.predecessor_case_id && (
+                        <p className="small muted">
+                          Reopened for changed event details. Earlier responses
+                          remain in history.
+                        </p>
+                      )}
+                      {c.reason && <p>{c.reason}</p>}
+                    </>
+                  ) : (
+                    <p>Reconfirmation has not been required.</p>
                   )}
-              </section>
+                  {data.suggestion?.suggestion_state === "SUGGESTED" && (
+                    <>
+                      <p>
+                        Event details changed. Require affected participants to
+                        reconfirm or release their commitment?
+                      </p>
+                      <div className="coord-actions">
+                        <Button
+                          disabled={disabled}
+                          onClick={() => open("accept")}
+                        >
+                          Require reconfirmation
+                        </Button>
+                        <Button
+                          disabled={disabled}
+                          variant="secondary"
+                          onClick={() => open("dismiss")}
+                        >
+                          Not required
+                        </Button>
+                      </div>
+                    </>
+                  )}
+                  {data.suggestion?.suggestion_state === "DISMISSED" && (
+                    <p>
+                      Host chose not to require reconfirmation. This is not
+                      evidence that participants confirmed the changed details.
+                    </p>
+                  )}
+                  {c &&
+                    ["OPEN_UNRESOLVED", "PENDING_EXTERNAL"].includes(
+                      c.disposition,
+                    ) && (
+                      <div className="coord-actions">
+                        <Button
+                          disabled={disabled}
+                          variant="quiet"
+                          onClick={() => open("waive")}
+                        >
+                          Waive requirement
+                        </Button>
+                        <Button
+                          disabled={disabled}
+                          variant="quiet"
+                          onClick={() => open("exception")}
+                        >
+                          Record exception
+                        </Button>
+                      </div>
+                    )}
+                </section>
+              )}
             </div>
             {data.event.event_kind !== "SIMPLE" && (
               <section className="panel coord-provider">
@@ -703,22 +858,24 @@ function HostContent({ id }: { id: string }) {
                 </details>
               </section>
             )}
-            <section className="panel">
-              <h2>Message delivery</h2>
-              {data.communications.length ? (
-                data.communications.map((s) => (
-                  <p key={s.dispatch_state}>
-                    {s.count} {label(s.dispatch_state).toLowerCase()} ·
-                    simulated
-                  </p>
-                ))
-              ) : (
-                <p>No material-change messages queued.</p>
-              )}
-              <p className="muted">
-                Delivered messages do not count as participant responses.
-              </p>
-            </section>
+            {data.event.event_kind !== "SIMPLE" && (
+              <section className="panel">
+                <h2>Message delivery</h2>
+                {data.communications.length ? (
+                  data.communications.map((s) => (
+                    <p key={s.dispatch_state}>
+                      {s.count} {label(s.dispatch_state).toLowerCase()} ·
+                      simulated
+                    </p>
+                  ))
+                ) : (
+                  <p>No material-change messages queued.</p>
+                )}
+                <p className="muted">
+                  Delivered messages do not count as participant responses.
+                </p>
+              </section>
+            )}
             {data.event.lifecycle === "PUBLISHED" && (
               <Button
                 variant="quiet"
@@ -773,8 +930,51 @@ function HostContent({ id }: { id: string }) {
                   <Button disabled={disabled}>Create invitation link</Button>
                 </form>
               )}
+            <div className="guest-controls">
+              <TextField
+                label="Search guests"
+                type="search"
+                value={guestQuery}
+                onChange={(e) => setGuestQuery(e.target.value)}
+              />
+              <label>
+                <span id="guest-status-label">Guest status</span>
+                <select
+                  aria-labelledby="guest-status-label"
+                  value={guestFilter}
+                  onChange={(e) => setGuestFilter(e.target.value)}
+                >
+                  <option value="all">All guests</option>
+                  <option value="attending">Going</option>
+                  <option value="pending">Awaiting response</option>
+                  <option value="declined">Declined or withdrawn</option>
+                </select>
+              </label>
+            </div>
+            {!data.participants.length && (
+              <p>
+                No guests yet. Your guest list will appear here when invitations
+                are added.
+              </p>
+            )}
+            <p className="small muted" role="status">
+              {visibleGuests.length + (showHost ? 1 : 0)}{" "}
+              {visibleGuests.length + (showHost ? 1 : 0) === 1
+                ? "person"
+                : "people"}{" "}
+              shown
+            </p>
             <ul className="coord-participants">
-              {data.participants.map((p) => (
+              {showHost && (
+                <li aria-label="Event host">
+                  <div>
+                    <strong>{hostName}</strong> <StatusBadge>Host</StatusBadge>
+                    <p>{hostGoing ? "Going" : label(data.event.lifecycle)}</p>
+                  </div>
+                </li>
+              )}
+              <TeamGoing eventId={id} query={guestQuery} filter={guestFilter} />
+              {visibleGuests.map((p) => (
                 <li key={p.id}>
                   <div>
                     <strong>{p.display_name}</strong>
@@ -836,7 +1036,11 @@ function HostContent({ id }: { id: string }) {
                     <strong>
                       Version {v.version_number} · {label(v.materiality_class)}
                     </strong>
-                    <p>{date(v.starts_at, v.timezone)}</p>
+                    <p>
+                      {date(v.starts_at, v.timezone)} —{" "}
+                      {date(v.ends_at, v.timezone)}
+                    </p>
+                    <p>{v.venue_label}</p>
                     <p className="muted">{v.description}</p>
                   </li>
                 ))}
@@ -877,14 +1081,65 @@ function HostContent({ id }: { id: string }) {
             </section>
           </>
         )}
-        {modal && (
+        {section === "todo" && <EventOperations eventId={id} kind="todo" />}
+        {section === "resources" && <EventOperations eventId={id} kind="resources" />}
+        {section === "team" && <TeamPanel eventId={id} />}
+        {section === "check-in" && <CheckInPanel eventId={id} />}
+        {section === "results" && <EventResults eventId={id} onClosed={load} />}
+        {modal === "change_schedule" && editSource && (
+          <ScheduleEditor
+            version={editSource.version}
+            affected={
+              editSource.participants.filter(
+                (p) => p.commitment_state === "CONFIRMED",
+              ).length
+            }
+            busy={busy}
+            blocked={unknown}
+            feedback={
+              error && (
+                <Feedback
+                  message={error}
+                  unknown={unknown}
+                  onRetry={() =>
+                    unknown && pending.current
+                      ? void run(pending.current)
+                      : void load()
+                  }
+                />
+              )
+            }
+            onClose={() => setModal(null)}
+            onSave={(input) => {
+              if (!pending.current)
+                void run({
+                  cmd: "change_schedule",
+                  input,
+                  version: editSource.event.current_version_number,
+                  op: crypto.randomUUID(),
+                });
+            }}
+          />
+        )}
+        {modal && modal !== "change_schedule" && (
           <Modal title={label(modal)} onClose={() => !busy && setModal(null)}>
             <form
               onSubmit={(e) => {
                 e.preventDefault();
                 const input: Record<string, unknown> = { confirmed: true };
-                if (modal === "change_time")
-                  input.starts_at = new Date(time).toISOString();
+                if (modal === "change_time") {
+                  const instant = instantForWall(time, data.version.timezone);
+                  if (
+                    !instant ||
+                    Date.parse(instant) >= Date.parse(data.version.ends_at)
+                  ) {
+                    setError(
+                      "Choose an unambiguous start time before the event ends. Daylight-saving gaps and repeated times cannot be saved.",
+                    );
+                    return;
+                  }
+                  input.starts_at = instant;
+                }
                 if (modal === "cosmetic_edit") input.description = description;
                 if (["waive", "exception"].includes(modal) && c) {
                   input.case_id = c.id;
@@ -898,11 +1153,15 @@ function HostContent({ id }: { id: string }) {
               {modal === "change_time" ? (
                 <>
                   <p>
-                    Current time:{" "}
+                    Event: {data.version.title}. Current time:{" "}
                     {date(data.version.starts_at, data.version.timezone)}.
                   </p>
+                  <p className="small muted">
+                    Event timezone: {data.version.timezone}. The event keeps
+                    this timezone when you travel.
+                  </p>
                   <TextField
-                    label="New start time (your time zone)"
+                    label="New start time (event time zone)"
                     type="datetime-local"
                     required
                     value={time}
@@ -910,16 +1169,45 @@ function HostContent({ id }: { id: string }) {
                   />
                   <p>
                     Review the new time:{" "}
-                    {Number.isFinite(Date.parse(time))
+                    {instantForWall(time, data.version.timezone)
                       ? date(
-                          new Date(time).toISOString(),
+                          instantForWall(time, data.version.timezone)!,
                           data.version.timezone,
                         )
                       : "Enter a valid time"}{" "}
                     ({data.version.timezone}). Existing commitments may need
-                    reconfirmation.
+                    reconfirmation.{" "}
+                    {
+                      data.participants.filter(
+                        (p) => p.commitment_state === "CONFIRMED",
+                      ).length
+                    }{" "}
+                    committed guests may be affected. Email delivery is not
+                    connected; contact guests yourself.
                   </p>
                 </>
+              ) : modal === "cancel" ? (
+                <section>
+                  <h3>{data.version.title}</h3>
+                  <p>
+                    {date(data.version.starts_at, data.version.timezone)} ·{" "}
+                    {data.version.venue_label}
+                  </p>
+                  <p>
+                    {
+                      data.participants.filter(
+                        (p) => p.commitment_state === "CONFIRMED",
+                      ).length
+                    }{" "}
+                    guests currently committed. Cancellation stops new
+                    participation; existing responses and unresolved obligations
+                    remain in history.
+                  </p>
+                  <p>
+                    Email delivery is not connected. No cancellation email will
+                    be sent automatically. Contact affected guests yourself.
+                  </p>
+                </section>
               ) : modal === "cosmetic_edit" ? (
                 <>
                   <TextField
@@ -937,7 +1225,7 @@ function HostContent({ id }: { id: string }) {
                     (
                       {
                         accept:
-                          "Require each affected participant to reconfirm or release their commitment for this time?",
+                          "Require each affected participant to reconfirm or release their commitment for these event details?",
                         dismiss:
                           "Record why reconfirmation is not needed. This does not confirm participant availability.",
                         waive:
@@ -975,15 +1263,27 @@ function HostContent({ id }: { id: string }) {
               )}
               <div className="coord-actions">
                 <Button type="submit" disabled={disabled}>
-                  {busy ? "Saving…" : "Confirm"}
+                  {busy
+                    ? "Saving…"
+                    : data.event.event_kind === "SIMPLE"
+                      ? modal === "cancel"
+                        ? "Cancel event"
+                        : modal === "change_time"
+                          ? "Save new start time"
+                          : modal === "cosmetic_edit"
+                            ? "Save description"
+                            : "Confirm"
+                      : "Confirm"}
                 </Button>
                 <Button
                   type="button"
                   variant="secondary"
                   disabled={busy}
                   onClick={() => setModal(null)}
+                  aria-label="Go back"
+                  className="back-chevron"
                 >
-                  Go back
+                  <ChevronLeft size={26} strokeWidth={2.5} />
                 </Button>
               </div>
             </form>
@@ -992,7 +1292,10 @@ function HostContent({ id }: { id: string }) {
         {link && (
           <Modal
             title={`${link.name} response link`}
-            onClose={() => setLink(null)}
+            onClose={() => {
+              setLink(null);
+              setCopyMessage("");
+            }}
           >
             <p>
               {data.event.event_kind === "SIMPLE"
@@ -1007,12 +1310,33 @@ function HostContent({ id }: { id: string }) {
             >
               Open participant response
             </a>
+            <Button
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(link.url);
+                  setCopyMessage("Link copied. No email has been sent.");
+                } catch {
+                  setCopyMessage(
+                    "Could not copy automatically. Select and copy the link below.",
+                  );
+                }
+              }}
+            >
+              Copy invitation link
+            </Button>
+            {copyMessage && <p role="status">{copyMessage}</p>}
             <TextField
               label="Private response link"
               readOnly
               value={link.url}
             />
-            <Button variant="secondary" onClick={() => setLink(null)}>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setLink(null);
+                setCopyMessage("");
+              }}
+            >
               Done
             </Button>
           </Modal>
@@ -1039,6 +1363,127 @@ interface ParticipantView {
     actionable: boolean;
   };
 }
+function EventResults({eventId,onClosed}:{eventId:string;onClosed:()=>Promise<void>}) {
+ const [data,setData]=useState<EventResultsProjection|null>(null); const [busy,setBusy]=useState(false); const [error,setError]=useState(""); const [success,setSuccess]=useState("");
+ const load=useCallback(async()=>{try{const r=await resultsRead(eventId);if(r.status!=="ready")throw new Error();setData(r);setError("");}catch{setError("Unable to load the event closeout status.");}},[eventId]); useEffect(()=>{void load();},[load]);
+ const blockers=data?data.summary.open_todos+data.summary.needed_resources+data.summary.unresolved_obligations:0;
+ const finish=async()=>{if(!data||busy||blockers>0||!confirm("Complete this event and freeze its operational results? This cannot be undone."))return;setBusy(true);setError("");try{const r=await closeEvent(eventId);if(r.status!=="ready"){const messages:Record<string,string>={UNRESOLVED_OBLIGATIONS:"Resolve or explicitly disposition every open obligation first.",OPEN_TODOS:"Complete the remaining event tasks first.",NEEDED_RESOURCES:"Resolve the remaining needed resources first."};setError(messages[r.error_code??""]??"The event could not be completed.");return;}setSuccess("Event completed. Its operational results are now preserved in history.");await Promise.all([load(),onClosed()]);}catch{setError("The completion result is unknown. Refresh before trying again.");}finally{setBusy(false);}};
+ return <section className="panel event-operations" aria-labelledby="results-heading"><div className="section-heading"><div><span className="eyebrow">Operational outcome</span><h2 id="results-heading">Results &amp; Closeout</h2><p className="muted">Reconcile the event before completing it. Unverified attendance remains unknown—not quietly rewritten as a no-show.</p></div>{data&&<StatusBadge>{label(data.lifecycle)}</StatusBadge>}</div>
+  {error&&<Feedback message={error} onRetry={()=>void load()}/>} {success&&<p className="coord-success" role="status">{success}</p>} {!data&&!error&&<p role="status">Loading results…</p>}
+  {data&&<><div className="metric-grid"><article><strong>{data.summary.confirmed}</strong><span>Confirmed</span></article><article><strong>{data.summary.admitted}</strong><span>Admitted</span></article><article><strong>{data.summary.attendance_unknown}</strong><span>Attendance unknown</span></article><article><strong>{data.summary.declined_or_withdrawn}</strong><span>Declined or withdrawn</span></article></div>
+   <h3>Closeout checks</h3><ul className="coord-history"><li><strong>{data.summary.unresolved_obligations===0?"Ready":"Blocked"} · Obligations</strong><p>{data.summary.unresolved_obligations} unresolved</p></li><li><strong>{data.summary.open_todos===0?"Ready":"Blocked"} · To Do</strong><p>{data.summary.open_todos} open</p></li><li><strong>{data.summary.needed_resources===0?"Ready":"Blocked"} · Resources</strong><p>{data.summary.needed_resources} still needed</p></li></ul>
+   {data.closeout?<div className="coord-feedback"><strong>Completed {date(data.closeout.closed_at)}</strong><p>Snapshot preserved: {data.closeout.admitted} admitted; {data.closeout.attendance_unknown} attendance unknown.</p></div>:<Button disabled={busy||blockers>0||data.lifecycle!=="PUBLISHED"} onClick={()=>void finish()}>{busy?"Completing…":"Complete event"}</Button>}
+  </>}
+ </section>;
+}
+export function CheckInWorkspace() {
+  const {eventId}=useParams();
+  return <FocusedWorkspaceShell title="Event Check-in" back="/events?view=Hosting"><SessionGate><main id="main" tabIndex={-1} className="coord-entry"><CheckInPanel eventId={eventId!}/></main></SessionGate></FocusedWorkspaceShell>;
+}
+function CheckInPanel({eventId}:{eventId:string}) {
+  const [data,setData]=useState<CheckInProjection|null>(null); const [query,setQuery]=useState(""); const [busy,setBusy]=useState(false); const [error,setError]=useState(""); const [result,setResult]=useState<{kind:string;name:string}|null>(null);
+  const load=useCallback(async()=>{try{const r=await checkInRead(eventId);if(r.status!=="ready")throw new Error();setData(r);setError("");}catch{setError("Unable to verify check-in access or attendee status. Try again before admitting anyone.");}},[eventId]);
+  useEffect(()=>{void load();},[load]);
+  const admit=async(id:string,name:string)=>{if(busy)return;setBusy(true);setError("");setResult(null);try{const r=await checkInParticipant(eventId,id);setResult({kind:r.result??"UNABLE_TO_VERIFY",name});await load();}catch{setResult({kind:"UNABLE_TO_VERIFY",name});}finally{setBusy(false);}};
+  const message=result&&({ADMITTED:`Admitted — ${result.name} is checked in.`,ALREADY_USED:`Already used — ${result.name} was previously checked in.`,WRONG_EVENT:`Wrong event — do not admit ${result.name}.`,INVALID:`Invalid — ${result.name} is not eligible for admission.`,UNABLE_TO_VERIFY:`Unable to verify ${result.name}. Do not assume admission.`} as Record<string,string>)[result.kind];
+  const visible=data?.participants.filter(p=>p.display_name.toLowerCase().includes(query.trim().toLowerCase()))??[];
+  return <section className="panel event-operations" aria-labelledby="check-in-heading"><div className="section-heading"><div><span className="eyebrow">Admission operations</span><h2 id="check-in-heading">Check-in</h2><p className="muted">Search the attendee list, verify the result, then admit. Every attempt is audited.</p></div>{data&&<StatusBadge>{data.counts.admitted} / {data.counts.eligible} admitted</StatusBadge>}</div>
+    {message&&<div className="coord-feedback" role="alert"><strong>{message}</strong></div>}{error&&<Feedback message={error} onRetry={()=>void load()}/>}<TextField label="Find attendee" type="search" value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search by name"/>
+    {!data&&!error&&<p role="status">Loading current admission status…</p>}{data&&visible.length===0&&<div className="operation-empty"><strong>No matching attendees.</strong><p>Check the spelling or confirm that the invitation was accepted.</p></div>}
+    <ul className="operation-list">{visible.map(p=><li key={p.id}><div><strong>{p.display_name}</strong><span>{p.checked_in_at?`Checked in ${new Date(p.checked_in_at).toLocaleTimeString([], {hour:"numeric",minute:"2-digit"})}`:p.commitment_state==="CONFIRMED"?"Eligible":"Not eligible"}</span></div><Button variant={p.checked_in_at?"quiet":"secondary"} disabled={busy||p.commitment_state!=="CONFIRMED"} onClick={()=>void admit(p.id,p.display_name)}>{p.checked_in_at?"Verify again":"Check in"}</Button></li>)}</ul>
+  </section>;
+}
+const teamRoleLabel = (role: TeamMember["role"]) => ({CO_HOST:"Co-host",EVENT_MANAGER:"Event manager",CHECK_IN_STAFF:"Check-in staff",VOLUNTEER:"Volunteer",PHOTOGRAPHER:"Photographer"})[role];
+function useTeam(eventId: string) {
+  const [team,setTeam]=useState<TeamProjection|null>(null);
+  const reload=useCallback(async()=>setTeam(await teamRead(eventId)),[eventId]);
+  useEffect(()=>{void reload();},[reload]);
+  return {team,reload};
+}
+function TeamGoing({eventId,query,filter}:{eventId:string;query:string;filter:string}) {
+  const {team}=useTeam(eventId);
+  if (filter!=="all"&&filter!=="attending") return null;
+  return <>{team?.members.filter(m=>m.attends_event&&`${m.display_name} ${m.email}`.toLowerCase().includes(query.trim().toLowerCase())).map(m=><li key={`team-${m.id}`}>
+    <div><strong>{m.display_name}</strong>{m.public_visibility!=="HIDDEN"&&<>{" "}<StatusBadge>{m.public_visibility==="PUBLIC_ROLE"?teamRoleLabel(m.role):"Event team"}</StatusBadge></>}<p>Going</p></div>
+  </li>)}</>;
+}
+function TeamPanel({eventId}:{eventId:string}) {
+  const {team,reload}=useTeam(eventId); const [email,setEmail]=useState(""); const [role,setRole]=useState<TeamMember["role"]>("VOLUNTEER"); const [busy,setBusy]=useState(false); const [error,setError]=useState("");
+  const run=async(cmd:string,id:string|null,input:Record<string,unknown>)=>{setBusy(true);setError("");try{const r=await teamCommand(cmd,eventId,id,input);if(r.status!=="ready")setError(errorMessages[r.error_code??""]??(r.error_code==="ACCOUNT_NOT_FOUND"?"No Sontu account uses that email yet.":"That team change could not be saved."));else{setEmail("");await reload();}}catch{setError("The team change is unconfirmed. Refresh before trying again.");}finally{setBusy(false);}};
+  return <section className="panel event-operations" aria-labelledby="team-heading"><div className="section-heading"><div><span className="eyebrow">Event-scoped</span><h2 id="team-heading">Team &amp; Roles</h2><p className="muted">Give existing Sontu accounts only the access they need. Attendance and public role display are separate.</p></div></div>
+    {error&&<Feedback message={error} onRetry={()=>void reload()}/>}<form className="operation-add" onSubmit={e=>{e.preventDefault();void run("add_member",null,{email,role,attends_event:true,public_visibility:"EVENT_TEAM"});}}><TextField label="Teammate email" type="email" required value={email} onChange={e=>setEmail(e.target.value)}/><label><span>Role</span><select value={role} onChange={e=>setRole(e.target.value as TeamMember["role"])}>{(["CO_HOST","EVENT_MANAGER","CHECK_IN_STAFF","VOLUNTEER","PHOTOGRAPHER"] as const).map(r=><option value={r} key={r}>{teamRoleLabel(r)}</option>)}</select></label><Button disabled={busy}>{busy?"Saving…":"Add teammate"}</Button></form>
+    {!team&&<p role="status">Loading team…</p>}{team?.members.length===0&&<div className="operation-empty"><strong>No teammates yet.</strong><p>Add someone only when this event needs shared operation.</p></div>}
+    <ul className="operation-list">{team?.members.map(m=><li key={m.id}><div><strong>{m.display_name}</strong><span>{m.email}</span><div className="coord-actions"><label><span className="sr-only">Role for {m.display_name}</span><select value={m.role} onChange={e=>void run("update_member",m.id,{role:e.target.value})}>{(["CO_HOST","EVENT_MANAGER","CHECK_IN_STAFF","VOLUNTEER","PHOTOGRAPHER"] as const).map(r=><option value={r} key={r}>{teamRoleLabel(r)}</option>)}</select></label><label><input type="checkbox" checked={m.attends_event} onChange={e=>void run("update_member",m.id,{attends_event:e.target.checked})}/> Going</label><label><span className="sr-only">Public role visibility for {m.display_name}</span><select value={m.public_visibility} onChange={e=>void run("update_member",m.id,{public_visibility:e.target.value})}><option value="EVENT_TEAM">Show Event team</option><option value="PUBLIC_ROLE">Show exact role</option><option value="HIDDEN">Hide role badge</option></select></label></div></div><Button variant="quiet" disabled={busy} onClick={()=>{if(confirm(`Remove ${m.display_name} from this event team?`))void run("remove_member",m.id,{})}}>Remove</Button></li>)}</ul>
+  </section>;
+}
+function EventOperations({ eventId, kind }: { eventId: string; kind: "todo" | "resources" }) {
+  const [data, setData] = useState<EventOperationsProjection | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [title, setTitle] = useState("");
+  const [quantity, setQuantity] = useState("1");
+  const [note, setNote] = useState("");
+  const {team}=useTeam(eventId);
+  const load = useCallback(async () => {
+    try {
+      const next = await eventOperationsRead(eventId);
+      if (next.status !== "ready") throw new Error();
+      setData(next);
+      setError("");
+    } catch { setError("Unable to load event operations. Please retry."); }
+  }, [eventId]);
+  useEffect(() => { void load(); }, [load]);
+  const run = async (cmd: string, itemId: string | null, input: Record<string, unknown>) => {
+    setBusy(true); setError("");
+    try {
+      const result = await eventOperationsCommand(cmd, eventId, itemId, input);
+      if (result.status !== "ready") {
+        setError(errorMessages[result.error_code ?? ""] ?? "That update could not be saved.");
+        return;
+      }
+      setTitle(""); setQuantity("1"); setNote("");
+      await load();
+    } catch { setError("The result is unconfirmed. Refresh before trying again."); }
+    finally { setBusy(false); }
+  };
+  const items = kind === "todo" ? data?.todos ?? [] : data?.resources ?? [];
+  return (
+    <section className="panel event-operations" aria-labelledby={`${kind}-heading`}>
+      <div className="section-heading">
+        <div>
+          <span className="eyebrow">Event-scoped</span>
+          <h2 id={`${kind}-heading`}>{kind === "todo" ? "To Do" : "Resources"}</h2>
+          <p className="muted">{kind === "todo" ? "Keep the immediate event work visible." : "Track only what this event needs and whether it is ready."}</p>
+        </div>
+      </div>
+      {error && <Feedback message={error} onRetry={() => void load()} />}
+      {!data && !error && <p role="status">Loading…</p>}
+      <form className="operation-add" onSubmit={(e) => {
+        e.preventDefault();
+        void run(kind === "todo" ? "add_todo" : "add_resource", null,
+          kind === "todo" ? { title } : { label: title, quantity: Number(quantity), note });
+      }}>
+        <TextField label={kind === "todo" ? "Task" : "Resource"} value={title} maxLength={120} required onChange={(e) => setTitle(e.target.value)} />
+        {kind === "resources" && <>
+          <TextField label="Quantity" type="number" value={quantity} min="1" max="100000" required onChange={(e) => setQuantity(e.target.value)} />
+          <TextField label="Note" value={note} maxLength={240} onChange={(e) => setNote(e.target.value)} />
+        </>}
+        <Button disabled={busy}>{busy ? "Saving…" : kind === "todo" ? "Add task" : "Add resource"}</Button>
+      </form>
+      {data && items.length === 0 && <div className="operation-empty"><strong>Nothing here yet.</strong><p>Add only what helps this event happen.</p></div>}
+      <ul className="operation-list">
+        {kind === "todo" ? data?.todos.map((item) => <li key={item.id}>
+          <div><strong>{item.title}</strong><span>{item.state === "DONE" ? "Completed" : "Open"}</span><select aria-label={`Assign ${item.title}`} value={item.assignee_team_member_id??""} onChange={async e=>{setBusy(true);await assignOperationItem("todo",eventId,item.id,e.target.value||null);await load();setBusy(false);}}><option value="">Unassigned</option>{team?.members.map(m=><option key={m.id} value={m.id}>{m.display_name}</option>)}</select></div>
+          <Button variant="secondary" disabled={busy} onClick={() => void run("set_todo_state", item.id, { state: item.state === "DONE" ? "OPEN" : "DONE" })}>{item.state === "DONE" ? "Reopen" : "Complete"}</Button>
+        </li>) : data?.resources.map((item) => <li key={item.id}>
+          <div><strong>{item.label} · {item.quantity}</strong><span>{item.state === "READY" ? "Ready" : "Needed"}{item.note ? ` · ${item.note}` : ""}</span><select aria-label={`Assign ${item.label}`} value={item.assignee_team_member_id??""} onChange={async e=>{setBusy(true);await assignOperationItem("resource",eventId,item.id,e.target.value||null);await load();setBusy(false);}}><option value="">Unassigned</option>{team?.members.map(m=><option key={m.id} value={m.id}>{m.display_name}</option>)}</select></div>
+          <Button variant="secondary" disabled={busy} onClick={() => void run("set_resource_state", item.id, { state: item.state === "READY" ? "NEEDED" : "READY" })}>{item.state === "READY" ? "Mark needed" : "Mark ready"}</Button>
+        </li>)}
+      </ul>
+    </section>
+  );
+}
+
 export function ParticipantResponse() {
   const { token } = useParams();
   const [data, setData] = useState<ParticipantView | null>(null),
@@ -1125,6 +1570,7 @@ export function ParticipantResponse() {
           />
           <h1>{data.event.title}</h1>
           <p>{date(data.event.starts_at, data.event.timezone)}</p>
+          <p>Ends {date(data.event.ends_at, data.event.timezone)}</p>
           <p className="muted">
             {data.event.venue_label} · {data.event.timezone}
           </p>
@@ -1134,7 +1580,7 @@ export function ParticipantResponse() {
               <p>This event has been cancelled. No response is requested.</p>
             ) : data.participant?.actionable ? (
               <>
-                <p>The event time has changed. Can you still make it?</p>
+                <p>The event details have changed. Can you still make it?</p>
                 <div className="coord-actions">
                   <Button
                     disabled={busy || unknown}
@@ -1157,7 +1603,7 @@ export function ParticipantResponse() {
                 <CheckCircle2 />
                 <p>
                   {data.participant.response === "RECONFIRMED"
-                    ? "You have reconfirmed for this time."
+                    ? "You have reconfirmed for these event details."
                     : "Your release has been recorded."}
                 </p>
               </div>
@@ -1185,15 +1631,22 @@ export function CoreSignOut({ onBack }: { onBack: () => void }) {
   }, []);
   return (
     <main id="main" tabIndex={-1} className="settings-page">
-      <button className="back-link" onClick={onBack}>
-        Back to Profile
+      <button
+        onClick={onBack}
+        className="icon-button back-chevron"
+        aria-label="Back to Profile"
+      >
+        <ChevronLeft size={26} strokeWidth={2.5} />
       </button>
       <h1>Sign Out</h1>
       {active === null ? (
         <p role="status">Checking your session…</p>
       ) : active ? (
         <>
-          <p>You are signed in to the host workspace.</p>
+          <p>
+            Sign out of Sontu on this device? Your events and participation will
+            remain saved.
+          </p>
           <Button
             onClick={async () => {
               const { error } = await supabase.auth.signOut();
@@ -1201,7 +1654,7 @@ export function CoreSignOut({ onBack }: { onBack: () => void }) {
               else setActive(false);
             }}
           >
-            Sign out of host account
+            Sign out
           </Button>
         </>
       ) : (

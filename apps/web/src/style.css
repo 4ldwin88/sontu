@@ -104,14 +104,19 @@ img {
 }
 .skip-link {
   position: fixed;
-  top: -100px;
+  top: 8px;
   left: 16px;
   padding: 12px 20px;
   background: var(--surface);
   z-index: 100;
 }
-.skip-link:focus {
-  top: 8px;
+.skip-link:not(:focus) {
+  clip-path: inset(50%);
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  white-space: nowrap;
+  padding: 0;
 }
 .preview-ribbon {
   min-height: 30px;
@@ -2678,15 +2683,23 @@ button.back-link {
   }
 }
 
-/* Refresh is consequential on the working host surface at every width. */
-.workspace-event.coord-hero > .button {
-  display: inline-flex;
-  flex-shrink: 0;
+/* Keep working host identity and utilities compact without shrinking touch targets. */
+.workspace-event.coord-hero .host-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
 }
-@media (max-width: 900px) {
-  .workspace-event.coord-hero > .button {
-    margin-top: 12px;
-  }
+.workspace-event.coord-hero .host-header-actions .button {
+  display: inline-flex;
+  min-height: 44px;
+  margin: 0;
+}
+.host-refresh {
+  flex: 0 0 44px;
+}
+.host-guest-summary {
+  margin-bottom: 16px;
 }
 .coord-provider + .panel {
   margin-top: 20px;
@@ -2694,15 +2707,43 @@ button.back-link {
 @media (max-width: 900px) {
   .workspace-event.coord-hero {
     display: grid;
-    grid-template-columns: 88px minmax(0, 1fr);
+    grid-template-columns: 64px minmax(0, 1fr);
+    gap: 12px;
+    align-items: start;
+    padding-bottom: 12px;
   }
   .workspace-event.coord-hero > img {
-    width: 88px;
-    height: 88px;
+    width: 64px;
+    height: 64px;
+    border-radius: 12px;
   }
-  .workspace-event.coord-hero > .button {
+  .workspace-event.coord-hero.no-cover {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .workspace-event.coord-hero .host-header-actions {
     grid-column: 1 / -1;
-    justify-self: start;
+    justify-content: flex-end;
+  }
+  .workspace-event.coord-hero h1 {
+    margin: 0;
+    font-size: 1.15rem;
+  }
+  .workspace-event.coord-hero p {
+    font-size: 0.8rem;
+    line-height: 1.4;
+  }
+  .host-main .compact-workspace-nav .workspace-nav {
+    margin-top: 0;
+    margin-bottom: 12px;
+  }
+  .host-guest-summary {
+    padding: 16px;
+  }
+  .host-guest-summary h2 {
+    margin-top: 0;
+  }
+  .host-guest-summary p {
+    margin: 8px 0;
   }
 }
 
@@ -2769,3 +2810,497 @@ button.back-link {
   object-fit: cover;
   border-radius: 16px;
 }
+
+/* Account entry follows the approved Join Sontu board; profile data is a separate step. */
+.account-shell {
+  min-height: 100dvh;
+  display: grid;
+  grid-template-columns: 1fr;
+  background: var(--surface);
+  color: var(--text-primary);
+}
+.account-world {
+  display: none;
+}
+.account-surface {
+  padding: 24px clamp(20px, 5vw, 72px) 48px;
+  min-width: 0;
+}
+.account-form {
+  max-width: 420px;
+  margin: 36px auto 0;
+}
+.account-wordmark {
+  margin-bottom: 32px;
+}
+.account-wordmark .wordmark {
+  width: 138px;
+  height: auto;
+}
+.account-form h1 {
+  font-size: clamp(1.8rem, 4vw, 2.35rem);
+  line-height: 1.15;
+  letter-spacing: -0.035em;
+  margin: 12px 0;
+}
+.account-form form {
+  display: grid;
+  gap: 18px;
+  margin: 24px 0;
+}
+.account-form form > .button {
+  width: 100%;
+}
+.provider-options {
+  display: grid;
+  gap: 10px;
+  margin-top: 28px;
+}
+.provider-options button {
+  width: 100%;
+}
+.account-divider {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 24px 0;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+}
+.account-divider:before,
+.account-divider:after {
+  content: "";
+  height: 1px;
+  flex: 1;
+  background: var(--border);
+}
+.password-field {
+  position: relative;
+}
+.password-field input {
+  padding-right: 52px;
+}
+.password-field .icon-button {
+  position: absolute;
+  right: 4px;
+  bottom: 3px;
+}
+.password-rules {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+.password-rules li {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.legal-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+.legal-check input {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  margin-top: 2px;
+}
+.account-notice {
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  font-size: 0.85rem;
+  line-height: 1.55;
+}
+.account-switch {
+  text-align: center;
+  font-size: 0.9rem;
+  margin: 28px 0;
+}
+.account-form a {
+  text-underline-offset: 3px;
+}
+@media (min-width: 960px) {
+  .account-shell {
+    grid-template-columns: minmax(320px, 0.95fr) minmax(500px, 1.05fr);
+  }
+  .account-world {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 64px;
+    color: white;
+    background:
+      linear-gradient(180deg, rgba(5, 20, 40, 0.3), rgba(5, 20, 40, 0.75)),
+      url("/images/sunset.jpg") center/cover;
+  }
+  .account-world .wordmark-light {
+    display: none;
+  }
+  .account-world .wordmark-dark {
+    display: block;
+    width: 180px;
+    height: auto;
+  }
+  .account-world h2 {
+    font-size: clamp(2.6rem, 5vw, 4.8rem);
+    letter-spacing: -0.04em;
+    line-height: 1.05;
+    margin-top: 160px;
+  }
+  .account-world p {
+    line-height: 1.6;
+  }
+}
+
+.account-form .field {
+  margin: 0;
+}
+.account-form .legal-check a,
+.account-switch a {
+  text-decoration: underline;
+}
+
+/* Founder review: compact account entry, visible icon-only back actions. */
+.account-surface {
+  padding-top: 8px;
+  padding-bottom: max(24px, env(safe-area-inset-bottom));
+}
+.account-form {
+  margin-top: 4px;
+}
+.account-wordmark {
+  margin-bottom: 12px;
+}
+.account-wordmark .wordmark {
+  width: 112px;
+}
+.account-form h1 {
+  margin: 8px 0;
+}
+.provider-options {
+  margin-top: 16px;
+  gap: 8px;
+}
+.account-divider {
+  margin: 14px 0;
+}
+.account-form form {
+  gap: 12px;
+  margin: 16px 0;
+}
+.password-rules {
+  gap: 4px;
+}
+.account-switch {
+  margin: 16px 0;
+}
+.account-notice {
+  padding: 12px;
+}
+.back-chevron {
+  display: inline-flex;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  color: var(--text-primary);
+}
+.account-menu-entry {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  font-weight: 600;
+  color: var(--interactive-primary);
+}
+
+.password-rules li[data-met="false"] {
+  color: var(--error);
+}
+.password-rules li[data-met="true"] {
+  color: var(--success);
+}
+
+.hosting-group {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.hosting-group h2 {
+  margin: 0;
+}
+.event-description {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.guest-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 24px 0 16px;
+}
+.guest-controls > * {
+  flex: 1 1 220px;
+}
+.guest-controls label {
+  display: grid;
+  gap: 8px;
+}
+.guest-controls select {
+  min-height: 44px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+/* Reviewed mobile host board: status, key stats, next action, then details. */
+.host-status-strip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--selected);
+  border-radius: 12px;
+  margin: 12px 0 20px;
+}
+.host-status-strip strong {
+  display: block;
+  font-size: 1rem;
+}
+.host-status-strip svg,
+.host-stat-grid svg {
+  color: var(--interactive-primary);
+}
+.simple-host h2 {
+  font-size: 1rem;
+  margin: 0 0 12px;
+}
+.host-guest-summary .section-heading {
+  margin: 0 0 10px;
+  align-items: center;
+}
+.host-guest-summary .section-heading h2 {
+  margin: 0;
+}
+.host-guest-summary .text-action {
+  min-height: 44px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.host-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.host-stat-grid > div {
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 10px;
+}
+.host-stat-grid strong {
+  font-size: 1.35rem;
+}
+.host-stat-grid span {
+  grid-column: 1/-1;
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+}
+.host-next {
+  margin: 20px 0;
+}
+.host-next-action {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  font: inherit;
+  color: var(--text-primary);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  cursor: pointer;
+}
+.host-next-action > span:nth-child(2) {
+  flex: 1;
+}
+.host-next-action strong,
+.host-next-action small {
+  display: block;
+}
+.host-next-action small {
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+.host-action-icon {
+  color: var(--interactive-primary);
+}
+.simple-host .coord-summary {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+}
+.simple-host .coord-summary .panel {
+  padding: 20px;
+}
+.simple-host .coord-summary .panel > svg {
+  display: none;
+}
+.simple-host .coord-summary p {
+  margin: 8px 0;
+  font-size: 0.875rem;
+}
+.simple-host .host-guest-summary {
+  padding: 0;
+}
+.simple-host .coord-auth {
+  max-width: none;
+  margin: 20px 0;
+}
+.simple-host .event-list-row {
+  min-width: 0;
+}
+.event-operations { max-width: 900px; }
+.metric-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 10px; margin: 18px 0 24px; }
+.metric-grid article { padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.metric-grid strong,.metric-grid span { display: block; }
+.metric-grid strong { font-size: 1.55rem; }
+.metric-grid span { color: var(--text-secondary); font-size: .78rem; margin-top: 4px; }
+.operation-add { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: end; margin: 20px 0 28px; }
+.operation-add .button { min-height: 44px; }
+.operation-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+.operation-list li { display: flex; align-items: center; gap: 16px; min-height: 68px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.operation-list li > div { flex: 1; min-width: 0; }
+.operation-list strong, .operation-list span { display: block; overflow-wrap: anywhere; }
+.operation-list span { color: var(--text-secondary); font-size: .78rem; margin-top: 4px; }
+.operation-empty { padding: 24px; border: 1px dashed var(--border); border-radius: 12px; text-align: center; color: var(--text-secondary); }
+@media (max-width: 700px) {
+  .metric-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .operation-add { grid-template-columns: 1fr; }
+  .operation-list li { align-items: flex-start; flex-direction: column; }
+  .operation-list li .button { width: 100%; }
+}
+.events-page .hosting-group > h2 {
+  font-size: 0.9rem;
+  margin: 20px 0 10px;
+  color: var(--text-secondary);
+}
+.events-page .event-list-row > .text-action {
+  padding: 10px 16px;
+  min-height: 44px;
+}
+@media (min-width: 901px) {
+  .simple-host .workspace-event.coord-hero {
+    position: relative;
+    overflow: hidden;
+    min-height: 240px;
+    padding: 28px;
+    border-radius: 20px;
+    border: 0;
+    align-items: flex-end;
+    background: var(--surface);
+  }
+  .simple-host .workspace-event.coord-hero > img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 0;
+  }
+  .simple-host .workspace-event.coord-hero:not(.no-cover)::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(transparent, rgba(0, 0, 0, 0.85));
+  }
+  .simple-host .workspace-event.coord-hero > div {
+    position: relative;
+    z-index: 1;
+  }
+  .simple-host .workspace-event.coord-hero:not(.no-cover) h1,
+  .simple-host .workspace-event.coord-hero:not(.no-cover) p,
+  .simple-host .workspace-event.coord-hero:not(.no-cover) .muted {
+    color: white;
+  }
+  .simple-host .host-stat-grid > div {
+    grid-template-columns: 28px auto 1fr;
+    padding: 20px;
+  }
+  .simple-host .host-stat-grid span {
+    grid-column: auto;
+  }
+}
+.diagnostic-panel {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+.diagnostic-report {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 0.75rem;
+}
+.connected-hub {
+  max-width: 760px;
+}
+.connected-hub > .icon-button {
+  margin-bottom: 12px;
+}
+.connected-hub-identity {
+  margin-bottom: 24px;
+}
+.connected-hub-identity h1 {
+  font-size: clamp(1.5rem, 4vw, 2.1rem);
+  letter-spacing: -0.035em;
+  margin: 16px 0 8px;
+}
+.connected-hub-identity .coord-response-image {
+  height: clamp(220px, 38vw, 360px);
+  margin-top: 12px;
+}
+.connected-hub > .panel {
+  padding: 20px;
+  margin-bottom: 16px;
+}
+.connected-hub > .panel h2 {
+  font-size: 1rem;
+  margin-top: 0;
+}
+.connected-hub > .panel p {
+  line-height: 1.6;
+}
+
+.schedule-review { margin: 20px 0; }
+.schedule-review > div { padding: 12px 0; border-bottom: 1px solid var(--border); }
+.schedule-review dt { font-weight: 650; }
+.schedule-review dd { margin: 6px 0 0; overflow-wrap: anywhere; }
+.schedule-review dd span, .schedule-review dd strong { display: block; }
+
+.dev-notes-fab { position: fixed; z-index: 1000; right: 16px; bottom: calc(86px + env(safe-area-inset-bottom)); display: flex; align-items: center; gap: 4px; min-height: 48px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 28px; color: var(--on-interactive); background: var(--interactive-primary); box-shadow: 0 4px 18px #0003; cursor: pointer; }
+.dev-notes-fab span { font-size: .75rem; font-weight: 600; }
+.dev-note-field { display: grid; gap: 8px; margin: 16px 0; font-weight: 600; }
+.dev-note-field textarea { width: 100%; min-height: 130px; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--text-primary); font: inherit; resize: vertical; }
+.dev-note-history { margin-top: 24px; }
+.dev-note-history ul { list-style: none; padding: 0; }
+.dev-note-history li { padding: 12px 0; border-top: 1px solid var(--border); }
+.dev-note-history p { white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (min-width: 901px) { .dev-notes-fab { bottom: 24px; } }
+.dev-notes-fab[hidden] { display: none; }

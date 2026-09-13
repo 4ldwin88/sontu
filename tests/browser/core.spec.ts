@@ -49,10 +49,10 @@ test("authenticated host and scoped participants complete the core workflow", as
     } else await route.continue();
   });
   await page.getByRole("button", { name: "Change start time" }).click();
-  // CI browser's local zone is UTC; UI also previews the event's Toronto zone.
+  // UTC browser edits Toronto wall time; preserve the intended instant.
   await page
-    .getByLabel("New start time (your time zone)")
-    .fill("2026-09-16T23:30");
+    .getByLabel("New start time (event time zone)")
+    .fill("2026-09-16T19:30");
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "Confirm", exact: true })
@@ -148,7 +148,7 @@ test("authenticated host and scoped participants complete the core workflow", as
     .getByRole("button", { name: "I can still make it", exact: true })
     .click();
   await expect(
-    guest.getByText("You have reconfirmed for this time."),
+    guest.getByText("You have reconfirmed for these event details."),
   ).toBeVisible();
   expect(
     (
@@ -172,8 +172,8 @@ test("authenticated host and scoped participants complete the core workflow", as
   await expect(page.getByText("12 / 12", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Change start time" }).click();
   await page
-    .getByLabel("New start time (your time zone)")
-    .fill("2026-09-17T00:00");
+    .getByLabel("New start time (event time zone)")
+    .fill("2026-09-16T20:00");
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "Confirm", exact: true })

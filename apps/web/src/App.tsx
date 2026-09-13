@@ -1,14 +1,24 @@
 import {
+  AccountPortal,
+  MinimumProfile,
+  AccountEntryGate,
+  RealProfile,
+} from "./account";
+import { useAccount } from "./account-state";
+import { DevNotes } from "./dev-notes";
+import {
   Invitation,
   ConnectedEventHub,
   useMyEvents,
   forView,
   SimpleEventCard,
+  HostingCollection,
 } from "./invitations";
 import { Creation } from "./creation";
 import {
   CoreEntry,
   CoreHost,
+  CheckInWorkspace,
   ParticipantResponse,
   CoreSignOut,
 } from "./coordination";
@@ -25,7 +35,7 @@ import {
   useSearchParams,
 } from "react-router-dom";
 import {
-  ArrowLeft,
+  ChevronLeft,
   ArrowRight,
   CalendarDays,
   Clock3,
@@ -351,9 +361,13 @@ function Events() {
                 <Button onClick={real.reload}>Retry</Button>
               </div>
             ) : forView(real.items, view).length ? (
-              forView(real.items, view).map((e) => (
-                <SimpleEventCard key={e.id} event={e} view={view} />
-              ))
+              view === "Hosting" ? (
+                <HostingCollection items={forView(real.items, view)} />
+              ) : (
+                forView(real.items, view).map((e) => (
+                  <SimpleEventCard key={e.id} event={e} view={view} />
+                ))
+              )
             ) : (
               <p>No {view.toLowerCase()} events yet.</p>
             )
@@ -379,7 +393,7 @@ function Events() {
                 <CalendarDays />
               </span>
               <h2>Something good starts with you.</h2>
-              <TextAction to="/core">Open working host events</TextAction>
+
               <p>
                 A few people. A shared idea. One place to bring it together.
               </p>
@@ -468,16 +482,25 @@ function EventHub() {
     return (
       <main {...mainProps}>
         <SystemState state={{ status: event ? "denied" : "unavailable" }}>
-          <TextAction to="/events">Back to Events</TextAction>
+          <Link
+            to="/events"
+            className="icon-button back-chevron"
+            aria-label="Back to Events"
+          >
+            <ChevronLeft size={26} strokeWidth={2.5} />
+          </Link>
         </SystemState>
       </main>
     );
   const p = event.presentation;
   return (
     <main {...mainProps} className="hub">
-      <Link className="back-link" to="/events">
-        <ArrowLeft size={18} />
-        Back to Events
+      <Link
+        to="/events"
+        className="icon-button back-chevron"
+        aria-label="Back to Events"
+      >
+        <ChevronLeft size={26} strokeWidth={2.5} />
       </Link>
       <div className="hub-image">
         <EventImage event={event} priority />
@@ -807,9 +830,12 @@ function Settings({
   return (
     <Container {...(embedded ? {} : mainProps)} className="settings-page">
       {!embedded && (
-        <button className="back-link" onClick={onBack}>
-          <ArrowLeft size={18} />
-          Back to Profile
+        <button
+          onClick={onBack}
+          className="icon-button back-chevron"
+          aria-label="Back to Profile"
+        >
+          <ChevronLeft size={26} strokeWidth={2.5} />
         </button>
       )}
       <h1>Settings &amp; Preferences</h1>
@@ -872,9 +898,12 @@ function StateGallery() {
   ];
   return (
     <main {...mainProps}>
-      <Link className="back-link" to="/settings">
-        <ArrowLeft size={18} />
-        Back to appearance
+      <Link
+        to="/settings"
+        className="icon-button back-chevron"
+        aria-label="Back to appearance"
+      >
+        <ChevronLeft size={26} strokeWidth={2.5} />
       </Link>
       <h1>System state gallery</h1>
       <p className="muted">
@@ -904,7 +933,13 @@ function StateGallery() {
               : undefined
           }
         >
-          <TextAction to="/events">Back to Events</TextAction>
+          <Link
+            to="/events"
+            className="icon-button back-chevron"
+            aria-label="Back to Events"
+          >
+            <ChevronLeft size={26} strokeWidth={2.5} />
+          </Link>
         </SystemState>
       )}
     </main>
@@ -930,6 +965,7 @@ function Notifications({ embedded = false }: { embedded?: boolean }) {
   );
 }
 export default function App() {
+  const account = useAccount();
   const location = useLocation();
   const navigate = useNavigate();
   const profileOrigin = useRef("/home");
@@ -982,8 +1018,18 @@ export default function App() {
         Skip to content
       </a>
       <RouteFocus />
+      <DevNotes />
       <Routes>
-        <Route element={<AppShell onOpen={openDrawer} />}>
+        <Route path="/sign-in" element={<AccountPortal key="signin" />} />
+        <Route path="/sign-up" element={<AccountPortal key="signup" />} />
+        <Route path="/account/setup" element={<MinimumProfile />} />
+        <Route
+          element={
+            <AccountEntryGate>
+              <AppShell onOpen={openDrawer} />
+            </AccountEntryGate>
+          }
+        >
           <Route path="/" element={<Navigate to="/home" replace />} />
           <Route path="/home" element={<Home />} />
           <Route path="/discover" element={<Discover />} />
@@ -1005,15 +1051,19 @@ export default function App() {
           <Route
             path="/profile"
             element={
-              <ProfilePage
-                key={location.key}
-                onBack={backToProfile}
-                profile={profile}
-                onChange={setProfile}
-                editInitially={
-                  new URLSearchParams(location.search).get("edit") === "1"
-                }
-              />
+              account.session ? (
+                <RealProfile onBack={backToProfile} />
+              ) : (
+                <ProfilePage
+                  key={location.key}
+                  onBack={backToProfile}
+                  profile={profile}
+                  onChange={setProfile}
+                  editInitially={
+                    new URLSearchParams(location.search).get("edit") === "1"
+                  }
+                />
+              )
             }
           />
           {["connections", "privacy", "help", "about", "sign-out"].map(
@@ -1038,7 +1088,13 @@ export default function App() {
             element={
               <main {...mainProps}>
                 <SystemState state={{ status: "unavailable" }}>
-                  <TextAction to="/home">Back to Home</TextAction>
+                  <Link
+                    to="/home"
+                    className="icon-button back-chevron"
+                    aria-label="Back to Home"
+                  >
+                    <ChevronLeft size={26} strokeWidth={2.5} />
+                  </Link>
                 </SystemState>
               </main>
             }
@@ -1050,6 +1106,7 @@ export default function App() {
         <Route path="/create/:eventId" element={<Creation />} />
         <Route path="/core" element={<CoreEntry />} />
         <Route path="/core/events/:eventId/host" element={<CoreHost />} />
+        <Route path="/core/events/:eventId/check-in" element={<CheckInWorkspace />} />
         <Route path="/respond/:token" element={<ParticipantResponse />} />
         <Route path="/events/:eventId/host" element={<HostWorkspace />} />
         <Route path="/host/events/:eventId" element={<HostWorkspace />} />
@@ -1061,7 +1118,19 @@ export default function App() {
           onClose={() => setDrawer(null)}
         >
           {drawer === "profile" ? (
-            <ProfileDrawerContent profile={profile} />
+            <ProfileDrawerContent
+              profile={
+                account.profile
+                  ? {
+                      ...profile,
+                      displayName:
+                        account.profile.display_name ||
+                        account.profile.first_name,
+                      username: account.profile.handle,
+                    }
+                  : profile
+              }
+            />
           ) : (
             <Notifications embedded />
           )}

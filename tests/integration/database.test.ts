@@ -551,3 +551,288 @@ it("requires recipient email verification, enforces capacity and keeps invitatio
       .commitment_state,
   ).toBe("CONFIRMED");
 });
+
+describe("minimum profile and immutable account identity", () => {
+  it("resumes creation, isolates profiles, and enforces handles and cooldown in the database", async () => {
+    await asHost(host);
+    const call = async (action: string, input: object = {}) =>
+      (
+        await sql<{ r: any }>("select public.sontu_account_profile($1,$2) r", [
+          action,
+          JSON.stringify(input),
+        ])
+      )[0].r;
+    expect((await call("read")).status).toBe("empty");
+    const first = await call("create", { first_name: "Thịnh" });
+    expect(first.profile.handle).toMatch(/^[a-z0-9][a-z0-9_.]{2,29}$/);
+    expect((await call("create", { first_name: "Different" })).profile).toEqual(
+      first.profile,
+    );
+    const selected = await call("update", {
+      first_name: "Thịnh",
+      display_name: "Jay",
+      handle: "captain_j",
+      revision: 1,
+    });
+    expect(selected.profile.user_id).toBe(host);
+    expect(selected.profile.handle_provisional).toBe(false);
+    expect(
+      (
+        await call("update", {
+          first_name: "Jay",
+          handle: "another_j",
+          revision: 2,
+        })
+      ).error_code,
+    ).toBe("HANDLE_COOLDOWN");
+    await asHost(stranger);
+    expect((await call("read")).status).toBe("empty");
+    await call("create", { first_name: "Jay" });
+    expect(
+      (
+        await call("update", {
+          first_name: "Jay",
+          handle: "CAPTAIN_J",
+          revision: 1,
+        })
+      ).error_code,
+    ).toBe("HANDLE_UNAVAILABLE");
+    expect(
+      (
+        await call("update", {
+          first_name: "Jay",
+          handle: "admin",
+          revision: 1,
+        })
+      ).error_code,
+    ).toBe("INVALID_HANDLE");
+    await asHost("");
+    expect((await call("read")).status).toBe("denied");
+  });
+});
+
+describe("reviewed published schedule and location", () => {
+  it("revalidates authority, confirmation, dates and versions; preserves history and retry identity", async () => {
+    await asHost();
+    const created = await command("create_draft", {
+      timezone: "America/Toronto",
+    });
+    event = created.event_id;
+    version = created.current_version;
+    await command("save_draft", {
+      title: "Schedule review",
+      description: "Original details",
+      starts_at: "2030-09-16T22:00:00Z",
+      ends_at: "2030-09-17T00:00:00Z",
+      timezone: "America/Toronto",
+      venue_label: "Garden",
+      cover_key: "sunset",
+      capacity: "8",
+    });
+    await command("publish", { confirmed: true });
+    const initial = await projection();
+    const input = {
+      starts_at: "2030-09-17T22:00:00Z",
+      ends_at: "2030-09-18T01:00:00Z",
+      venue_label: "Terrace",
+      confirmed: true,
+    };
+    await asHost(stranger);
+    expect((await command("change_schedule", input)).error_code).toBe(
+      "UNAUTHORIZED",
+    );
+    await asHost();
+    expect(
+      (await command("change_schedule", { ...input, confirmed: false }))
+        .error_code,
+    ).toBe("INVALID_CONFIRMATION");
+    for (const invalid of [
+      { ends_at: input.starts_at },
+      { starts_at: "infinity" },
+      { venue_label: " " },
+      { starts_at: "2000-01-01T00:00:00Z" },
+      { ends_at: null },
+    ]) {
+      expect(
+        (await command("change_schedule", { ...input, ...invalid })).error_code,
+      ).toBe("INVALID_INPUT");
+    }
+    expect((await projection()).versions).toHaveLength(initial.versions.length);
+    const expected = version,
+      op = randomUUID();
+    const saved = await command("change_schedule", input, expected, op);
+    expect(saved.status).toBe("ready");
+    expect(await command("change_schedule", input, expected, op)).toEqual(
+      saved,
+    );
+    expect(
+      (
+        await command(
+          "change_schedule",
+          { ...input, venue_label: "Stale overwrite" },
+          expected,
+        )
+      ).error_code,
+    ).toBe("STALE_CONFLICT");
+    const changed = await projection();
+    expect(changed.version.venue_label).toBe("Terrace");
+    expect(changed.version.timezone).toBe("America/Toronto");
+    expect(changed.version.cover_key).toBe("sunset");
+    expect(changed.version.capacity).toBe(8);
+    expect(changed.versions).toHaveLength(initial.versions.length + 1);
+    expect(
+      changed.versions.find((v: any) => v.id === initial.version.id),
+    ).toEqual(initial.version);
+    expect(changed.cases).toHaveLength(0);
+    expect(changed.suggestion.suggestion_state).toBe("NONE");
+    expect((await command("change_schedule", input)).error_code).toBe(
+      "INVALID_INPUT",
+    );
+  });
+  it("suggests reconfirmation for a venue change, carries an accepted obligation to later end-time changes, and does not escalate cosmetic edits", async () => {
+    await sql(
+      "insert into sontu_private.event_participants(event_instance_id,display_name,commitment_state) values($1,'Committed test guest','CONFIRMED')",
+      [event],
+    );
+    const current = (await projection()).version;
+    const input = {
+      starts_at: current.starts_at,
+      ends_at: current.ends_at,
+      venue_label: "Indoor room",
+      confirmed: true,
+    };
+    expect((await command("change_schedule", input)).status).toBe("ready");
+    let p = await projection();
+    expect(p.suggestion.suggestion_state).toBe("SUGGESTED");
+    expect(p.cases).toHaveLength(0);
+    await command("accept", { confirmed: true });
+    p = await projection();
+    const originalCase = p.cases[0].id;
+    expect(p.participants[0].response).toBe("AWAITING_RESPONSE");
+    await command("change_schedule", {
+      ...input,
+      ends_at: "2030-09-18T02:00:00Z",
+    });
+    p = await projection();
+    expect(p.cases).toHaveLength(2);
+    expect(p.cases.find((c: any) => c.id === originalCase).disposition).toBe(
+      "SUPERSEDED",
+    );
+    expect(
+      p.cases.find((c: any) => c.predecessor_case_id === originalCase)
+        .disposition,
+    ).toBe("OPEN_UNRESOLVED");
+    expect(p.participants[0].response).toBe("AWAITING_RESPONSE");
+    await command("cosmetic_edit", { description: "Wording only" });
+    expect((await projection()).cases).toEqual(p.cases);
+    await command("cancel", { confirmed: true });
+    expect(
+      (
+        await command("change_schedule", {
+          ...input,
+          venue_label: "No longer editable",
+        })
+      ).error_code,
+    ).toBe("INVALID_STATE");
+  });
+});
+
+describe("event-scoped team and role privacy", () => {
+  it("separates operational role, attendance and public badge visibility", async () => {
+    await asHost();
+    await sql("update auth.users set email='owner@sontu.test' where id=$1",[host]);
+    await sql("update auth.users set email='teammate@sontu.test',email_confirmed_at=now() where id=$1",[stranger]);
+    const added=(await sql<{r:any}>("select public.sontu_team_command('add_member',$1,null,$2,$3) r",[event,randomUUID(),JSON.stringify({email:"teammate@sontu.test",role:"VOLUNTEER",attends_event:true,public_visibility:"EVENT_TEAM"})]))[0].r;
+    expect(added.status).toBe("ready");
+    let team=(await sql<{r:any}>("select public.sontu_team_projection($1) r",[event]))[0].r;
+    expect(team.members[0]).toMatchObject({role:"VOLUNTEER",attends_event:true,public_visibility:"EVENT_TEAM"});
+    await sql("select public.sontu_team_command('update_member',$1,$2,$3,$4)",[event,added.item_id,randomUUID(),JSON.stringify({attends_event:false,public_visibility:"HIDDEN"})]);
+    team=(await sql<{r:any}>("select public.sontu_team_projection($1) r",[event]))[0].r;
+    expect(team.members[0]).toMatchObject({role:"VOLUNTEER",attends_event:false,public_visibility:"HIDDEN"});
+    const todo=(await sql<{r:any}>("select public.sontu_event_operations_command('add_todo',$1,null,$2,$3) r",[event,randomUUID(),JSON.stringify({title:"Set signs"})]))[0].r;
+    expect((await sql<{r:any}>("select public.sontu_assign_operation_item('todo',$1,$2,$3,$4) r",[event,todo.item_id,added.item_id,randomUUID()]))[0].r.status).toBe("ready");
+    expect((await sql<{r:any}>("select public.sontu_event_operations_projection($1) r",[event]))[0].r.todos.find((x:any)=>x.id===todo.item_id).assignee_team_member_id).toBe(added.item_id);
+    await asHost(stranger);
+    expect((await sql<{r:any}>("select public.sontu_team_projection($1) r",[event]))[0].r.error_code).toBe("UNAUTHORIZED");
+    expect((await sql<{r:any}>("select public.sontu_event_operations_projection($1) r",[event]))[0].r.status).toBe("ready");
+    await asHost();
+  });
+});
+
+describe("auditable event check-in", () => {
+  it("admits once, reports duplicates, rejects wrong-event use and permits check-in staff", async () => {
+    await asHost();
+    const created=await command("create_draft",{timezone:"America/Toronto"}); event=created.event_id; version=created.current_version;
+    await command("save_draft",{title:"Check-in test",description:"Admission test",starts_at:"2030-10-01T22:00:00Z",ends_at:"2030-10-02T00:00:00Z",timezone:"America/Toronto",venue_label:"Door A",cover_key:"sunset",capacity:"20"});
+    await command("publish",{confirmed:true});
+    const guest=randomUUID(); await sql("insert into sontu_private.event_participants(id,event_instance_id,display_name,commitment_state) values($1,$2,'Taylor Guest','CONFIRMED')",[guest,event]);
+    await sql("update auth.users set email='teammate@sontu.test' where id=$1",[stranger]);
+    await sql("select public.sontu_team_command('add_member',$1,null,$2,$3)",[event,randomUUID(),JSON.stringify({email:"teammate@sontu.test",role:"CHECK_IN_STAFF",attends_event:false,public_visibility:"HIDDEN"})]);
+    await asHost(stranger);
+    expect((await sql<{r:any}>("select public.sontu_check_in_projection($1) r",[event]))[0].r.counts).toEqual({eligible:1,admitted:0});
+    const first=(await sql<{r:any}>("select public.sontu_check_in_command($1,$2,$3) r",[event,guest,randomUUID()]))[0].r;
+    expect(first.result).toBe("ADMITTED");
+    const duplicate=(await sql<{r:any}>("select public.sontu_check_in_command($1,$2,$3) r",[event,guest,randomUUID()]))[0].r;
+    expect(duplicate.result).toBe("ALREADY_USED");
+    expect((await sql<{r:any}>("select public.sontu_check_in_command($1,$2,$3) r",[event,randomUUID(),randomUUID()]))[0].r.result).toBe("INVALID");
+    expect((await sql<{count:number}>("select count(*)::int count from sontu_private.audit_entries where event_instance_id=$1 and audit_kind='CHECK_IN_ATTEMPT'",[event]))[0].count).toBe(3);
+    await asHost();
+  });
+  it("blocks premature closeout and preserves an honest attendance snapshot", async () => {
+    await asHost();
+    const todo=(await sql<{r:any}>("select public.sontu_event_operations_command('add_todo',$1,null,$2,$3) r",[event,randomUUID(),JSON.stringify({title:"Final sweep"})]))[0].r;
+    expect((await sql<{r:any}>("select public.sontu_close_event($1,$2,true) r",[event,randomUUID()]))[0].r.error_code).toBe("OPEN_TODOS");
+    await sql("select public.sontu_event_operations_command('set_todo_state',$1,$2,$3,$4)",[event,todo.item_id,randomUUID(),JSON.stringify({state:"DONE"})]);
+    const op=randomUUID();
+    const closed=(await sql<{r:any}>("select public.sontu_close_event($1,$2,true) r",[event,op]))[0].r;
+    expect(closed).toMatchObject({status:"ready",lifecycle:"CLOSED"});
+    expect((await sql<{r:any}>("select public.sontu_close_event($1,$2,true) r",[event,op]))[0].r).toEqual(closed);
+    const results=(await sql<{r:any}>("select public.sontu_results_projection($1) r",[event]))[0].r;
+    expect(results.lifecycle).toBe("CLOSED");
+    expect(results.closeout).toMatchObject({confirmed:1,admitted:1,attendance_unknown:0});
+    expect((await projection()).event.lifecycle).toBe("CLOSED");
+  });
+});
+
+describe("explicit beta dev notes", () => {
+  it("keeps notes private to their author and rejects impersonation", async () => {
+    await asHost();
+    await db.exec("set role authenticated");
+    try {
+      const id = randomUUID();
+      await sql(
+        "insert into public.sontu_dev_notes(id,body,screen) values($1,'Improve spacing','hosting')",
+        [id],
+      );
+      expect(
+        await sql("select body from public.sontu_dev_notes where id=$1", [id]),
+      ).toEqual([{ body: "Improve spacing" }]);
+      await asHost(stranger);
+      expect(
+        await sql("select body from public.sontu_dev_notes where id=$1", [id]),
+      ).toEqual([]);
+      await expect(
+        sql(
+          "insert into public.sontu_dev_notes(id,user_id,body,screen) values($1,$2,'Wrong owner','home')",
+          [randomUUID(), host],
+        ),
+      ).rejects.toThrow();
+      await expect(
+        sql(
+          "insert into public.sontu_dev_notes(id,body,screen) values($1,'Secret path','/invite/private-token')",
+          [randomUUID()],
+        ),
+      ).rejects.toThrow();
+      await asHost("");
+      await expect(
+        sql(
+          "insert into public.sontu_dev_notes(id,body,screen) values($1,'Signed out','home')",
+          [randomUUID()],
+        ),
+      ).rejects.toThrow();
+    } finally {
+      await db.exec("reset role");
+      await asHost();
+    }
+  });
+});

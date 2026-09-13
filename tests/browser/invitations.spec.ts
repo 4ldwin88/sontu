@@ -65,6 +65,22 @@ test("verified invitee accepts and reconfirms through connected Events", async (
     page.getByRole("heading", { name: "Verify your invitation" }),
   ).toBeVisible();
   await expect(page.getByText("Private garden")).toHaveCount(0);
+  // Account entry preserves the invitation; signing in alone cannot grant access.
+  await page.getByRole("link", { name: "Sign in with your account" }).click();
+  await page
+    .getByLabel("Email", { exact: true })
+    .fill(process.env.SONTU_TEST_EMAIL!);
+  await page
+    .getByLabel("Password", { exact: true })
+    .fill(process.env.SONTU_TEST_PASSWORD!);
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(page).toHaveURL(new RegExp("#/invite/" + token + "$"));
+  await expect(
+    page.getByRole("heading", { name: "Invitation unavailable" }),
+  ).toBeVisible();
+  await expect(page.getByText("Private garden")).toHaveCount(0);
+  await page.getByRole("button", { name: "Use another email" }).click();
+  await expect(page.getByLabel("Invited email")).toBeVisible();
   await page.getByLabel("Invited email").fill(email);
   await page.getByRole("button", { name: "Email me a code" }).click();
   await expect(page.getByLabel("Verification code")).toBeVisible();
@@ -107,6 +123,8 @@ test("verified invitee accepts and reconfirms through connected Events", async (
     page.getByRole("button", { name: "Accept invitation" }),
   ).toBeVisible();
   await page.getByRole("link", { name: "Your Events" }).click();
+  await page.getByLabel("First name", { exact: true }).fill("Invited guest");
+  await page.getByRole("button", { name: "Start exploring" }).click();
   await page.getByRole("tab", { name: "Invited", exact: true }).click();
   await page
     .getByRole("link")
@@ -129,12 +147,18 @@ test("verified invitee accepts and reconfirms through connected Events", async (
     path: info.outputPath("connected-upcoming.png"),
     fullPage: true,
   });
-  await cmd("change_time", {
+  await cmd("change_schedule", {
     confirmed: true,
     starts_at: "2030-09-16T23:30:00Z",
+    ends_at: "2030-09-17T02:00:00Z",
+    venue_label: "Sheltered pavilion",
   });
   await cmd("accept", { confirmed: true });
   await page.goto("/#/invite/" + token);
+  await expect(
+    page.getByText("Sheltered pavilion · Asia/Ho_Chi_Minh", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText(/Ends.*9:00/)).toBeVisible();
   await page.getByRole("button", { name: "I can still make it" }).click();
   await expect(page.getByText("You’re going.", { exact: true })).toBeVisible();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
