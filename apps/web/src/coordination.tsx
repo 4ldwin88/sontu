@@ -23,6 +23,8 @@ import { Button, StatusBadge, TextField } from "../../../packages/ui-web";
 import { FocusedWorkspaceShell, WidePortalShell, Modal } from "./shells";
 import {
   createParticipantToken,
+  checkInParticipant,
+  checkInRead,
   eventOperationsCommand,
   eventOperationsRead,
   assignOperationItem,
@@ -42,6 +44,7 @@ import type {
   HostProjection,
   CommandResult,
   EventOperationsProjection,
+  CheckInProjection,
   TeamMember,
   TeamProjection,
 } from "../../../packages/domain/coordination";
@@ -403,7 +406,7 @@ function HostContent({ id }: { id: string }) {
   };
   const nav = (
     <nav className="workspace-nav" aria-label="Event workspace modules">
-      {["overview", "participants", "team", "todo", "resources", "history"].map((s) => (
+      {["overview", "participants", "team", "todo", "resources", "check-in", "history"].map((s) => (
         <button
           key={s}
           aria-current={section === s ? "page" : undefined}
@@ -1078,6 +1081,7 @@ function HostContent({ id }: { id: string }) {
         {section === "todo" && <EventOperations eventId={id} kind="todo" />}
         {section === "resources" && <EventOperations eventId={id} kind="resources" />}
         {section === "team" && <TeamPanel eventId={id} />}
+        {section === "check-in" && <CheckInPanel eventId={id} />}
         {modal === "change_schedule" && editSource && (
           <ScheduleEditor
             version={editSource.version}
@@ -1354,6 +1358,23 @@ interface ParticipantView {
     response: string | null;
     actionable: boolean;
   };
+}
+export function CheckInWorkspace() {
+  const {eventId}=useParams();
+  return <FocusedWorkspaceShell title="Event Check-in" back="/events?view=Hosting"><SessionGate><main id="main" tabIndex={-1} className="coord-entry"><CheckInPanel eventId={eventId!}/></main></SessionGate></FocusedWorkspaceShell>;
+}
+function CheckInPanel({eventId}:{eventId:string}) {
+  const [data,setData]=useState<CheckInProjection|null>(null); const [query,setQuery]=useState(""); const [busy,setBusy]=useState(false); const [error,setError]=useState(""); const [result,setResult]=useState<{kind:string;name:string}|null>(null);
+  const load=useCallback(async()=>{try{const r=await checkInRead(eventId);if(r.status!=="ready")throw new Error();setData(r);setError("");}catch{setError("Unable to verify check-in access or attendee status. Try again before admitting anyone.");}},[eventId]);
+  useEffect(()=>{void load();},[load]);
+  const admit=async(id:string,name:string)=>{if(busy)return;setBusy(true);setError("");setResult(null);try{const r=await checkInParticipant(eventId,id);setResult({kind:r.result??"UNABLE_TO_VERIFY",name});await load();}catch{setResult({kind:"UNABLE_TO_VERIFY",name});}finally{setBusy(false);}};
+  const message=result&&({ADMITTED:`Admitted — ${result.name} is checked in.`,ALREADY_USED:`Already used — ${result.name} was previously checked in.`,WRONG_EVENT:`Wrong event — do not admit ${result.name}.`,INVALID:`Invalid — ${result.name} is not eligible for admission.`,UNABLE_TO_VERIFY:`Unable to verify ${result.name}. Do not assume admission.`} as Record<string,string>)[result.kind];
+  const visible=data?.participants.filter(p=>p.display_name.toLowerCase().includes(query.trim().toLowerCase()))??[];
+  return <section className="panel event-operations" aria-labelledby="check-in-heading"><div className="section-heading"><div><span className="eyebrow">Admission operations</span><h2 id="check-in-heading">Check-in</h2><p className="muted">Search the attendee list, verify the result, then admit. Every attempt is audited.</p></div>{data&&<StatusBadge>{data.counts.admitted} / {data.counts.eligible} admitted</StatusBadge>}</div>
+    {message&&<div className="coord-feedback" role="alert"><strong>{message}</strong></div>}{error&&<Feedback message={error} onRetry={()=>void load()}/>}<TextField label="Find attendee" type="search" value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search by name"/>
+    {!data&&!error&&<p role="status">Loading current admission status…</p>}{data&&visible.length===0&&<div className="operation-empty"><strong>No matching attendees.</strong><p>Check the spelling or confirm that the invitation was accepted.</p></div>}
+    <ul className="operation-list">{visible.map(p=><li key={p.id}><div><strong>{p.display_name}</strong><span>{p.checked_in_at?`Checked in ${new Date(p.checked_in_at).toLocaleTimeString([], {hour:"numeric",minute:"2-digit"})}`:p.commitment_state==="CONFIRMED"?"Eligible":"Not eligible"}</span></div><Button variant={p.checked_in_at?"quiet":"secondary"} disabled={busy||p.commitment_state!=="CONFIRMED"} onClick={()=>void admit(p.id,p.display_name)}>{p.checked_in_at?"Verify again":"Check in"}</Button></li>)}</ul>
+  </section>;
 }
 const teamRoleLabel = (role: TeamMember["role"]) => ({CO_HOST:"Co-host",EVENT_MANAGER:"Event manager",CHECK_IN_STAFF:"Check-in staff",VOLUNTEER:"Volunteer",PHOTOGRAPHER:"Photographer"})[role];
 function useTeam(eventId: string) {
