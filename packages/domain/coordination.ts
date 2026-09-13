@@ -98,6 +98,11 @@ export interface CheckInProjection {
   participants: { id: string; display_name: string; commitment_state: string; checked_in_at: string | null }[];
 }
 export interface CheckInResult extends CommandResult { result?: "ADMITTED" | "ALREADY_USED" | "WRONG_EVENT" | "INVALID" | "UNABLE_TO_VERIFY" }
+export interface EventResultsProjection {
+ status: CommandStatus; error_code?: string; lifecycle: string;
+ summary: { confirmed: number; admitted: number; attendance_unknown: number; declined_or_withdrawn: number; open_todos: number; needed_resources: number; unresolved_obligations: number };
+ closeout: null | { closed_at: string; closed_by: string; confirmed: number; admitted: number; attendance_unknown: number; declined_or_withdrawn: number };
+}
 export function settlement(responses: ResponseState[]) {
   const terminal = responses.filter(
     (s) => s === "RECONFIRMED" || s === "RELEASED_DECLINED",
