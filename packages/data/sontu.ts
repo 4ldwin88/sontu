@@ -1,6 +1,6 @@
 import { recordDiagnostic } from "./diagnostics";
 import { createClient } from "@supabase/supabase-js";
-import type { CheckInProjection, CheckInResult, CommandResult, EventOperationsProjection, HostProjection, TeamProjection } from "../domain/coordination";
+import type { CheckInProjection, CheckInResult, CommandResult, EventOperationsProjection, EventResultsProjection, HostProjection, TeamProjection } from "../domain/coordination";
 // Publishable key only. All authorization and consequential writes are enforced by RPCs.
 export const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL ??
@@ -59,6 +59,8 @@ export const assignOperationItem = (kind: "todo"|"resource",event_id: string,ite
   rpc<CommandResult>("sontu_assign_operation_item",{kind,event_id,item_id,team_member_id,operation_id:crypto.randomUUID()});
 export const checkInRead = (event_id: string) => rpc<CheckInProjection>("sontu_check_in_projection",{event_id});
 export const checkInParticipant = (event_id: string,participant_id: string) => rpc<CheckInResult>("sontu_check_in_command",{event_id,participant_id,operation_id:crypto.randomUUID()});
+export const resultsRead = (event_id: string) => rpc<EventResultsProjection>("sontu_results_projection",{event_id});
+export const closeEvent = (event_id: string) => rpc<CommandResult>("sontu_close_event",{event_id,operation_id:crypto.randomUUID(),confirmed:true});
 export function createParticipantToken() {
   return Array.from(crypto.getRandomValues(new Uint8Array(32)), (b) =>
     b.toString(16).padStart(2, "0"),
