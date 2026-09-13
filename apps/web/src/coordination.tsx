@@ -25,10 +25,13 @@ import {
   createParticipantToken,
   eventOperationsCommand,
   eventOperationsRead,
+  assignOperationItem,
   hostCommand,
   hostRead,
   rpc,
   supabase,
+  teamCommand,
+  teamRead,
 } from "../../../packages/data/sontu";
 import {
   errorMessages,
@@ -39,6 +42,8 @@ import type {
   HostProjection,
   CommandResult,
   EventOperationsProjection,
+  TeamMember,
+  TeamProjection,
 } from "../../../packages/domain/coordination";
 
 // A pending request is recovery metadata, never authoritative event state.
@@ -398,7 +403,7 @@ function HostContent({ id }: { id: string }) {
   };
   const nav = (
     <nav className="workspace-nav" aria-label="Event workspace modules">
-      {["overview", "participants", "todo", "resources", "history"].map((s) => (
+      {["overview", "participants", "team", "todo", "resources", "history"].map((s) => (
         <button
           key={s}
           aria-current={section === s ? "page" : undefined}
@@ -962,6 +967,7 @@ function HostContent({ id }: { id: string }) {
                   </div>
                 </li>
               )}
+              <TeamGoing eventId={id} query={guestQuery} filter={guestFilter} />
               {visibleGuests.map((p) => (
                 <li key={p.id}>
                   <div>
@@ -1071,6 +1077,7 @@ function HostContent({ id }: { id: string }) {
         )}
         {section === "todo" && <EventOperations eventId={id} kind="todo" />}
         {section === "resources" && <EventOperations eventId={id} kind="resources" />}
+        {section === "team" && <TeamPanel eventId={id} />}
         {modal === "change_schedule" && editSource && (
           <ScheduleEditor
             version={editSource.version}
@@ -1348,6 +1355,29 @@ interface ParticipantView {
     actionable: boolean;
   };
 }
+const teamRoleLabel = (role: TeamMember["role"]) => ({CO_HOST:"Co-host",EVENT_MANAGER:"Event manager",CHECK_IN_STAFF:"Check-in staff",VOLUNTEER:"Volunteer",PHOTOGRAPHER:"Photographer"})[role];
+function useTeam(eventId: string) {
+  const [team,setTeam]=useState<TeamProjection|null>(null);
+  const reload=useCallback(async()=>setTeam(await teamRead(eventId)),[eventId]);
+  useEffect(()=>{void reload();},[reload]);
+  return {team,reload};
+}
+function TeamGoing({eventId,query,filter}:{eventId:string;query:string;filter:string}) {
+  const {team}=useTeam(eventId);
+  if (filter!=="all"&&filter!=="attending") return null;
+  return <>{team?.members.filter(m=>m.attends_event&&`${m.display_name} ${m.email}`.toLowerCase().includes(query.trim().toLowerCase())).map(m=><li key={`team-${m.id}`}>
+    <div><strong>{m.display_name}</strong>{m.public_visibility!=="HIDDEN"&&<>{" "}<StatusBadge>{m.public_visibility==="PUBLIC_ROLE"?teamRoleLabel(m.role):"Event team"}</StatusBadge></>}<p>Going</p></div>
+  </li>)}</>;
+}
+function TeamPanel({eventId}:{eventId:string}) {
+  const {team,reload}=useTeam(eventId); const [email,setEmail]=useState(""); const [role,setRole]=useState<TeamMember["role"]>("VOLUNTEER"); const [busy,setBusy]=useState(false); const [error,setError]=useState("");
+  const run=async(cmd:string,id:string|null,input:Record<string,unknown>)=>{setBusy(true);setError("");try{const r=await teamCommand(cmd,eventId,id,input);if(r.status!=="ready")setError(errorMessages[r.error_code??""]??(r.error_code==="ACCOUNT_NOT_FOUND"?"No Sontu account uses that email yet.":"That team change could not be saved."));else{setEmail("");await reload();}}catch{setError("The team change is unconfirmed. Refresh before trying again.");}finally{setBusy(false);}};
+  return <section className="panel event-operations" aria-labelledby="team-heading"><div className="section-heading"><div><span className="eyebrow">Event-scoped</span><h2 id="team-heading">Team &amp; Roles</h2><p className="muted">Give existing Sontu accounts only the access they need. Attendance and public role display are separate.</p></div></div>
+    {error&&<Feedback message={error} onRetry={()=>void reload()}/>}<form className="operation-add" onSubmit={e=>{e.preventDefault();void run("add_member",null,{email,role,attends_event:true,public_visibility:"EVENT_TEAM"});}}><TextField label="Teammate email" type="email" required value={email} onChange={e=>setEmail(e.target.value)}/><label><span>Role</span><select value={role} onChange={e=>setRole(e.target.value as TeamMember["role"])}>{(["CO_HOST","EVENT_MANAGER","CHECK_IN_STAFF","VOLUNTEER","PHOTOGRAPHER"] as const).map(r=><option value={r} key={r}>{teamRoleLabel(r)}</option>)}</select></label><Button disabled={busy}>{busy?"Saving…":"Add teammate"}</Button></form>
+    {!team&&<p role="status">Loading team…</p>}{team?.members.length===0&&<div className="operation-empty"><strong>No teammates yet.</strong><p>Add someone only when this event needs shared operation.</p></div>}
+    <ul className="operation-list">{team?.members.map(m=><li key={m.id}><div><strong>{m.display_name}</strong><span>{m.email}</span><div className="coord-actions"><label><span className="sr-only">Role for {m.display_name}</span><select value={m.role} onChange={e=>void run("update_member",m.id,{role:e.target.value})}>{(["CO_HOST","EVENT_MANAGER","CHECK_IN_STAFF","VOLUNTEER","PHOTOGRAPHER"] as const).map(r=><option value={r} key={r}>{teamRoleLabel(r)}</option>)}</select></label><label><input type="checkbox" checked={m.attends_event} onChange={e=>void run("update_member",m.id,{attends_event:e.target.checked})}/> Going</label><label><span className="sr-only">Public role visibility for {m.display_name}</span><select value={m.public_visibility} onChange={e=>void run("update_member",m.id,{public_visibility:e.target.value})}><option value="EVENT_TEAM">Show Event team</option><option value="PUBLIC_ROLE">Show exact role</option><option value="HIDDEN">Hide role badge</option></select></label></div></div><Button variant="quiet" disabled={busy} onClick={()=>{if(confirm(`Remove ${m.display_name} from this event team?`))void run("remove_member",m.id,{})}}>Remove</Button></li>)}</ul>
+  </section>;
+}
 function EventOperations({ eventId, kind }: { eventId: string; kind: "todo" | "resources" }) {
   const [data, setData] = useState<EventOperationsProjection | null>(null);
   const [busy, setBusy] = useState(false);
@@ -1355,6 +1385,7 @@ function EventOperations({ eventId, kind }: { eventId: string; kind: "todo" | "r
   const [title, setTitle] = useState("");
   const [quantity, setQuantity] = useState("1");
   const [note, setNote] = useState("");
+  const {team}=useTeam(eventId);
   const load = useCallback(async () => {
     try {
       const next = await eventOperationsRead(eventId);
@@ -1404,10 +1435,10 @@ function EventOperations({ eventId, kind }: { eventId: string; kind: "todo" | "r
       {data && items.length === 0 && <div className="operation-empty"><strong>Nothing here yet.</strong><p>Add only what helps this event happen.</p></div>}
       <ul className="operation-list">
         {kind === "todo" ? data?.todos.map((item) => <li key={item.id}>
-          <div><strong>{item.title}</strong><span>{item.state === "DONE" ? "Completed" : "Open"}</span></div>
+          <div><strong>{item.title}</strong><span>{item.state === "DONE" ? "Completed" : "Open"}</span><select aria-label={`Assign ${item.title}`} value={item.assignee_team_member_id??""} onChange={async e=>{setBusy(true);await assignOperationItem("todo",eventId,item.id,e.target.value||null);await load();setBusy(false);}}><option value="">Unassigned</option>{team?.members.map(m=><option key={m.id} value={m.id}>{m.display_name}</option>)}</select></div>
           <Button variant="secondary" disabled={busy} onClick={() => void run("set_todo_state", item.id, { state: item.state === "DONE" ? "OPEN" : "DONE" })}>{item.state === "DONE" ? "Reopen" : "Complete"}</Button>
         </li>) : data?.resources.map((item) => <li key={item.id}>
-          <div><strong>{item.label} · {item.quantity}</strong><span>{item.state === "READY" ? "Ready" : "Needed"}{item.note ? ` · ${item.note}` : ""}</span></div>
+          <div><strong>{item.label} · {item.quantity}</strong><span>{item.state === "READY" ? "Ready" : "Needed"}{item.note ? ` · ${item.note}` : ""}</span><select aria-label={`Assign ${item.label}`} value={item.assignee_team_member_id??""} onChange={async e=>{setBusy(true);await assignOperationItem("resource",eventId,item.id,e.target.value||null);await load();setBusy(false);}}><option value="">Unassigned</option>{team?.members.map(m=><option key={m.id} value={m.id}>{m.display_name}</option>)}</select></div>
           <Button variant="secondary" disabled={busy} onClick={() => void run("set_resource_state", item.id, { state: item.state === "READY" ? "NEEDED" : "READY" })}>{item.state === "READY" ? "Mark needed" : "Mark ready"}</Button>
         </li>)}
       </ul>
