@@ -30,6 +30,16 @@ html[data-board-route="feed"] main#main > :not(.board-portal-root) {
   overflow-wrap: anywhere;
 }
 
+.board-feed.board-screen {
+  min-height: 960px;
+}
+
+.board-screen .status.neutral,
+.board-soft-panel,
+.board-soft-panel p {
+  color: var(--text-primary);
+}
+
 .board-hero-band {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
