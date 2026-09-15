@@ -21,6 +21,12 @@
   overflow-wrap: anywhere;
 }
 
+.dev-note-history p,
+.dev-note-meta small,
+.dev-note-meta time {
+  color: var(--text-primary);
+}
+
 .board-feed.board-screen {
   min-height: 1400px;
 }
