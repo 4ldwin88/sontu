@@ -17,6 +17,11 @@ export type AccountProfile = {
   handle_provisional: boolean;
   handle_changed_at: string | null;
   event_email_enabled: boolean;
+  bio: string;
+  bio_visibility: "GENERAL" | "CLOSE" | "ONLY_ME";
+  link_label: string;
+  link_url: string;
+  link_visibility: "GENERAL" | "CLOSE" | "ONLY_ME";
   revision: number;
 };
 export type ProfileResult = {

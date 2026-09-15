@@ -2672,9 +2672,35 @@ td {
   margin: 8px 0 28px;
   color: var(--text-secondary);
 }
+.profile-hub-bio {
+  max-width: 34ch;
+  margin: 18px auto 22px !important;
+  color: var(--text-primary) !important;
+  line-height: 1.5;
+}
+.profile-hub-link {
+  display: inline-flex;
+  margin-bottom: 24px;
+  color: var(--interactive-primary);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.profile-viewer-note {
+  display: inline-flex;
+  margin: 2px 0 10px !important;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--selected);
+  color: var(--interactive-primary) !important;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
 .profile-hub-actions {
   display: grid;
   gap: 12px;
+}
+.profile-hub-actions button {
+  width: 100%;
 }
 .profile-hub-actions a {
   min-height: 50px;
@@ -2692,6 +2718,25 @@ td {
   background: var(--interactive-primary);
   color: white;
   border-color: var(--interactive-primary);
+}
+.profile-edit-field {
+  margin: 20px 0;
+}
+.visibility-select {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: -8px;
+  color: var(--text-secondary);
+}
+.visibility-select select {
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--surface);
+  color: var(--text-primary);
+  width: 100%;
 }
 
 button.back-link {

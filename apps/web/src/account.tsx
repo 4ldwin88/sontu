@@ -13,6 +13,9 @@ import {
   EyeOff,
   Circle,
   UserRound,
+  Globe2,
+  Lock,
+  Users,
 } from "lucide-react";
 import { Button, TextField } from "../../../packages/ui-web";
 import { supabase } from "../../../packages/data/sontu";
@@ -428,13 +431,38 @@ export function RealProfile({ onBack }: { onBack: () => void }) {
   const a = useAccount(),
     p = a.profile;
   const [params] = useSearchParams();
+  type Visibility = "GENERAL" | "CLOSE" | "ONLY_ME";
   const [editing, setEditing] = useState(params.get("edit") === "1"),
     [name, setName] = useState(p?.first_name ?? ""),
     [display, setDisplay] = useState(p?.display_name ?? ""),
     [handle, setHandle] = useState(p?.handle ?? ""),
     [eventEmailEnabled, setEventEmailEnabled] = useState(p?.event_email_enabled ?? true),
+    [bio, setBio] = useState(p?.bio ?? ""),
+    [bioVisibility, setBioVisibility] = useState<Visibility>(p?.bio_visibility ?? "GENERAL"),
+    [linkLabel, setLinkLabel] = useState(p?.link_label ?? ""),
+    [linkUrl, setLinkUrl] = useState(p?.link_url ?? ""),
+    [linkVisibility, setLinkVisibility] = useState<Visibility>(p?.link_visibility ?? "GENERAL"),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
+  const visibilityField = (
+    label: string,
+    value: Visibility,
+    setValue: (value: Visibility) => void,
+  ) => (
+    <label className="visibility-select">
+      {value === "GENERAL" ? <Globe2 size={18} /> : value === "CLOSE" ? <Users size={18} /> : <Lock size={18} />}
+      <span className="sr-only">{label}</span>
+      <select
+        aria-label={label}
+        value={value}
+        onChange={(event) => setValue(event.target.value as Visibility)}
+      >
+        <option value="GENERAL">General — Visible on your public profile.</option>
+        <option value="CLOSE">Close — Visible to people you mark as Close.</option>
+        <option value="ONLY_ME">Only me — Visible only to you.</option>
+      </select>
+    </label>
+  );
   if (!p) return <Navigate to="/account/setup" replace />;
   return (
     <main id="main" tabIndex={-1} className="settings-page lightweight-profile">
@@ -466,6 +494,11 @@ export function RealProfile({ onBack }: { onBack: () => void }) {
                 display_name: display,
                 handle,
                 event_email_enabled: eventEmailEnabled,
+                bio,
+                bio_visibility: bioVisibility,
+                link_label: linkLabel,
+                link_url: linkUrl,
+                link_visibility: linkVisibility,
                 revision: p.revision,
               });
               if (r.status === "ready") {
@@ -483,6 +516,12 @@ export function RealProfile({ onBack }: { onBack: () => void }) {
                         "Use 3–30 lowercase letters, numbers, underscores or periods. Start with a letter or number; reserved names are unavailable.",
                       STALE_PROFILE:
                         "Your profile changed elsewhere. Reload before saving again.",
+                      INVALID_PROFILE_FIELD:
+                        "Keep your bio and link details short.",
+                      INVALID_VISIBILITY:
+                        "Choose General, Close, or Only me visibility.",
+                      INVALID_LINK:
+                        "Use a secure https link.",
                     } as Record<string, string>
                   )[r.error_code ?? ""] ?? "Check your name and try again.",
                 );
@@ -519,6 +558,32 @@ export function RealProfile({ onBack }: { onBack: () => void }) {
             value={handle}
             onChange={(e) => setHandle(e.target.value)}
           />
+          <div className="profile-edit-field">
+            <TextField
+              label="Bio"
+              maxLength={240}
+              value={bio}
+              onChange={(e) => setBio(e.target.value)}
+            />
+            {visibilityField("Bio visibility", bioVisibility, setBioVisibility)}
+          </div>
+          <div className="profile-edit-field">
+            <TextField
+              label="Link label"
+              maxLength={80}
+              value={linkLabel}
+              onChange={(e) => setLinkLabel(e.target.value)}
+            />
+            <TextField
+              label="Link URL"
+              type="url"
+              maxLength={240}
+              value={linkUrl}
+              onChange={(e) => setLinkUrl(e.target.value)}
+              placeholder="https://example.com"
+            />
+            {visibilityField("Link visibility", linkVisibility, setLinkVisibility)}
+          </div>
           <p className="small muted">
             {p.handle_provisional
               ? "Your first handle choice is available immediately."
@@ -543,6 +608,11 @@ export function RealProfile({ onBack }: { onBack: () => void }) {
             setDisplay(p.display_name);
             setHandle(p.handle);
             setEventEmailEnabled(p.event_email_enabled);
+            setBio(p.bio);
+            setBioVisibility(p.bio_visibility);
+            setLinkLabel(p.link_label);
+            setLinkUrl(p.link_url);
+            setLinkVisibility(p.link_visibility);
             setEditing(true);
           }}
         >

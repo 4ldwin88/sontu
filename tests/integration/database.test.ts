@@ -1295,6 +1295,142 @@ describe("public profile hubs", () => {
     expect(accepted.requests).toEqual([]);
     expect(accepted.connections[0].status).toBe("ACCEPTED");
   });
+
+  it("applies General, Close, and Only-me profile field visibility without group inference", async () => {
+    const owner = randomUUID(),
+      closeViewer = randomUUID(),
+      groupedViewer = randomUUID();
+    await sql(
+      "insert into auth.users(id,email) values($1,$2),($3,$4),($5,$6)",
+      [
+        owner,
+        "visibility-owner@example.com",
+        closeViewer,
+        "close-viewer@example.com",
+        groupedViewer,
+        "grouped-viewer@example.com",
+      ],
+    );
+    await asHost(owner);
+    const ownerProfile = (
+      await sql<{ r: any }>("select public.sontu_account_profile($1,$2) r", [
+        "create",
+        JSON.stringify({ first_name: "Visible" }),
+      ])
+    )[0].r.profile;
+    const ownerUpdate = (
+      await sql<{ r: any }>("select public.sontu_account_profile($1,$2) r", [
+        "update",
+        JSON.stringify({
+          first_name: "Visible",
+          handle: ownerProfile.handle,
+          revision: ownerProfile.revision,
+          bio: "Close-circle bio",
+          bio_visibility: "CLOSE",
+          link_label: "Public link",
+          link_url: "https://example.com",
+          link_visibility: "GENERAL",
+        }),
+      ])
+    )[0].r;
+    expect(ownerUpdate.status).toBe("ready");
+
+    const createProfile = async (id: string, firstName: string) => {
+      await asHost(id);
+      await sql<{ r: any }>("select public.sontu_account_profile($1,$2) r", [
+        "create",
+        JSON.stringify({ first_name: firstName }),
+      ]);
+      const request = (
+        await sql<{ r: any }>("select public.sontu_connections($1,$2) r", [
+          "request",
+          JSON.stringify({ handle: ownerProfile.handle }),
+        ])
+      )[0].r;
+      await asHost(owner);
+      expect(
+        (
+          await sql<{ r: any }>("select public.sontu_connections($1,$2) r", [
+            "accept",
+            JSON.stringify({ connection_id: request.connection_id }),
+          ])
+        )[0].r.status,
+      ).toBe("ready");
+      return request.connection_id;
+    };
+
+    const closeConnectionId = await createProfile(closeViewer, "Close");
+    const groupedConnectionId = await createProfile(groupedViewer, "Grouped");
+    expect(groupedConnectionId).toEqual(expect.any(String));
+
+    await sql<{ r: any }>("select public.sontu_connections($1,$2) r", [
+      "set_close",
+      JSON.stringify({ connection_id: closeConnectionId, is_close: true }),
+    ]);
+    const context = (
+      await sql<{ r: any }>("select public.sontu_connections($1,$2) r", [
+        "create_context",
+        JSON.stringify({ name: "Family" }),
+      ])
+    )[0].r;
+    await sql<{ r: any }>("select public.sontu_connections($1,$2) r", [
+      "add_member",
+      JSON.stringify({
+        context_id: context.context_id,
+        user_id: groupedViewer,
+      }),
+    ]);
+
+    await asHost("");
+    const publicHub = (
+      await sql<{ r: any }>("select public.sontu_public_profile_hub($1) r", [
+        ownerProfile.handle,
+      ])
+    )[0].r;
+    expect(publicHub.profile.fields).toEqual({
+      link: { label: "Public link", url: "https://example.com" },
+    });
+
+    await asHost(closeViewer);
+    const closeHub = (
+      await sql<{ r: any }>("select public.sontu_public_profile_hub($1) r", [
+        ownerProfile.handle,
+      ])
+    )[0].r;
+    expect(closeHub.viewer.close).toBe(true);
+    expect(closeHub.profile.fields.bio).toBe("Close-circle bio");
+
+    await asHost(groupedViewer);
+    const groupedHub = (
+      await sql<{ r: any }>("select public.sontu_public_profile_hub($1) r", [
+        ownerProfile.handle,
+      ])
+    )[0].r;
+    expect(groupedHub.viewer.close).toBe(false);
+    expect(groupedHub.profile.fields.bio).toBeUndefined();
+
+    await asHost(owner);
+    const ownerOnly = (
+      await sql<{ r: any }>("select public.sontu_account_profile($1,$2) r", [
+        "update",
+        JSON.stringify({
+          first_name: "Visible",
+          handle: ownerProfile.handle,
+          revision: ownerUpdate.profile.revision,
+          bio: "Only owner bio",
+          bio_visibility: "ONLY_ME",
+        }),
+      ])
+    )[0].r;
+    expect(ownerOnly.status).toBe("ready");
+    await asHost(closeViewer);
+    const closeAfterOnlyMe = (
+      await sql<{ r: any }>("select public.sontu_public_profile_hub($1) r", [
+        ownerProfile.handle,
+      ])
+    )[0].r;
+    expect(closeAfterOnlyMe.profile.fields.bio).toBeUndefined();
+  });
 });
 
 describe("account privacy-request intake", () => {

@@ -151,14 +151,24 @@ export function ProfileUtilityPage({
   );
 }
 
-type Connection = { id: string; status: "PENDING" | "ACCEPTED"; direction: "INCOMING" | "OUTGOING"; user_id: string; display_name: string; handle: string };
+type Connection = { id: string; status: "PENDING" | "ACCEPTED"; direction: "INCOMING" | "OUTGOING"; user_id: string; display_name: string; handle: string; is_close?: boolean };
 type ConnectionRequest = { id: string; requester_user_id: string; display_name: string; handle: string; created_at: string };
 type ConnectionContext = { id: string; name: string; members: Array<{ user_id: string; display_name: string; handle: string }> };
 export function ConnectionsPage({ onBack }: { onBack: () => void }) {
   const account = useAccount();
-  const [connections, setConnections] = useState<Connection[]>([]), [requests, setRequests] = useState<ConnectionRequest[]>([]), [contexts, setContexts] = useState<ConnectionContext[]>([]), [handle, setHandle] = useState(""), [contextName, setContextName] = useState(""), [message, setMessage] = useState("");
+  const [connections, setConnections] = useState<Connection[]>([]),
+    [requests, setRequests] = useState<ConnectionRequest[]>([]),
+    [contexts, setContexts] = useState<ConnectionContext[]>([]),
+    [handle, setHandle] = useState(""),
+    [contextName, setContextName] = useState(""),
+    [message, setMessage] = useState("");
   const readConnections = async () =>
-    rpc<{ status: string; connections?: Connection[]; requests?: ConnectionRequest[]; contexts?: ConnectionContext[] }>("sontu_connections", { action: "read", input: {} });
+    rpc<{
+      status: string;
+      connections?: Connection[];
+      requests?: ConnectionRequest[];
+      contexts?: ConnectionContext[];
+    }>("sontu_connections", { action: "read", input: {} });
   useEffect(() => {
     if (!account.session) return;
     let cancelled = false;
@@ -177,8 +187,12 @@ export function ConnectionsPage({ onBack }: { onBack: () => void }) {
     };
   }, [account.session]);
   const load = async () => {
-    const result = await rpc<{ status: string; connections?: Connection[]; requests?: ConnectionRequest[]; contexts?: ConnectionContext[] }>("sontu_connections", { action: "read", input: {} });
-    if (result.status === "ready") { setConnections(result.connections ?? []); setRequests(result.requests ?? []); setContexts(result.contexts ?? []); }
+    const result = await readConnections();
+    if (result.status === "ready") {
+      setConnections(result.connections ?? []);
+      setRequests(result.requests ?? []);
+      setContexts(result.contexts ?? []);
+    }
   };
   if (!account.session) return <Navigate to="/sign-in?next=%2Fconnections" replace />;
   const run = async (action: string, input: Record<string, string>) => {
@@ -188,12 +202,183 @@ export function ConnectionsPage({ onBack }: { onBack: () => void }) {
     setHandle(""); setContextName(""); await load();
   };
   const accepted = connections.filter((connection) => connection.status === "ACCEPTED");
-  return <main id="main" tabIndex={-1} className="settings-page"><button onClick={onBack} className="icon-button back-chevron" aria-label="Back to Profile"><ChevronLeft size={26} strokeWidth={2.5} /></button><h1>Connections</h1><p className="muted">Choose people and private contexts for future invitations.</p><section className="panel"><form onSubmit={(event) => { event.preventDefault(); void run("request", { handle }); }}><TextField label="Connect by handle" name="handle" value={handle} onChange={(event) => setHandle(event.target.value)} placeholder="member_handle" /><Button type="submit">Send connection request</Button></form>{message && <p role="status">{message}</p>}</section><section className="panel"><h2>Requests</h2>{requests.length ? requests.map((request) => <div key={request.id} className="settings-row"><span>{request.display_name} · @{request.handle}</span><div className="coord-actions"><Button onClick={() => void run("accept", { connection_id: request.id })}>Accept</Button><Button variant="secondary" onClick={() => void run("deny", { connection_id: request.id })}>Deny</Button></div></div>) : <p className="muted">No connection requests.</p>}</section><section className="panel"><h2>People</h2>{connections.length ? connections.map((connection) => <div key={connection.id} className="settings-row"><span>{connection.display_name} · @{connection.handle} {connection.status === "PENDING" ? "(pending)" : ""}</span>{connection.status === "PENDING" && connection.direction === "INCOMING" ? <div className="coord-actions"><Button onClick={() => void run("accept", { connection_id: connection.id })}>Accept</Button><Button variant="secondary" onClick={() => void run("deny", { connection_id: connection.id })}>Deny</Button></div> : <Button variant="quiet" onClick={() => void run("remove", { connection_id: connection.id })}>Remove</Button>}</div>) : <p className="muted">No connections yet.</p>}</section><section className="panel"><h2>Private contexts</h2><form onSubmit={(event) => { event.preventDefault(); void run("create_context", { name: contextName }); }}><TextField label="New context" name="context" value={contextName} onChange={(event) => setContextName(event.target.value)} placeholder="RAJA, Family, Close friends" /><Button type="submit">Create context</Button></form>{contexts.map((context) => <div key={context.id} className="settings-row"><span>{context.name} · {context.members.length} people</span><select aria-label={`Add person to ${context.name}`} defaultValue="" onChange={(event) => { if (event.target.value) void run("add_member", { context_id: context.id, user_id: event.target.value }); }}><option value="">Add a connection</option>{accepted.filter((connection) => !context.members.some((member) => member.user_id === connection.user_id)).map((connection) => <option key={connection.user_id} value={connection.user_id}>{connection.display_name}</option>)}</select></div>)}</section></main>;
+  return (
+    <main id="main" tabIndex={-1} className="settings-page">
+      <button
+        onClick={onBack}
+        className="icon-button back-chevron"
+        aria-label="Back to Profile"
+      >
+        <ChevronLeft size={26} strokeWidth={2.5} />
+      </button>
+      <h1>Connections</h1>
+      <p className="muted">
+        Choose people and private contexts for future invitations.
+      </p>
+      <section className="panel">
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void run("request", { handle });
+          }}
+        >
+          <TextField
+            label="Connect by handle"
+            name="handle"
+            value={handle}
+            onChange={(event) => setHandle(event.target.value)}
+            placeholder="member_handle"
+          />
+          <Button type="submit">Send connection request</Button>
+        </form>
+        {message && <p role="status">{message}</p>}
+      </section>
+      <section className="panel">
+        <h2>Requests</h2>
+        {requests.length ? (
+          requests.map((request) => (
+            <div key={request.id} className="settings-row">
+              <span>
+                {request.display_name} · @{request.handle}
+              </span>
+              <div className="coord-actions">
+                <Button onClick={() => void run("accept", { connection_id: request.id })}>
+                  Accept
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => void run("deny", { connection_id: request.id })}
+                >
+                  Deny
+                </Button>
+              </div>
+            </div>
+          ))
+        ) : (
+          <p className="muted">No connection requests.</p>
+        )}
+      </section>
+      <section className="panel">
+        <h2>People</h2>
+        {connections.length ? (
+          connections.map((connection) => (
+            <div key={connection.id} className="settings-row">
+              <span>
+                {connection.display_name} · @{connection.handle}{" "}
+                {connection.status === "PENDING"
+                  ? "(pending)"
+                  : connection.is_close
+                    ? "(Close)"
+                    : ""}
+              </span>
+              {connection.status === "ACCEPTED" ? (
+                <div className="coord-actions">
+                  <Button
+                    variant="secondary"
+                    onClick={() =>
+                      void run("set_close", {
+                        connection_id: connection.id,
+                        is_close: String(!connection.is_close),
+                      })
+                    }
+                  >
+                    {connection.is_close ? "Unmark Close" : "Mark Close"}
+                  </Button>
+                  <Button
+                    variant="quiet"
+                    onClick={() => void run("remove", { connection_id: connection.id })}
+                  >
+                    Remove
+                  </Button>
+                </div>
+              ) : connection.direction === "INCOMING" ? (
+                <div className="coord-actions">
+                  <Button onClick={() => void run("accept", { connection_id: connection.id })}>
+                    Accept
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => void run("deny", { connection_id: connection.id })}
+                  >
+                    Deny
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  variant="quiet"
+                  onClick={() => void run("remove", { connection_id: connection.id })}
+                >
+                  Remove
+                </Button>
+              )}
+            </div>
+          ))
+        ) : (
+          <p className="muted">No connections yet.</p>
+        )}
+      </section>
+      <section className="panel">
+        <h2>Private contexts</h2>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void run("create_context", { name: contextName });
+          }}
+        >
+          <TextField
+            label="New context"
+            name="context"
+            value={contextName}
+            onChange={(event) => setContextName(event.target.value)}
+            placeholder="RAJA, Family, Close friends"
+          />
+          <Button type="submit">Create context</Button>
+        </form>
+        {contexts.map((context) => (
+          <div key={context.id} className="settings-row">
+            <span>
+              {context.name} · {context.members.length} people
+            </span>
+            <select
+              aria-label={`Add person to ${context.name}`}
+              defaultValue=""
+              onChange={(event) => {
+                if (event.target.value)
+                  void run("add_member", {
+                    context_id: context.id,
+                    user_id: event.target.value,
+                  });
+              }}
+            >
+              <option value="">Add a connection</option>
+              {accepted
+                .filter(
+                  (connection) =>
+                    !context.members.some(
+                      (member) => member.user_id === connection.user_id,
+                    ),
+                )
+                .map((connection) => (
+                  <option key={connection.user_id} value={connection.user_id}>
+                    {connection.display_name}
+                  </option>
+                ))}
+            </select>
+          </div>
+        ))}
+      </section>
+    </main>
+  );
 }
 
 type PublicProfileHubResult = {
   status: "ready" | "not_found" | "error";
-  profile?: { display_name: string; handle: string };
+  viewer?: { owner: boolean; close: boolean };
+  profile?: {
+    display_name: string;
+    handle: string;
+    fields?: { bio?: string; link?: { label: string; url: string } };
+  };
 };
 type PublicProfileHubState = {
   handle: string;
@@ -267,6 +452,20 @@ export function PublicProfileHub() {
         </div>
         <h1>{result.profile.display_name}</h1>
         <p>@{result.profile.handle}</p>
+        {result.viewer?.close && <p className="profile-viewer-note">Close view</p>}
+        {result.profile.fields?.bio && (
+          <p className="profile-hub-bio">{result.profile.fields.bio}</p>
+        )}
+        {result.profile.fields?.link && (
+          <a
+            className="profile-hub-link"
+            href={result.profile.fields.link.url}
+            target="_blank"
+            rel="noreferrer"
+          >
+            {result.profile.fields.link.label}
+          </a>
+        )}
         <div className="profile-hub-actions">
           {account.session && account.profile?.handle !== result.profile.handle && (
             <Button
