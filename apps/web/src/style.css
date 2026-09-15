@@ -2782,6 +2782,34 @@ td {
   color: var(--text-primary);
   font-size: 1.15rem;
 }
+.profile-hub-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin: 18px 28px 0;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+.profile-hub-tabs button {
+  min-height: 38px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-weight: 700;
+}
+.profile-hub-tabs button.selected {
+  background: white;
+  color: var(--interactive-primary);
+  box-shadow: 0 4px 12px rgba(15, 45, 91, 0.08);
+}
+.profile-hub-panel {
+  display: grid;
+  gap: 14px;
+}
 .profile-hub-link {
   display: flex;
   align-items: center;
@@ -2805,6 +2833,23 @@ td {
   background: var(--surface-elevated);
   color: var(--text-secondary);
   font-size: 0.88rem;
+}
+.profile-relationship-state {
+  display: grid;
+  gap: 10px;
+  margin: 24px 28px 18px;
+}
+.profile-relationship-state span {
+  display: grid;
+  gap: 4px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+.profile-relationship-state small {
+  color: var(--text-secondary);
+  line-height: 1.35;
 }
 .profile-viewer-note {
   display: inline-flex;

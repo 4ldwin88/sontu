@@ -74,12 +74,27 @@ export function TopUtilities({
       event.reconfirmation_required,
   ).length;
   const [pendingReplies, setPendingReplies] = useState(0);
+  const [pendingConnectionRequests, setPendingConnectionRequests] = useState(0);
   useEffect(() => {
     if (!myEvents.signed) return;
     rpc<{ status: string; items?: unknown[] }>("sontu_event_question_notifications", { action: "read", question_id: null })
       .then((result) => setPendingReplies(result.status === "ready" ? (result.items?.length ?? 0) : 0))
       .catch(() => setPendingReplies(0));
+    rpc<{ status: string; requests?: unknown[] }>("sontu_connections", {
+      action: "read",
+      input: {},
+    })
+      .then((result) =>
+        setPendingConnectionRequests(
+          result.status === "ready" ? (result.requests?.length ?? 0) : 0,
+        ),
+      )
+      .catch(() => setPendingConnectionRequests(0));
   }, [myEvents.signed, myEvents.items]);
+  const pendingNotifications =
+    pendingInvites +
+    pendingUpdates +
+    (myEvents.signed ? pendingReplies + pendingConnectionRequests : 0);
   return (
     <header className="top-utilities">
       <button
@@ -112,7 +127,7 @@ export function TopUtilities({
           aria-haspopup="dialog"
         >
           <Bell size={21} />
-          {pendingInvites + pendingUpdates + (myEvents.signed ? pendingReplies : 0) > 0 && <span className="notification-dot" />}
+          {pendingNotifications > 0 && <span className="notification-dot" />}
         </button>
       </div>
     </header>

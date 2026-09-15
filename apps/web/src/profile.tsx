@@ -646,7 +646,12 @@ function ProfileHubContent({
   compact?: boolean;
 }) {
   const account = useAccount();
+  const [tab, setTab] = useState<"about" | "activity" | "relationship">(
+    "about",
+  );
   if (result.status !== "ready" || !result.profile) return null;
+  const following = Boolean(result.viewer?.following);
+  const connectionStatus = result.viewer?.connection_status ?? "none";
   return (
     <section className={compact ? "profile-hub-card mini" : "profile-hub-card"}>
       <div className="profile-hub-cover" aria-hidden="true">
@@ -675,24 +680,78 @@ function ProfileHubContent({
           </span>
         </div>
       )}
-      {result.profile.fields?.bio ? (
-        <p className="profile-hub-bio">{result.profile.fields.bio}</p>
-      ) : (
-        <div className="profile-hub-empty">
-          <Sparkles size={18} />
-          <span>This member has not added a public bio yet.</span>
+      {!compact && (
+        <div className="profile-hub-tabs" role="tablist" aria-label="Profile sections">
+          {[
+            ["about", "About"],
+            ["activity", "Activity"],
+            ["relationship", "Relationship"],
+          ].map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              role="tab"
+              aria-selected={tab === value}
+              className={tab === value ? "selected" : ""}
+              onClick={() => setTab(value as "about" | "activity" | "relationship")}
+            >
+              {label}
+            </button>
+          ))}
         </div>
       )}
-      {result.profile.fields?.link && (
-        <a
-          className="profile-hub-link"
-          href={result.profile.fields.link.url}
-          target="_blank"
-          rel="noreferrer"
-        >
-          <LinkIcon size={18} />
-          <span>{result.profile.fields.link.label}</span>
-        </a>
+      {(compact || tab === "about") && (
+        <div className="profile-hub-panel">
+          {result.profile.fields?.bio ? (
+            <p className="profile-hub-bio">{result.profile.fields.bio}</p>
+          ) : (
+            <div className="profile-hub-empty">
+              <Sparkles size={18} />
+              <span>This member has not added a public bio yet.</span>
+            </div>
+          )}
+          {result.profile.fields?.link && (
+            <a
+              className="profile-hub-link"
+              href={result.profile.fields.link.url}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <LinkIcon size={18} />
+              <span>{result.profile.fields.link.label}</span>
+            </a>
+          )}
+        </div>
+      )}
+      {!compact && tab === "activity" && (
+        <div className="profile-hub-panel">
+          <div className="profile-hub-empty">
+            <CalendarDays size={18} />
+            <span>Public event activity will appear here when this member chooses to share it.</span>
+          </div>
+        </div>
+      )}
+      {!compact && tab === "relationship" && (
+        <div className="profile-hub-panel">
+          <div className="profile-relationship-state">
+            <span>
+              <strong>{following ? "Following" : "Not following"}</strong>
+              <small>Following helps you find this member again. It does not reveal private details.</small>
+            </span>
+            <span>
+              <strong>
+                {connectionStatus === "connected"
+                  ? "Connected"
+                  : connectionStatus === "pending_sent"
+                    ? "Request sent"
+                    : connectionStatus === "pending_received"
+                      ? "Request received"
+                      : "Not connected"}
+              </strong>
+              <small>Connections are mutual trusted relationships.</small>
+            </span>
+          </div>
+        </div>
       )}
       <div className="profile-hub-actions">
         <ProfileFollowControl
