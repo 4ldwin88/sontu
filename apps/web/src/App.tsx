@@ -5,6 +5,7 @@ import {
   RealProfile,
 } from "./account";
 import { useAccount } from "./account-state";
+import { BoardFeed, BoardHome } from "./board-architecture";
 import { DevNotes } from "./dev-notes";
 import { OrganizationSetupPage, OrganizationsPage } from "./organizations";
 import {
@@ -39,13 +40,11 @@ import {
 } from "react-router-dom";
 import {
   ChevronLeft,
-  ArrowRight,
   CalendarDays,
   List,
   MapPin,
   Plus,
   UserCheck,
-  Users,
 } from "lucide-react";
 import { eventViews } from "../../../packages/application/projections";
 import { screenFromPath, trackBeta } from "../../../packages/data/telemetry";
@@ -90,112 +89,7 @@ function SectionHeading({
   );
 }
 function Home() {
-  const real = useMyEvents();
-  const featured = real.items
-    .filter((event) => event.lifecycle === "PUBLISHED")
-    .slice(0, 3);
-  const upcoming = forView(real.items, "Upcoming").slice(0, 2);
-  const hosted = forView(real.items, "Hosting").find(
-    (event) => event.lifecycle === "PUBLISHED",
-  );
-  return (
-    <main {...mainProps}>
-      <div className="home-layout">
-        <div>
-          <div className="home-welcome">
-            <img className="event-image" src="images/sunset.jpg" alt="" />
-            <div className="welcome-copy">
-              <h1>
-                More
-                <br />
-                together.
-              </h1>
-              <p>
-                Find events, meet people,
-                <br />
-                explore your world.
-              </p>
-              <Link className="welcome-search" to="/discover">
-                <MapPin size={20} />
-                Search events and experiences
-                <ArrowRight size={18} />
-              </Link>
-            </div>
-          </div>
-          <nav className="home-shortcuts" aria-label="Explore Sontu">
-            <Link to="/discover?mode=nearby">
-              <span>
-                <MapPin />
-              </span>
-              Events near you
-            </Link>
-            <Link to="/discover">
-              <span>
-                <List />
-              </span>
-              Explore events
-            </Link>
-            <Link to="/events">
-              <span>
-                <CalendarDays />
-              </span>
-              Your plans
-            </Link>
-            <Link to="/events?view=Interested">
-              <span>
-                <Users />
-              </span>
-              Interested
-            </Link>
-          </nav>
-          <section>
-            <SectionHeading title="Featured for you" to="/discover" />
-            {real.loading ? (
-              <p role="status">Loading events…</p>
-            ) : featured.length ? (
-              <div className="editorial-grid">
-                {featured.map((event) => (
-                  <SimpleEventCard
-                    key={event.id}
-                    event={event}
-                    view="Upcoming"
-                  />
-                ))}
-              </div>
-            ) : (
-              <p className="muted">No featured events are available yet.</p>
-            )}
-          </section>
-        </div>
-        <aside className="home-aside">
-          <section className="panel">
-            <SectionHeading title="Your upcoming events" to="/events" />
-            {upcoming.length ? (
-              upcoming.map((event) => (
-                <SimpleEventCard key={event.id} event={event} view="Upcoming" />
-              ))
-            ) : (
-              <p className="muted">No upcoming events yet.</p>
-            )}
-          </section>
-          {hosted && (
-            <section className="panel soft">
-              <span className="eyebrow">You’re bringing people together</span>
-              <h2>{hosted.title}</h2>
-              <p>Your hosted event</p>
-              <TextAction to={`/core/events/${hosted.id}/host`}>
-                Open Host Workspace
-              </TextAction>
-            </section>
-          )}
-          <div className="quiet-note">
-            <Users size={22} />
-            <p>The best plans often start with good company.</p>
-          </div>
-        </aside>
-      </div>
-    </main>
-  );
+  return <BoardHome />;
 }
 function Discover() {
   const [params, setParams] = useSearchParams();
@@ -211,9 +105,9 @@ function Discover() {
   );
   return (
     <main {...mainProps}>
-      <div className="discover-tools">
+      <div className="discover-tools discover-feature">
         <SearchField value={query} onChange={setQuery} />
-        <div className="view-toggle" aria-label="Discovery view">
+        <div className="view-toggle filter-row" aria-label="Discovery view">
           <Chip selected={!nearby} onClick={() => setParams({})}>
             <List size={16} />
             Explore
@@ -225,7 +119,7 @@ function Discover() {
         </div>
       </div>
       {nearby ? (
-        <div className="nearby-intro panel">
+        <div className="nearby-intro panel discover-feature">
           <MapPin size={25} />
           <div>
             <h1>Good things, close by.</h1>
@@ -247,7 +141,7 @@ function Discover() {
         {real.loading && !query ? (
           <p role="status">Loading events…</p>
         ) : matching.length ? (
-          <div className={nearby ? "nearby-list" : "discover-grid"}>
+          <div className={nearby ? "nearby-list" : "discover-grid discover-feature"}>
             {matching.map((event) => (
               <div key={event.id}>
                 <SimpleEventCard event={event} view="Upcoming" />
@@ -445,19 +339,7 @@ function Events() {
   );
 }
 function Feed() {
-  return (
-    <main {...mainProps}>
-      <div className="intro-line">
-        <div>
-          <span className="eyebrow">From your events</span>
-          <h1>A little closer to what’s happening.</h1>
-        </div>
-      </div>
-      <EmptyState>
-        <p>Real event updates will appear here when hosts publish them.</p>
-      </EmptyState>
-    </main>
-  );
+  return <BoardFeed />;
 }
 function EventRouteRedirect({ host = false }: { host?: boolean }) {
   const { eventId } = useParams();

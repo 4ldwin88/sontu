@@ -157,6 +157,12 @@ export function AppShell({
     const onScroll = () => {
       const y = Math.max(0, window.scrollY);
       const delta = y - last;
+      if (delta < -1) {
+        setHidden(false);
+        travel = 0;
+        last = y;
+        return;
+      }
       if (Math.sign(delta) !== Math.sign(travel)) travel = 0;
       travel += delta;
       if (y < 60) {

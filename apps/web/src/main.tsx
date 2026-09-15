@@ -9,6 +9,7 @@ import "@fontsource/inter/latin-400.css";
 import "@fontsource/inter/latin-500.css";
 import "@fontsource/inter/latin-600.css";
 import "./style.css";
+import "./board-architecture.css";
 window.addEventListener("error", () => recordDiagnostic("unexpected_error"));
 window.addEventListener("unhandledrejection", () =>
   recordDiagnostic("unexpected_error"),
