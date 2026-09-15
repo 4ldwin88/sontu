@@ -25,6 +25,8 @@ import {
   CalendarDays,
   QrCode,
   UserRound,
+  UserCheck,
+  UserPlus,
   Link as LinkIcon,
   Sparkles,
 } from "lucide-react";
@@ -156,14 +158,18 @@ export function ProfileUtilityPage({
 type Connection = { id: string; status: "PENDING" | "ACCEPTED"; direction: "INCOMING" | "OUTGOING"; user_id: string; display_name: string; handle: string; is_close?: boolean };
 type ConnectionRequest = { id: string; requester_user_id: string; display_name: string; handle: string; created_at: string };
 type ConnectionContext = { id: string; name: string; members: Array<{ user_id: string; display_name: string; handle: string }> };
+type FollowPerson = { user_id: string; display_name: string; handle: string };
+type RelationshipSection = "people" | "followers" | "following" | "requests" | "groups";
 export function ConnectionsPage({ onBack }: { onBack: () => void }) {
   const account = useAccount();
   const [connections, setConnections] = useState<Connection[]>([]),
     [requests, setRequests] = useState<ConnectionRequest[]>([]),
     [contexts, setContexts] = useState<ConnectionContext[]>([]),
+    [followers, setFollowers] = useState<FollowPerson[]>([]),
+    [following, setFollowing] = useState<FollowPerson[]>([]),
     [handle, setHandle] = useState(""),
     [contextName, setContextName] = useState(""),
-    [section, setSection] = useState<"people" | "requests" | "groups">("people"),
+    [section, setSection] = useState<RelationshipSection>("people"),
     [message, setMessage] = useState("");
   const readConnections = async () =>
     rpc<{
@@ -171,6 +177,8 @@ export function ConnectionsPage({ onBack }: { onBack: () => void }) {
       connections?: Connection[];
       requests?: ConnectionRequest[];
       contexts?: ConnectionContext[];
+      followers?: FollowPerson[];
+      following?: FollowPerson[];
     }>("sontu_connections", { action: "read", input: {} });
   useEffect(() => {
     if (!account.session) return;
@@ -181,6 +189,8 @@ export function ConnectionsPage({ onBack }: { onBack: () => void }) {
         setConnections(result.connections ?? []);
         setRequests(result.requests ?? []);
         setContexts(result.contexts ?? []);
+        setFollowers(result.followers ?? []);
+        setFollowing(result.following ?? []);
       })
       .catch(() => {
         if (!cancelled) setMessage("Connections could not be loaded.");
@@ -195,6 +205,8 @@ export function ConnectionsPage({ onBack }: { onBack: () => void }) {
       setConnections(result.connections ?? []);
       setRequests(result.requests ?? []);
       setContexts(result.contexts ?? []);
+      setFollowers(result.followers ?? []);
+      setFollowing(result.following ?? []);
     }
   };
   if (!account.session) return <Navigate to="/sign-in?next=%2Fconnections" replace />;
@@ -206,6 +218,11 @@ export function ConnectionsPage({ onBack }: { onBack: () => void }) {
     setHandle(""); setContextName(""); await load();
   };
   const accepted = connections.filter((connection) => connection.status === "ACCEPTED");
+  const followingHandles = new Set(following.map((person) => person.handle));
+  const followAction = (person: FollowPerson | Connection) =>
+    run(followingHandles.has(person.handle) ? "unfollow" : "follow", {
+      handle: person.handle,
+    });
   return (
     <main id="main" tabIndex={-1} className="settings-page relationship-hub">
       <button
@@ -222,6 +239,8 @@ export function ConnectionsPage({ onBack }: { onBack: () => void }) {
       <div className="relationship-tabs" role="tablist" aria-label="Connections sections">
         {[
           ["people", `People (${connections.length})`],
+          ["followers", `Followers (${followers.length})`],
+          ["following", `Following (${following.length})`],
           ["requests", `Requests (${requests.length})`],
           ["groups", `Groups (${contexts.length})`],
         ].map(([value, label]) => (
@@ -231,7 +250,7 @@ export function ConnectionsPage({ onBack }: { onBack: () => void }) {
             role="tab"
             aria-selected={section === value}
             className={section === value ? "selected" : ""}
-            onClick={() => setSection(value as "people" | "requests" | "groups")}
+            onClick={() => setSection(value as RelationshipSection)}
           >
             {label}
           </button>
@@ -252,6 +271,13 @@ export function ConnectionsPage({ onBack }: { onBack: () => void }) {
             placeholder="member_handle"
           />
           <Button type="submit">Send connection request</Button>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => void run("follow", { handle: normalizeHandleInput(handle) })}
+          >
+            Follow
+          </Button>
         </form>
         {message && <p role="status">{message}</p>}
       </section>
@@ -308,6 +334,12 @@ export function ConnectionsPage({ onBack }: { onBack: () => void }) {
               {connection.status === "ACCEPTED" ? (
                 <div className="coord-actions">
                   <Button
+                    variant={followingHandles.has(connection.handle) ? "quiet" : "secondary"}
+                    onClick={() => void followAction(connection)}
+                  >
+                    {followingHandles.has(connection.handle) ? "Following" : "Follow"}
+                  </Button>
+                  <Button
                     variant="secondary"
                     onClick={() =>
                       void run("set_close", {
@@ -352,6 +384,59 @@ export function ConnectionsPage({ onBack }: { onBack: () => void }) {
             <Users size={28} />
             <strong>Find your people</strong>
             <p className="muted">Search by handle to start a mutual connection request.</p>
+          </div>
+        )}
+      </section>}
+      {section === "followers" && <section className="panel relationship-section">
+        <h2>Followers</h2>
+        {followers.length ? (
+          followers.map((person) => (
+            <div key={person.user_id} className="relationship-row">
+              <span className="avatar">{person.display_name.slice(0, 1).toUpperCase()}</span>
+              <div>
+                <MiniProfileLauncher handle={person.handle} className="participant-profile-link">
+                  {person.display_name}
+                </MiniProfileLauncher>
+                <small>@{person.handle}</small>
+              </div>
+              <Button
+                variant={followingHandles.has(person.handle) ? "quiet" : "secondary"}
+                onClick={() => void followAction(person)}
+              >
+                {followingHandles.has(person.handle) ? "Following" : "Follow back"}
+              </Button>
+            </div>
+          ))
+        ) : (
+          <div className="relationship-empty">
+            <Users size={28} />
+            <strong>No followers yet</strong>
+            <p className="muted">People who follow your public updates will appear here.</p>
+          </div>
+        )}
+      </section>}
+      {section === "following" && <section className="panel relationship-section">
+        <h2>Following</h2>
+        {following.length ? (
+          following.map((person) => (
+            <div key={person.user_id} className="relationship-row">
+              <span className="avatar">{person.display_name.slice(0, 1).toUpperCase()}</span>
+              <div>
+                <MiniProfileLauncher handle={person.handle} className="participant-profile-link">
+                  {person.display_name}
+                </MiniProfileLauncher>
+                <small>@{person.handle}</small>
+              </div>
+              <Button variant="quiet" onClick={() => void followAction(person)}>
+                Unfollow
+              </Button>
+            </div>
+          ))
+        ) : (
+          <div className="relationship-empty">
+            <UserPlus size={28} />
+            <strong>Follow people you want to hear from</strong>
+            <p className="muted">Following does not reveal private profile fields.</p>
           </div>
         )}
       </section>}
@@ -422,12 +507,14 @@ type PublicProfileHubResult = {
   viewer?: {
     owner: boolean;
     close: boolean;
+    following?: boolean;
     connection_status?: ProfileConnectionStatus;
   };
   profile?: {
     display_name: string;
     handle: string;
     fields?: { bio?: string; link?: { label: string; url: string } };
+    counts?: { followers?: number; following?: number };
   };
 };
 type ProfileConnectionStatus =
@@ -439,6 +526,56 @@ type PublicProfileHubState = {
   handle: string;
   result: PublicProfileHubResult;
 };
+
+function ProfileFollowControl({
+  handle,
+  owner,
+  initialFollowing,
+}: {
+  handle: string;
+  owner?: boolean;
+  initialFollowing?: boolean;
+}) {
+  const account = useAccount();
+  const [following, setFollowing] = useState(Boolean(initialFollowing));
+  const [message, setMessage] = useState("");
+  if (!account.session || owner || account.profile?.handle === handle) return null;
+  return (
+    <>
+      <Button
+        variant={following ? "secondary" : "primary"}
+        onClick={async () => {
+          setMessage("");
+          const response = await rpc<{ status: string; following?: boolean }>(
+            "sontu_connections",
+            {
+              action: following ? "unfollow" : "follow",
+              input: { handle },
+            },
+          );
+          if (response.status === "ready") {
+            setFollowing(Boolean(response.following));
+          } else {
+            setMessage("That follow change could not be saved.");
+          }
+        }}
+      >
+        {following ? (
+          <>
+            <UserCheck size={18} />
+            <span>Following</span>
+          </>
+        ) : (
+          <>
+            <UserPlus size={18} />
+            <span>Follow</span>
+          </>
+        )}
+      </Button>
+      {message && <p role="status">{message}</p>}
+    </>
+  );
+}
 
 function ProfileConnectControl({
   handle,
@@ -526,6 +663,18 @@ function ProfileHubContent({
         <p>@{result.profile.handle}</p>
         {result.viewer?.close && <p className="profile-viewer-note">Close view</p>}
       </div>
+      {result.profile.counts && (
+        <div className="profile-hub-stats" aria-label="Profile relationship counts">
+          <span>
+            <strong>{result.profile.counts.followers ?? 0}</strong>
+            Followers
+          </span>
+          <span>
+            <strong>{result.profile.counts.following ?? 0}</strong>
+            Following
+          </span>
+        </div>
+      )}
       {result.profile.fields?.bio ? (
         <p className="profile-hub-bio">{result.profile.fields.bio}</p>
       ) : (
@@ -546,6 +695,12 @@ function ProfileHubContent({
         </a>
       )}
       <div className="profile-hub-actions">
+        <ProfileFollowControl
+          key={`${result.profile.handle}:follow:${String(result.viewer?.following)}`}
+          handle={result.profile.handle}
+          owner={result.viewer?.owner}
+          initialFollowing={result.viewer?.following}
+        />
         <ProfileConnectControl
           key={`${result.profile.handle}:${result.viewer?.connection_status ?? "none"}`}
           handle={result.profile.handle}

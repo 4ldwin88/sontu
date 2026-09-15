@@ -2760,6 +2760,28 @@ td {
   color: var(--text-primary) !important;
   line-height: 1.5;
 }
+.profile-hub-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 18px 28px 0;
+}
+.profile-hub-stats span {
+  min-height: 58px;
+  display: grid;
+  align-content: center;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  color: var(--text-secondary);
+  font-size: 0.86rem;
+}
+.profile-hub-stats strong {
+  color: var(--text-primary);
+  font-size: 1.15rem;
+}
 .profile-hub-link {
   display: flex;
   align-items: center;
@@ -2908,6 +2930,7 @@ td {
   overflow-wrap: anywhere;
 }
 .relationship-row .coord-actions,
+.relationship-row > button,
 .relationship-row select {
   grid-column: 2;
 }

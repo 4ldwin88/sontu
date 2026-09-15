@@ -1336,6 +1336,109 @@ describe("public profile hubs", () => {
     expect(JSON.stringify(ownerHubAfterAccept)).not.toContain("email");
   });
 
+  it("keeps follows independent from trusted connection visibility", async () => {
+    const owner = randomUUID(),
+      follower = randomUUID();
+    await sql("insert into auth.users(id,email) values($1,$2),($3,$4)", [
+      owner,
+      "follow-owner@example.com",
+      follower,
+      "follow-visitor@example.com",
+    ]);
+
+    await asHost(owner);
+    const ownerProfile = (
+      await sql<{ r: any }>("select public.sontu_account_profile($1,$2) r", [
+        "create",
+        JSON.stringify({ first_name: "Followed" }),
+      ])
+    )[0].r.profile;
+    const ownerUpdate = (
+      await sql<{ r: any }>("select public.sontu_account_profile($1,$2) r", [
+        "update",
+        JSON.stringify({
+          first_name: "Followed",
+          handle: ownerProfile.handle,
+          revision: ownerProfile.revision,
+          bio: "Only trusted people should see this.",
+          bio_visibility: "CLOSE",
+        }),
+      ])
+    )[0].r;
+    expect(ownerUpdate.status).toBe("ready");
+
+    await asHost(follower);
+    const followerProfile = (
+      await sql<{ r: any }>("select public.sontu_account_profile($1,$2) r", [
+        "create",
+        JSON.stringify({ first_name: "Follower" }),
+      ])
+    )[0].r.profile;
+    const follow = (
+      await sql<{ r: any }>("select public.sontu_connections($1,$2) r", [
+        "follow",
+        JSON.stringify({ handle: ownerProfile.handle }),
+      ])
+    )[0].r;
+    expect(follow).toMatchObject({ status: "ready", following: true });
+
+    const followerHub = (
+      await sql<{ r: any }>("select public.sontu_public_profile_hub($1) r", [
+        ownerProfile.handle,
+      ])
+    )[0].r;
+    expect(followerHub.viewer).toMatchObject({
+      following: true,
+      connection_status: "none",
+      close: false,
+    });
+    expect(followerHub.profile.fields.bio).toBeUndefined();
+    expect(followerHub.profile.counts.followers).toBe(1);
+    expect(JSON.stringify(followerHub)).not.toContain("email");
+
+    const followerRead = (
+      await sql<{ r: any }>("select public.sontu_connections($1,$2) r", [
+        "read",
+        "{}",
+      ])
+    )[0].r;
+    expect(followerRead.following).toMatchObject([
+      { display_name: "Followed", handle: ownerProfile.handle },
+    ]);
+    expect(followerRead.connections).toEqual([]);
+    expect(JSON.stringify(followerRead.following)).not.toContain("email");
+
+    await asHost(owner);
+    const ownerRead = (
+      await sql<{ r: any }>("select public.sontu_connections($1,$2) r", [
+        "read",
+        "{}",
+      ])
+    )[0].r;
+    expect(ownerRead.followers).toMatchObject([
+      { display_name: "Follower", handle: followerProfile.handle },
+    ]);
+    expect(JSON.stringify(ownerRead.followers)).not.toContain("email");
+
+    expect(
+      (
+        await sql<{ r: any }>("select public.sontu_connections($1,$2) r", [
+          "follow",
+          JSON.stringify({ handle: ownerProfile.handle }),
+        ])
+      )[0].r.error_code,
+    ).toBe("SELF_FOLLOW");
+
+    await asHost(follower);
+    const unfollow = (
+      await sql<{ r: any }>("select public.sontu_connections($1,$2) r", [
+        "unfollow",
+        JSON.stringify({ handle: ownerProfile.handle }),
+      ])
+    )[0].r;
+    expect(unfollow).toMatchObject({ status: "ready", following: false });
+  });
+
   it("applies General, Close, and Only-me profile field visibility without group inference", async () => {
     const owner = randomUUID(),
       closeViewer = randomUUID(),
