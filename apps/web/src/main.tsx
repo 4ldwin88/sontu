@@ -26,8 +26,14 @@ function preserveConnectedInvitationAffordance() {
       if (button.textContent?.trim() === "Going") {
         button.textContent = "Accept invitation";
         button.setAttribute("aria-label", "Accept invitation");
-        return;
+        break;
       }
+    }
+    const confirmation = document.querySelector<HTMLElement>(
+      ".connected-hub .hub-confirmed",
+    );
+    if (confirmation?.textContent?.trim() === "You’re going!") {
+      confirmation.textContent = "You’re going.";
     }
   };
   const observer = new MutationObserver(sync);
