@@ -4752,6 +4752,26 @@ button.back-link {
   display: grid;
   gap: 12px;
 }
+.participant-visibility-heading {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+.participant-visibility-heading h2 {
+  margin-bottom: 4px;
+}
+.visibility-current,
+.going-privacy-note {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  background: var(--surface-muted);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
 .visibility-segment {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -4813,6 +4833,13 @@ button.back-link {
   }
   .visibility-options label {
     min-height: 0;
+  }
+  .participant-visibility-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .visibility-segment {
+    grid-template-columns: 1fr;
   }
 }
 .diagnostic-panel {

@@ -1200,6 +1200,26 @@ function InvitationContent({
 }
 export function ConnectedEventHub() {
   const { eventId } = useParams();
+  const visibilityOptions = [
+    {
+      value: "PUBLIC",
+      label: "Public",
+      description: "Your name can open your profile hub.",
+      status: "Your profile is visible from this event.",
+    },
+    {
+      value: "NAME_ONLY",
+      label: "Name only",
+      description: "Your name appears without a profile link.",
+      status: "Only your name appears in this event.",
+    },
+    {
+      value: "HIDDEN",
+      label: "Hidden",
+      description: "You are not shown in the Going list.",
+      status: "You are going, but hidden from the list.",
+    },
+  ] as const;
   const [hub, setHub] = useState<{
     status: string;
     error_code?: string;
@@ -1420,6 +1440,9 @@ export function ConnectedEventHub() {
   const event = hub?.event,
     viewer = hub?.viewer,
     going = hub?.going ?? [];
+  const selectedVisibility =
+    visibilityOptions.find((option) => option.value === viewer?.event_visibility) ??
+    visibilityOptions[0];
   async function share() {
     const data = {
       title: event?.title ?? "Sontu event",
@@ -1607,16 +1630,20 @@ export function ConnectedEventHub() {
                 )}
                 {!viewer.hosting && viewer.commitment_state === "CONFIRMED" && (
                   <section className="hub-about participant-visibility">
-                    <h2>Your visibility</h2>
-                    <p className="muted">
-                      Choose how you appear in this event’s Going list.
+                    <div className="participant-visibility-heading">
+                      <div>
+                        <h2>Your visibility</h2>
+                        <p className="muted">
+                          Choose how you appear in this event’s Going list.
+                        </p>
+                      </div>
+                      <StatusBadge tone="info">{selectedVisibility.label}</StatusBadge>
+                    </div>
+                    <p className="visibility-current" role="status">
+                      {selectedVisibility.status}
                     </p>
                     <div className="visibility-segment" role="radiogroup" aria-label="Event participant visibility">
-                      {[
-                        ["PUBLIC", "Public", "Name and profile"],
-                        ["NAME_ONLY", "Name only", "No profile link"],
-                        ["HIDDEN", "Hidden", "Not shown in Going"],
-                      ].map(([value, label, description]) => (
+                      {visibilityOptions.map(({ value, label, description }) => (
                         <button
                           key={value}
                           type="button"
@@ -1684,10 +1711,13 @@ export function ConnectedEventHub() {
                       <h2>Going</h2>
                       <p className="muted">
                         {going.length}{" "}
-                        {going.length === 1 ? "person" : "people"}
+                        {going.length === 1 ? "visible person" : "visible people"}
                       </p>
                     </div>
                   </div>
+                  <p className="going-privacy-note">
+                    Some participants may choose name-only or hidden visibility.
+                  </p>
                   {going.length ? (
                     <ul>
                       {going.map((person, index) => (
@@ -1714,6 +1744,11 @@ export function ConnectedEventHub() {
                               {person.badge}
                             </StatusBadge>
                           )}
+                          {!person.handle &&
+                            !person.badge &&
+                            person.visibility === "NAME_ONLY" && (
+                              <StatusBadge tone="neutral">Name only</StatusBadge>
+                            )}
                         </li>
                       ))}
                     </ul>
