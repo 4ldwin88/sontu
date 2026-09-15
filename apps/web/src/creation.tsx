@@ -856,7 +856,7 @@ function DraftEditor({
                 <p className="small muted">Optional</p>
               </div>
               {form.cover_key !== "none" && (
-                <img src={`/images/${form.cover_key}.jpg`} alt="" />
+                <img src={`images/${form.cover_key}.jpg`} alt="" />
               )}
               <Button
                 type="button"
@@ -1171,7 +1171,7 @@ function DraftEditor({
                     setPictureOpen(false);
                   }}
                 />
-                <img src={`/images/${c}.jpg`} alt="" />
+                <img src={`images/${c}.jpg`} alt="" />
                 <span>{c[0].toUpperCase() + c.slice(1)}</span>
               </label>
             ))}
@@ -1183,7 +1183,7 @@ function DraftEditor({
           <article className="creation-event-preview">
             <div className="preview-cover">
               {form.cover_key !== "none" ? (
-                <img src={`/images/${form.cover_key}.jpg`} alt="" />
+                <img src={`images/${form.cover_key}.jpg`} alt="" />
               ) : (
                 <div className="image-fallback">
                   Choose a picture to add a cover

@@ -2195,7 +2195,7 @@ export function PublicEventHub() {
     <main id="main" tabIndex={-1} className="connected-hub public-event-hub">
       <div className="hub-cover">
         {event.cover_key !== "none" ? (
-          <img src={`/images/${event.cover_key}.jpg`} alt="" />
+          <img src={`images/${event.cover_key}.jpg`} alt="" />
         ) : (
           <div className="image-fallback">No cover</div>
         )}

@@ -287,6 +287,47 @@ function RsvpFormManager({ eventId }: { eventId: string }) {
     setQuestions((rows) =>
       rows.map((row, i) => (i === index ? { ...row, ...patch } : row)),
     );
+  const updateChoice = (
+    questionIndex: number,
+    choiceIndex: number,
+    value: string,
+  ) =>
+    setQuestions((rows) =>
+      rows.map((row, i) =>
+        i === questionIndex
+          ? {
+              ...row,
+              options: row.options.map((option, j) =>
+                j === choiceIndex ? value : option,
+              ),
+            }
+          : row,
+      ),
+    );
+  const addChoice = (questionIndex: number) =>
+    setQuestions((rows) =>
+      rows.map((row, i) =>
+        i === questionIndex && row.options.length < 12
+          ? { ...row, options: [...row.options, ""] }
+          : row,
+      ),
+    );
+  const removeChoice = (questionIndex: number, choiceIndex: number) =>
+    setQuestions((rows) =>
+      rows.map((row, i) =>
+        i === questionIndex
+          ? {
+              ...row,
+              options:
+                row.options.length > 2
+                  ? row.options.filter((_, j) => j !== choiceIndex)
+                  : row.options.map((option, j) =>
+                      j === choiceIndex ? "" : option,
+                    ),
+            }
+          : row,
+      ),
+    );
   const save = async () => {
     setBusy(true);
     setMessage("");
@@ -353,13 +394,33 @@ function RsvpFormManager({ eventId }: { eventId: string }) {
             </select>
           </label>
           {q.type === "SINGLE_SELECT" && (
-            <TextField
-              label="Choices (one per line)"
-              value={q.options.join("\n")}
-              onChange={(e) =>
-                update(index, { options: e.target.value.split("\n") })
-              }
-            />
+            <div className="rsvp-choice-editor">
+              <span>Choices</span>
+              {q.options.map((option, choiceIndex) => (
+                <div className="rsvp-choice-row" key={choiceIndex}>
+                  <TextField
+                    label={`Choice ${choiceIndex + 1}`}
+                    value={option}
+                    maxLength={80}
+                    onChange={(e) =>
+                      updateChoice(index, choiceIndex, e.target.value)
+                    }
+                  />
+                  <Button
+                    variant="quiet"
+                    onClick={() => removeChoice(index, choiceIndex)}
+                    aria-label={`Remove choice ${choiceIndex + 1}`}
+                  >
+                    Remove
+                  </Button>
+                </div>
+              ))}
+              {q.options.length < 12 && (
+                <Button variant="secondary" onClick={() => addChoice(index)}>
+                  Add choice
+                </Button>
+              )}
+            </div>
           )}
           <label>
             <input
@@ -2363,7 +2424,7 @@ function HostContent({ id }: { id: string }) {
                     })
                   }
                 >
-                  <img src={`/images/${cover}.jpg`} alt="" />
+                  <img src={`images/${cover}.jpg`} alt="" />
                   <span>{cover[0].toUpperCase() + cover.slice(1)}</span>
                 </button>
               ))}

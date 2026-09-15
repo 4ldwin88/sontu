@@ -1916,6 +1916,16 @@ describe("commerce-ready admission authority", () => {
   });
 
   it("makes management events discoverable without promoting check-in staff", async () => {
+    expect(
+      await sql<{ allowed: boolean }>(
+        "select has_function_privilege('authenticated','sontu_private.event_hub(uuid)','execute') allowed",
+      ),
+    ).toEqual([{ allowed: true }]);
+    expect(
+      await sql<{ allowed: boolean }>(
+        "select has_function_privilege('anon','sontu_private.event_hub(uuid)','execute') allowed",
+      ),
+    ).toEqual([{ allowed: false }]);
     await sql(
       "insert into sontu_private.event_team_members(event_instance_id,user_id,role) values($1,$2,'CO_HOST') on conflict(event_instance_id,user_id) do update set role=excluded.role",
       [event, stranger],
