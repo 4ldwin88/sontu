@@ -4748,6 +4748,39 @@ button.back-link {
   color: var(--text-secondary);
   line-height: 1.45;
 }
+.participant-visibility {
+  display: grid;
+  gap: 12px;
+}
+.visibility-segment {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.visibility-segment button {
+  display: grid;
+  gap: 3px;
+  min-height: 62px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+}
+.visibility-segment button.selected {
+  border-color: var(--interactive-primary);
+  background: var(--selected);
+  color: var(--interactive-primary);
+}
+.visibility-segment small {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+}
+.visibility-segment button.selected small {
+  color: var(--interactive-primary);
+}
 @media (max-width: 760px) {
   .connected-hub {
     padding: 0 0 88px;

@@ -1209,9 +1209,15 @@ export function ConnectedEventHub() {
       display_name?: string;
       commitment_state?: string;
       invitation_state?: string;
+      event_visibility?: "PUBLIC" | "NAME_ONLY" | "HIDDEN";
     };
     host?: { display_name: string; handle?: string | null };
-    going?: { display_name: string; badge: string | null; handle?: string | null }[];
+    going?: {
+      display_name: string;
+      badge: string | null;
+      handle?: string | null;
+      visibility?: "PUBLIC" | "NAME_ONLY" | "HIDDEN";
+    }[];
   } | null>(null);
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
@@ -1455,6 +1461,33 @@ export function ConnectedEventHub() {
       setQuestionBusy(false);
     }
   }
+  async function setParticipantVisibility(
+    value: "PUBLIC" | "NAME_ONLY" | "HIDDEN",
+  ) {
+    if (!event || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await rpc<{
+        status: string;
+        error_code?: string;
+        event_visibility?: "PUBLIC" | "NAME_ONLY" | "HIDDEN";
+      }>("sontu_event_participant_visibility", {
+        event_id: event.id,
+        value,
+      });
+      if (result.status === "ready") await load();
+      else
+        setError(
+          errorMessages[result.error_code ?? ""] ??
+            "That visibility setting could not be saved.",
+        );
+    } catch {
+      setError("That visibility setting could not be confirmed. Please retry.");
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <main id="main" tabIndex={-1} className="connected-hub">
       <SessionGate>
@@ -1571,6 +1604,38 @@ export function ConnectedEventHub() {
                 </section>
                 {!viewer.hosting && viewer.commitment_state === "CONFIRMED" && (
                   <ParticipantNotices notices={notices} />
+                )}
+                {!viewer.hosting && viewer.commitment_state === "CONFIRMED" && (
+                  <section className="hub-about participant-visibility">
+                    <h2>Your visibility</h2>
+                    <p className="muted">
+                      Choose how you appear in this event’s Going list.
+                    </p>
+                    <div className="visibility-segment" role="radiogroup" aria-label="Event participant visibility">
+                      {[
+                        ["PUBLIC", "Public", "Name and profile"],
+                        ["NAME_ONLY", "Name only", "No profile link"],
+                        ["HIDDEN", "Hidden", "Not shown in Going"],
+                      ].map(([value, label, description]) => (
+                        <button
+                          key={value}
+                          type="button"
+                          role="radio"
+                          aria-checked={viewer.event_visibility === value}
+                          className={viewer.event_visibility === value ? "selected" : ""}
+                          disabled={busy}
+                          onClick={() =>
+                            void setParticipantVisibility(
+                              value as "PUBLIC" | "NAME_ONLY" | "HIDDEN",
+                            )
+                          }
+                        >
+                          <strong>{label}</strong>
+                          <small>{description}</small>
+                        </button>
+                      ))}
+                    </div>
+                  </section>
                 )}
                 {discussionEnabled &&
                   (viewer.hosting ||

@@ -894,6 +894,45 @@ it("joins and withdraws from a public event atomically with safe retries", async
         .r.going,
     ),
   ).not.toContain("public-one@example.com");
+  expect(
+    (
+      await sql<{ r: any }>(
+        "select public.sontu_event_participant_visibility($1,$2) r",
+        [event, "NAME_ONLY"],
+      )
+    )[0].r,
+  ).toMatchObject({ status: "ready", event_visibility: "NAME_ONLY" });
+  let visibilityHub = (
+    await sql<{ r: any }>("select public.sontu_event_hub($1) r", [event])
+  )[0].r;
+  expect(visibilityHub.viewer.event_visibility).toBe("NAME_ONLY");
+  expect(
+    visibilityHub.going.find((person: any) => person.display_name === "Public One")
+      .handle,
+  ).toBeNull();
+  expect(
+    (
+      await sql<{ r: any }>(
+        "select public.sontu_event_participant_visibility($1,$2) r",
+        [event, "HIDDEN"],
+      )
+    )[0].r,
+  ).toMatchObject({ status: "ready", event_visibility: "HIDDEN" });
+  visibilityHub = (
+    await sql<{ r: any }>("select public.sontu_event_hub($1) r", [event])
+  )[0].r;
+  expect(visibilityHub.viewer.event_visibility).toBe("HIDDEN");
+  expect(
+    visibilityHub.going.some((person: any) => person.display_name === "Public One"),
+  ).toBe(false);
+  expect(
+    (
+      await sql<{ r: any }>(
+        "select public.sontu_public_event_participation($1,$2,$3,$4) r",
+        [event, "READ", null, null],
+      )
+    )[0].r.commitment_state,
+  ).toBe("CONFIRMED");
 
   await asHost(waiting);
   expect((await participate("JOIN")).error_code).toBe("CAPACITY_FULL");
