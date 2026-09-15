@@ -44,7 +44,7 @@ export function screenFromPath(pathname: string): TelemetryScreen {
   if (pathname.startsWith("/discover")) return "discover";
   if (pathname.startsWith("/events")) return "events";
   if (pathname.startsWith("/feed")) return "feed";
-  if (pathname.startsWith("/profile")) return "profile";
+  if (pathname.startsWith("/profile") || pathname.startsWith("/p/") || pathname.startsWith("/@")) return "profile";
   if (pathname.startsWith("/settings") || pathname.startsWith("/account")) return "account";
   if (pathname.startsWith("/home") || pathname === "/") return "home";
   return "other";

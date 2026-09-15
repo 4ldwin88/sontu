@@ -3,7 +3,6 @@ import {
   Link,
   Navigate,
   useLocation,
-  useNavigate,
   useSearchParams,
 } from "react-router-dom";
 import {
@@ -15,6 +14,7 @@ import {
   UserRound,
   Globe2,
   Lock,
+  ChevronDown,
   Users,
 } from "lucide-react";
 import { Button, TextField } from "../../../packages/ui-web";
@@ -427,7 +427,6 @@ export function AccountEntryGate({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 export function RealProfile({ onBack }: { onBack: () => void }) {
-  const navigate = useNavigate();
   const a = useAccount(),
     p = a.profile;
   const [params] = useSearchParams();
@@ -444,25 +443,78 @@ export function RealProfile({ onBack }: { onBack: () => void }) {
     [linkVisibility, setLinkVisibility] = useState<Visibility>(p?.link_visibility ?? "GENERAL"),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
+  const normalizeProfileUrl = (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) return "";
+    if (/^https:\/\//i.test(trimmed)) return trimmed;
+    if (/^http:\/\//i.test(trimmed)) return trimmed.replace(/^http:\/\//i, "https://");
+    return `https://${trimmed}`;
+  };
+  const visibilityOptions: Array<{
+    value: Visibility;
+    label: string;
+    description: string;
+    icon: typeof Globe2;
+  }> = [
+    {
+      value: "GENERAL",
+      label: "General",
+      description: "Visible on your public profile.",
+      icon: Globe2,
+    },
+    {
+      value: "CLOSE",
+      label: "Close",
+      description: "Visible to people you mark as Close.",
+      icon: Users,
+    },
+    {
+      value: "ONLY_ME",
+      label: "Only me",
+      description: "Visible only to you.",
+      icon: Lock,
+    },
+  ];
   const visibilityField = (
     label: string,
     value: Visibility,
     setValue: (value: Visibility) => void,
-  ) => (
-    <label className="visibility-select">
-      {value === "GENERAL" ? <Globe2 size={18} /> : value === "CLOSE" ? <Users size={18} /> : <Lock size={18} />}
-      <span className="sr-only">{label}</span>
-      <select
-        aria-label={label}
-        value={value}
-        onChange={(event) => setValue(event.target.value as Visibility)}
-      >
-        <option value="GENERAL">General — Visible on your public profile.</option>
-        <option value="CLOSE">Close — Visible to people you mark as Close.</option>
-        <option value="ONLY_ME">Only me — Visible only to you.</option>
-      </select>
-    </label>
-  );
+  ) => {
+    const current = visibilityOptions.find((option) => option.value === value) ?? visibilityOptions[0];
+    const CurrentIcon = current.icon;
+    return (
+      <details className="visibility-picker">
+        <summary aria-label={`${label}: ${current.label}`} title={`${label}: ${current.description}`}>
+          <CurrentIcon size={18} />
+          <ChevronDown size={14} />
+        </summary>
+        <div className="visibility-menu" role="radiogroup" aria-label={label}>
+          {visibilityOptions.map((option) => {
+            const Icon = option.icon;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                role="radio"
+                aria-checked={value === option.value}
+                className={value === option.value ? "selected" : ""}
+                onClick={(event) => {
+                  setValue(option.value);
+                  event.currentTarget.closest("details")?.removeAttribute("open");
+                }}
+              >
+                <Icon size={18} />
+                <span>
+                  <strong>{option.label}</strong>
+                  <small>{option.description}</small>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </details>
+    );
+  };
   if (!p) return <Navigate to="/account/setup" replace />;
   return (
     <main id="main" tabIndex={-1} className="settings-page lightweight-profile">
@@ -497,14 +549,14 @@ export function RealProfile({ onBack }: { onBack: () => void }) {
                 bio,
                 bio_visibility: bioVisibility,
                 link_label: linkLabel,
-                link_url: linkUrl,
+                link_url: normalizeProfileUrl(linkUrl),
                 link_visibility: linkVisibility,
                 revision: p.revision,
               });
               if (r.status === "ready") {
-                navigate("/profile", { replace: true });
                 a.reload();
                 setEditing(false);
+                onBack();
               } else
                 setError(
                   (
@@ -521,7 +573,7 @@ export function RealProfile({ onBack }: { onBack: () => void }) {
                       INVALID_VISIBILITY:
                         "Choose General, Close, or Only me visibility.",
                       INVALID_LINK:
-                        "Use a secure https link.",
+                        "Use a valid website link.",
                     } as Record<string, string>
                   )[r.error_code ?? ""] ?? "Check your name and try again.",
                 );
@@ -580,7 +632,7 @@ export function RealProfile({ onBack }: { onBack: () => void }) {
               maxLength={240}
               value={linkUrl}
               onChange={(e) => setLinkUrl(e.target.value)}
-              placeholder="https://example.com"
+              placeholder="example.com"
             />
             {visibilityField("Link visibility", linkVisibility, setLinkVisibility)}
           </div>

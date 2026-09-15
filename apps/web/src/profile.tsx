@@ -25,6 +25,8 @@ import {
   CalendarDays,
   QrCode,
   UserRound,
+  Link as LinkIcon,
+  Sparkles,
 } from "lucide-react";
 import { Button, TextField } from "../../../packages/ui-web";
 const destinations = [
@@ -195,6 +197,7 @@ export function ConnectionsPage({ onBack }: { onBack: () => void }) {
     }
   };
   if (!account.session) return <Navigate to="/sign-in?next=%2Fconnections" replace />;
+  const normalizeHandleInput = (value: string) => value.trim().replace(/^@/, "");
   const run = async (action: string, input: Record<string, string>) => {
     setMessage("");
     const result = await rpc<{ status: string; error_code?: string }>("sontu_connections", { action, input });
@@ -219,7 +222,7 @@ export function ConnectionsPage({ onBack }: { onBack: () => void }) {
         <form
           onSubmit={(event) => {
             event.preventDefault();
-            void run("request", { handle });
+            void run("request", { handle: normalizeHandleInput(handle) });
           }}
         >
           <TextField
@@ -444,17 +447,30 @@ export function PublicProfileHub() {
         className="icon-button back-chevron"
         aria-label="Back to Sontu"
       >
-        <ChevronLeft size={26} strokeWidth={2.5} />
+          <ChevronLeft size={26} strokeWidth={2.5} />
       </Link>
       <section className="profile-hub-card">
+        <div className="profile-hub-cover" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </div>
         <div className="profile-hub-avatar" aria-hidden="true">
           <UserRound />
         </div>
-        <h1>{result.profile.display_name}</h1>
-        <p>@{result.profile.handle}</p>
-        {result.viewer?.close && <p className="profile-viewer-note">Close view</p>}
-        {result.profile.fields?.bio && (
+        <div className="profile-hub-intro">
+          <span className="eyebrow">Sontu profile</span>
+          <h1>{result.profile.display_name}</h1>
+          <p>@{result.profile.handle}</p>
+          {result.viewer?.close && <p className="profile-viewer-note">Close view</p>}
+        </div>
+        {result.profile.fields?.bio ? (
           <p className="profile-hub-bio">{result.profile.fields.bio}</p>
+        ) : (
+          <div className="profile-hub-empty">
+            <Sparkles size={18} />
+            <span>This member has not added a public bio yet.</span>
+          </div>
         )}
         {result.profile.fields?.link && (
           <a
@@ -463,7 +479,8 @@ export function PublicProfileHub() {
             target="_blank"
             rel="noreferrer"
           >
-            {result.profile.fields.link.label}
+            <LinkIcon size={18} />
+            <span>{result.profile.fields.link.label}</span>
           </a>
         )}
         <div className="profile-hub-actions">

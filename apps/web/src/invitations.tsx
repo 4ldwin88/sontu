@@ -40,6 +40,7 @@ export interface MyEvent {
   current_version?: number;
   going_count?: number;
   host_name?: string;
+  host_handle?: string | null;
   capacity?: number | null;
   owner_kind?: "PERSONAL" | "ORGANIZATION";
   owner_name?: string;
@@ -1208,7 +1209,7 @@ export function ConnectedEventHub() {
       commitment_state?: string;
       invitation_state?: string;
     };
-    host?: { display_name: string };
+    host?: { display_name: string; handle?: string | null };
     going?: { display_name: string; badge: string | null }[];
   } | null>(null);
   const [busy, setBusy] = useState(false),
@@ -1540,7 +1541,13 @@ export function ConnectedEventHub() {
                   </span>
                   <div>
                     <span className="small muted">Hosted by</span>
-                    <strong>{hub.host?.display_name ?? "Event host"}</strong>
+                    {hub.host?.handle ? (
+                      <Link to={`/p/${hub.host.handle}`} className="host-profile-link">
+                        {hub.host.display_name ?? "Event host"}
+                      </Link>
+                    ) : (
+                      <strong>{hub.host?.display_name ?? "Event host"}</strong>
+                    )}
                   </div>
                   <StatusBadge>Host</StatusBadge>
                 </div>
@@ -2299,7 +2306,13 @@ export function PublicEventHub() {
             </span>
             <div>
               <span className="small muted">Hosted by</span>
-              <strong>{event.host_name ?? "Event host"}</strong>
+              {event.host_handle ? (
+                <Link to={`/p/${event.host_handle}`} className="host-profile-link">
+                  {event.host_name ?? "Event host"}
+                </Link>
+              ) : (
+                <strong>{event.host_name ?? "Event host"}</strong>
+              )}
             </div>
             <StatusBadge>Host</StatusBadge>
           </div>
