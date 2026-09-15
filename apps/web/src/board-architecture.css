@@ -1,17 +1,29 @@
-html[data-board-route="home"] .consumer-content,
-html[data-board-route="feed"] .consumer-content {
-  display: none;
-}
-
 .board-screen {
   max-width: 1392px;
   margin: 0 auto;
-  padding: 32px 48px 112px;
+  padding: 32px 0 112px;
+  min-width: 0;
+}
+
+.board-screen *,
+.board-screen *::before,
+.board-screen *::after {
+  min-width: 0;
+}
+
+.board-screen h1,
+.board-screen h2,
+.board-screen p,
+.board-screen small,
+.board-screen strong,
+.board-screen a,
+.board-screen span {
+  overflow-wrap: anywhere;
 }
 
 .board-hero-band {
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
   gap: 24px;
   align-items: stretch;
   min-height: 360px;
@@ -54,6 +66,10 @@ html[data-board-route="feed"] .consumer-content {
   margin-top: 24px;
 }
 
+.board-hero-actions .button {
+  white-space: normal;
+}
+
 .board-now-card {
   display: flex;
   flex-direction: column;
@@ -72,6 +88,7 @@ html[data-board-route="feed"] .consumer-content {
 .board-card-kicker {
   margin-bottom: auto;
   width: fit-content;
+  max-width: 100%;
   padding: 5px 10px;
   border-radius: var(--radius-sm);
   color: var(--interactive-primary);
@@ -138,7 +155,7 @@ html[data-board-route="feed"] .consumer-content {
 .board-two-column,
 .board-feed-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 340px;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
   gap: 32px;
   align-items: start;
 }
@@ -259,7 +276,7 @@ html[data-board-route="feed"] .consumer-content {
 
 @media (max-width: 920px) {
   .board-screen {
-    padding: 22px 18px 110px;
+    padding: 22px 0 110px;
   }
 
   .board-hero-band,
@@ -282,5 +299,34 @@ html[data-board-route="feed"] .consumer-content {
     display: grid;
     align-items: start;
     padding: 24px;
+  }
+}
+
+@media (max-width: 380px) {
+  .board-hero-copy,
+  .board-now-card,
+  .board-feed-header,
+  .board-feed-item,
+  .board-action-card,
+  .board-event-stack,
+  .board-context-rail .panel,
+  .board-feed-rail .panel {
+    padding: 16px;
+  }
+
+  .board-hero-copy h1,
+  .board-feed-header h1 {
+    font-size: 2rem;
+  }
+
+  .board-action-card,
+  .board-feed-item {
+    grid-template-columns: 1fr;
+  }
+
+  .board-action-icon,
+  .board-feed-icon {
+    width: 38px;
+    height: 38px;
   }
 }
