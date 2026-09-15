@@ -1182,6 +1182,121 @@ describe("minimum profile and immutable account identity", () => {
   });
 });
 
+describe("public profile hubs", () => {
+  it("resolves handles without exposing private account or relationship data", async () => {
+    const owner = randomUUID();
+    await sql("insert into auth.users(id,email) values($1,$2)", [
+      owner,
+      "profile-owner@example.com",
+    ]);
+    await asHost(owner);
+    const created = (
+      await sql<{ r: any }>("select public.sontu_account_profile($1,$2) r", [
+        "create",
+        JSON.stringify({ first_name: "Profile", event_email_enabled: false }),
+      ])
+    )[0].r;
+    const handle = created.profile.handle;
+    await sql("select set_config('request.jwt.claim.sub','',false)");
+    await db.exec("set role anon");
+    try {
+      const hub = (
+        await sql<{ r: any }>("select public.sontu_public_profile_hub($1) r", [
+          handle,
+        ])
+      )[0].r;
+      expect(hub).toMatchObject({
+        status: "ready",
+        profile: { display_name: "Profile", handle },
+      });
+      expect(JSON.stringify(hub)).not.toContain("email");
+      expect(JSON.stringify(hub)).not.toContain("user_id");
+      expect(JSON.stringify(hub)).not.toContain("event_email_enabled");
+      expect(JSON.stringify(hub)).not.toContain("connections");
+      expect(
+        (
+          await sql<{ r: any }>(
+            "select public.sontu_public_profile_hub($1) r",
+            ["not a handle"],
+          )
+        )[0].r.status,
+      ).toBe("not_found");
+    } finally {
+      await db.exec("reset role");
+      await asHost();
+    }
+  });
+
+  it("lets a signed-in profile visitor request a connection for owner review", async () => {
+    const owner = randomUUID(),
+      requester = randomUUID();
+    await sql("insert into auth.users(id,email) values($1,$2),($3,$4)", [
+      owner,
+      "hub-owner@example.com",
+      requester,
+      "hub-requester@example.com",
+    ]);
+    await asHost(owner);
+    const ownerProfile = (
+      await sql<{ r: any }>("select public.sontu_account_profile($1,$2) r", [
+        "create",
+        JSON.stringify({ first_name: "Owner" }),
+      ])
+    )[0].r.profile;
+    await asHost(requester);
+    await sql<{ r: any }>("select public.sontu_account_profile($1,$2) r", [
+      "create",
+      JSON.stringify({ first_name: "Requester" }),
+    ]);
+    const request = (
+      await sql<{ r: any }>("select public.sontu_connections($1,$2) r", [
+        "request",
+        JSON.stringify({ handle: ownerProfile.handle }),
+      ])
+    )[0].r;
+    expect(request).toMatchObject({
+      status: "ready",
+      connection_status: "PENDING",
+    });
+    const requesterRead = (
+      await sql<{ r: any }>("select public.sontu_connections($1,$2) r", [
+        "read",
+        "{}",
+      ])
+    )[0].r;
+    expect(requesterRead.requests).toEqual([]);
+    await asHost(owner);
+    const ownerRead = (
+      await sql<{ r: any }>("select public.sontu_connections($1,$2) r", [
+        "read",
+        "{}",
+      ])
+    )[0].r;
+    expect(ownerRead.requests).toHaveLength(1);
+    expect(ownerRead.requests[0]).toMatchObject({
+      display_name: "Requester",
+      handle: expect.any(String),
+    });
+    expect(JSON.stringify(ownerRead.requests[0])).not.toContain("email");
+    expect(
+      (
+        await sql<{ r: any }>("select public.sontu_connections($1,$2) r", [
+          "accept",
+          JSON.stringify({ connection_id: request.connection_id }),
+        ])
+      )[0].r.status,
+    ).toBe("ready");
+    const accepted = (
+      await sql<{ r: any }>("select public.sontu_connections($1,$2) r", [
+        "read",
+        "{}",
+      ])
+    )[0].r;
+    expect(accepted.requests).toEqual([]);
+    expect(accepted.connections[0].status).toBe("ACCEPTED");
+  });
+});
+
 describe("account privacy-request intake", () => {
   it("records only the signed-in person's valid requests and deduplicates open work", async () => {
     const call = async (action: string, requestedKind: string | null = null) =>

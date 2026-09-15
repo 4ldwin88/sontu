@@ -69,6 +69,7 @@ import {
   HelpSupportPage,
   PrivacyRequestsPage,
   ProfileUtilityPage,
+  PublicProfileHub,
 } from "./profile";
 const mainProps = { id: "main", tabIndex: -1 };
 function SectionHeading({
@@ -590,6 +591,9 @@ function Notifications({ embedded = false }: { embedded?: boolean }) {
   const real = useMyEvents();
   const [responding, setResponding] = useState<string | null>(null);
   const [responseError, setResponseError] = useState("");
+  const [connectionRequests, setConnectionRequests] = useState<
+    Array<{ id: string; display_name: string; handle: string; created_at: string }>
+  >([]);
   const [replies, setReplies] = useState<
     {
       id: string;
@@ -610,6 +614,18 @@ function Notifications({ embedded = false }: { embedded?: boolean }) {
       /* Optional notification source. */
     }
   };
+  const loadConnectionRequests = async () => {
+    try {
+      const result = await rpc<{
+        status: string;
+        requests?: typeof connectionRequests;
+      }>("sontu_connections", { action: "read", input: {} });
+      if (result.status === "ready")
+        setConnectionRequests(result.requests ?? []);
+    } catch {
+      /* Optional notification source. */
+    }
+  };
   useEffect(() => {
     if (!real.signed) return;
     void rpc<{ status: string; items?: typeof replies }>(
@@ -618,6 +634,17 @@ function Notifications({ embedded = false }: { embedded?: boolean }) {
     )
       .then((result) => {
         if (result.status === "ready") setReplies(result.items ?? []);
+      })
+      .catch(() => {
+        /* Optional notification source. */
+      });
+    void rpc<{ status: string; requests?: typeof connectionRequests }>(
+      "sontu_connections",
+      { action: "read", input: {} },
+    )
+      .then((result) => {
+        if (result.status === "ready")
+          setConnectionRequests(result.requests ?? []);
       })
       .catch(() => {
         /* Optional notification source. */
@@ -672,6 +699,35 @@ function Notifications({ embedded = false }: { embedded?: boolean }) {
       setResponding(null);
     }
   }
+  async function respondToConnection(
+    connectionId: string,
+    action: "accept" | "deny",
+  ) {
+    if (responding) return;
+    setResponding(`${connectionId}:${action}`);
+    setResponseError("");
+    try {
+      const result = await rpc<{ status: string; error_code?: string }>(
+        "sontu_connections",
+        { action, input: { connection_id: connectionId } },
+      );
+      if (result.status !== "ready")
+        throw new Error(
+          action === "accept"
+            ? "That request could not be accepted."
+            : "That request could not be denied.",
+        );
+      await loadConnectionRequests();
+    } catch (error) {
+      setResponseError(
+        error instanceof Error
+          ? error.message
+          : "That connection request could not be updated.",
+      );
+    } finally {
+      setResponding(null);
+    }
+  }
   const invitations = real.items.filter(
     (event) =>
       event.invitation_state === "CREATED" &&
@@ -700,8 +756,39 @@ function Notifications({ embedded = false }: { embedded?: boolean }) {
             Sign in
           </Link>
         </div>
-      ) : invitations.length || updates.length || replies.length ? (
+      ) : invitations.length ||
+        updates.length ||
+        replies.length ||
+        connectionRequests.length ? (
         <>
+          {connectionRequests.map((request) => (
+            <div className="notification-card" key={`connection-${request.id}`}>
+              <div className="panel">
+                <StatusBadge tone="info">Connection request</StatusBadge>
+                <h2>{request.display_name} wants to connect</h2>
+                <p>@{request.handle}</p>
+                <div className="coord-actions">
+                  <Button
+                    disabled={!!responding}
+                    onClick={() => void respondToConnection(request.id, "accept")}
+                  >
+                    {responding === `${request.id}:accept`
+                      ? "Saving…"
+                      : "Accept"}
+                  </Button>
+                  <Button
+                    disabled={!!responding}
+                    variant="secondary"
+                    onClick={() => void respondToConnection(request.id, "deny")}
+                  >
+                    {responding === `${request.id}:deny`
+                      ? "Saving…"
+                      : "Deny"}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ))}
           {replies.map((reply) => (
             <div className="notification-card" key={`reply-${reply.id}`}>
               <div className="panel">
@@ -875,6 +962,8 @@ export default function App() {
         <Route path="/sign-in" element={<AccountPortal key="signin" />} />
         <Route path="/sign-up" element={<AccountPortal key="signup" />} />
         <Route path="/account/setup" element={<MinimumProfile />} />
+        <Route path="/@:handle" element={<PublicProfileHub />} />
+        <Route path="/p/:handle" element={<PublicProfileHub />} />
         <Route
           element={
             <AccountEntryGate>
