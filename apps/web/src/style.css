@@ -2630,6 +2630,41 @@ td {
   min-width: 0;
   overflow-wrap: anywhere;
 }
+.profile-owner-preview {
+  display: grid;
+  gap: 18px;
+}
+.profile-preview-grid {
+  display: grid;
+  gap: 12px;
+}
+.profile-field-preview {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-elevated);
+}
+.profile-field-preview span {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.profile-field-preview p {
+  margin: 0;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+.profile-field-preview small {
+  color: var(--interactive-primary);
+  font-weight: 800;
+}
+.profile-home-actions {
+  display: grid;
+  gap: 12px;
+}
 .public-profile-hub {
   min-height: 100vh;
   display: flex;
@@ -2653,6 +2688,13 @@ td {
   border-radius: 20px;
   background: var(--surface);
   box-shadow: var(--shadow-soft);
+}
+.profile-hub-card.mini {
+  width: 100%;
+  margin-top: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
 }
 .profile-hub-cover {
   position: relative;
@@ -2773,10 +2815,48 @@ td {
   color: var(--text-primary);
   font-weight: 700;
 }
+.profile-hub-secondary-action {
+  min-height: 46px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-primary);
+  font-weight: 700;
+}
 .profile-hub-actions a:first-child {
   background: var(--interactive-primary);
   color: white;
   border-color: var(--interactive-primary);
+}
+.mini-profile-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(6, 22, 42, 0.46);
+  padding: 20px;
+}
+.mini-profile-sheet {
+  position: relative;
+  width: min(100%, 480px);
+  max-height: min(720px, calc(100vh - 40px));
+  overflow: auto;
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: 0 24px 60px rgba(6, 22, 42, 0.24);
+}
+.mini-profile-close {
+  position: absolute;
+  left: 14px;
+  top: 14px;
+  z-index: 2;
+  background: rgba(255, 255, 255, 0.88);
 }
 .profile-edit-field {
   margin: 20px 0;
@@ -4272,8 +4352,14 @@ button.back-link {
   display: inline-flex;
   min-height: 32px;
   align-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: var(--interactive-primary);
+  font: inherit;
   font-weight: 750;
+  text-align: left;
+  cursor: pointer;
 }
 .host-profile-link:hover {
   text-decoration: underline;

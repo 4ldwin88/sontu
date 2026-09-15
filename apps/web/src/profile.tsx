@@ -4,7 +4,7 @@ import {
 } from "../../../packages/data/diagnostics";
 import { rpc } from "../../../packages/data/sontu";
 import { useAccount } from "./account-state";
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import {
   Link,
   Navigate,
@@ -376,26 +376,246 @@ export function ConnectionsPage({ onBack }: { onBack: () => void }) {
 
 type PublicProfileHubResult = {
   status: "ready" | "not_found" | "error";
-  viewer?: { owner: boolean; close: boolean };
+  viewer?: {
+    owner: boolean;
+    close: boolean;
+    connection_status?: ProfileConnectionStatus;
+  };
   profile?: {
     display_name: string;
     handle: string;
     fields?: { bio?: string; link?: { label: string; url: string } };
   };
 };
+type ProfileConnectionStatus =
+  | "none"
+  | "pending_sent"
+  | "pending_received"
+  | "connected";
 type PublicProfileHubState = {
   handle: string;
   result: PublicProfileHubResult;
 };
+
+function ProfileConnectControl({
+  handle,
+  owner,
+  initialStatus,
+}: {
+  handle: string;
+  owner?: boolean;
+  initialStatus?: ProfileConnectionStatus;
+}) {
+  const account = useAccount();
+  const [status, setStatus] = useState<ProfileConnectionStatus>(
+    initialStatus ?? "none",
+  );
+  const [message, setMessage] = useState("");
+  if (!account.session || owner || account.profile?.handle === handle) return null;
+  if (status === "connected") {
+    return <p className="profile-viewer-note">Connected</p>;
+  }
+  if (status === "pending_sent") {
+    return <p className="profile-viewer-note">Request sent</p>;
+  }
+  if (status === "pending_received") {
+    return (
+      <Link to="/connections" className="profile-hub-secondary-action">
+        Respond in Connections
+      </Link>
+    );
+  }
+  return (
+    <>
+      <Button
+        onClick={async () => {
+          setMessage("");
+          const response = await rpc<{
+            status: string;
+            error_code?: string;
+            connection_status?: string;
+          }>("sontu_connections", { action: "request", input: { handle } });
+          if (response.status === "ready") {
+            setStatus(
+              response.connection_status === "ACCEPTED"
+                ? "connected"
+                : "pending_sent",
+            );
+            setMessage(
+              response.connection_status === "ACCEPTED"
+                ? "You are already connected."
+                : "Connection request sent.",
+            );
+          } else {
+            setMessage("That request could not be sent.");
+          }
+        }}
+      >
+        Connect
+      </Button>
+      {message && <p role="status">{message}</p>}
+    </>
+  );
+}
+
+function ProfileHubContent({
+  result,
+  compact = false,
+}: {
+  result: PublicProfileHubResult;
+  compact?: boolean;
+}) {
+  if (result.status !== "ready" || !result.profile) return null;
+  return (
+    <section className={compact ? "profile-hub-card mini" : "profile-hub-card"}>
+      <div className="profile-hub-cover" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </div>
+      <div className="profile-hub-avatar" aria-hidden="true">
+        <UserRound />
+      </div>
+      <div className="profile-hub-intro">
+        <span className="eyebrow">Sontu profile</span>
+        <h1>{result.profile.display_name}</h1>
+        <p>@{result.profile.handle}</p>
+        {result.viewer?.close && <p className="profile-viewer-note">Close view</p>}
+      </div>
+      {result.profile.fields?.bio ? (
+        <p className="profile-hub-bio">{result.profile.fields.bio}</p>
+      ) : (
+        <div className="profile-hub-empty">
+          <Sparkles size={18} />
+          <span>This member has not added a public bio yet.</span>
+        </div>
+      )}
+      {result.profile.fields?.link && (
+        <a
+          className="profile-hub-link"
+          href={result.profile.fields.link.url}
+          target="_blank"
+          rel="noreferrer"
+        >
+          <LinkIcon size={18} />
+          <span>{result.profile.fields.link.label}</span>
+        </a>
+      )}
+      <div className="profile-hub-actions">
+        <ProfileConnectControl
+          key={`${result.profile.handle}:${result.viewer?.connection_status ?? "none"}`}
+          handle={result.profile.handle}
+          owner={result.viewer?.owner}
+          initialStatus={result.viewer?.connection_status}
+        />
+        {compact && (
+          <Link to={`/p/${result.profile.handle}`}>
+            <UserRound size={18} />
+            <span>View full profile</span>
+          </Link>
+        )}
+        {!compact && (
+          <>
+            <Link to="/home">
+              <CalendarDays size={18} />
+              <span>Open Sontu</span>
+            </Link>
+            <Link to="/sign-up">
+              <QrCode size={18} />
+              <span>Create account</span>
+            </Link>
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
+export function MiniProfileSheet({
+  handle,
+  onClose,
+}: {
+  handle: string;
+  onClose: () => void;
+}) {
+  const [state, setState] = useState<PublicProfileHubResult | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void rpc<PublicProfileHubResult>("sontu_public_profile_hub", { handle })
+      .then((response) => {
+        if (!cancelled) setState(response);
+      })
+      .catch(() => {
+        if (!cancelled) setState({ status: "error" });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [handle]);
+  return (
+    <div className="mini-profile-scrim" role="presentation" onClick={onClose}>
+      <aside
+        className="mini-profile-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Profile preview"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <button
+          type="button"
+          className="icon-button mini-profile-close"
+          aria-label="Close profile preview"
+          onClick={onClose}
+        >
+          <ChevronLeft size={22} />
+        </button>
+        {state ? (
+          state.status === "ready" ? (
+            <ProfileHubContent result={state} compact />
+          ) : (
+            <div className="profile-hub-empty">
+              <UserRound size={18} />
+              <span>This profile is not available.</span>
+            </div>
+          )
+        ) : (
+          <p role="status">Loading profile...</p>
+        )}
+      </aside>
+    </div>
+  );
+}
+
+export function MiniProfileLauncher({
+  handle,
+  children,
+  className,
+}: {
+  handle: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        className={className}
+        onClick={() => setOpen(true)}
+      >
+        {children}
+      </button>
+      {open && <MiniProfileSheet handle={handle} onClose={() => setOpen(false)} />}
+    </>
+  );
+}
 
 export function PublicProfileHub() {
   const { handle: pathHandle, profileHandle } = useParams();
   const handle = profileHandle?.startsWith("@")
     ? profileHandle.slice(1)
     : (pathHandle ?? "");
-  const account = useAccount();
   const [state, setState] = useState<PublicProfileHubState | null>(null);
-  const [requestStatus, setRequestStatus] = useState("");
   useEffect(() => {
     let cancelled = false;
     void rpc<PublicProfileHubResult>("sontu_public_profile_hub", { handle })
@@ -426,10 +646,10 @@ export function PublicProfileHub() {
         >
           <ChevronLeft size={26} strokeWidth={2.5} />
         </Link>
-        <section className="profile-hub-card">
-          <div className="state-symbol">
-            <UserRound />
-          </div>
+      <section className="profile-hub-card">
+        <div className="state-symbol">
+          <UserRound />
+        </div>
           <h1>Profile unavailable</h1>
           <p className="muted">
             This Sontu profile could not be found or is not available here.
@@ -449,63 +669,7 @@ export function PublicProfileHub() {
       >
           <ChevronLeft size={26} strokeWidth={2.5} />
       </Link>
-      <section className="profile-hub-card">
-        <div className="profile-hub-cover" aria-hidden="true">
-          <span />
-          <span />
-          <span />
-        </div>
-        <div className="profile-hub-avatar" aria-hidden="true">
-          <UserRound />
-        </div>
-        <div className="profile-hub-intro">
-          <span className="eyebrow">Sontu profile</span>
-          <h1>{result.profile.display_name}</h1>
-          <p>@{result.profile.handle}</p>
-          {result.viewer?.close && <p className="profile-viewer-note">Close view</p>}
-        </div>
-        {result.profile.fields?.bio ? (
-          <p className="profile-hub-bio">{result.profile.fields.bio}</p>
-        ) : (
-          <div className="profile-hub-empty">
-            <Sparkles size={18} />
-            <span>This member has not added a public bio yet.</span>
-          </div>
-        )}
-        {result.profile.fields?.link && (
-          <a
-            className="profile-hub-link"
-            href={result.profile.fields.link.url}
-            target="_blank"
-            rel="noreferrer"
-          >
-            <LinkIcon size={18} />
-            <span>{result.profile.fields.link.label}</span>
-          </a>
-        )}
-        <div className="profile-hub-actions">
-          {account.session && account.profile?.handle !== result.profile.handle && (
-            <Button
-              onClick={async () => {
-                setRequestStatus("");
-                const response = await rpc<{ status: string; error_code?: string; connection_status?: string }>("sontu_connections", { action: "request", input: { handle: result.profile?.handle } });
-                setRequestStatus(response.status === "ready" ? response.connection_status === "ACCEPTED" ? "You are already connected." : "Connection request sent." : "That request could not be sent.");
-              }}
-            >
-              Connect
-            </Button>
-          )}
-          <Link to="/home">
-            <CalendarDays size={18} />
-            <span>Open Sontu</span>
-          </Link>
-          <Link to="/sign-up">
-            <QrCode size={18} />
-            <span>Create account</span>
-          </Link>
-        </div>
-        {requestStatus && <p role="status">{requestStatus}</p>}
-      </section>
+      <ProfileHubContent result={result} />
     </main>
   );
 }

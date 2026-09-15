@@ -515,6 +515,9 @@ export function RealProfile({ onBack }: { onBack: () => void }) {
       </details>
     );
   };
+  const visibilityLabel = (value: Visibility) =>
+    visibilityOptions.find((option) => option.value === value)?.label ??
+    "General";
   if (!p) return <Navigate to="/account/setup" replace />;
   return (
     <main id="main" tabIndex={-1} className="settings-page lightweight-profile">
@@ -628,7 +631,7 @@ export function RealProfile({ onBack }: { onBack: () => void }) {
             />
             <TextField
               label="Link URL"
-              type="url"
+              type="text"
               maxLength={240}
               value={linkUrl}
               onChange={(e) => setLinkUrl(e.target.value)}
@@ -653,23 +656,42 @@ export function RealProfile({ onBack }: { onBack: () => void }) {
           </Button>
         </form>
       ) : (
-        <Button
-          variant="secondary"
-          onClick={() => {
-            setName(p.first_name);
-            setDisplay(p.display_name);
-            setHandle(p.handle);
-            setEventEmailEnabled(p.event_email_enabled);
-            setBio(p.bio);
-            setBioVisibility(p.bio_visibility);
-            setLinkLabel(p.link_label);
-            setLinkUrl(p.link_url);
-            setLinkVisibility(p.link_visibility);
-            setEditing(true);
-          }}
-        >
-          Edit Profile
-        </Button>
+        <section className="profile-owner-preview">
+          <div className="profile-preview-grid">
+            <div className="profile-field-preview">
+              <span>Bio</span>
+              <p>{p.bio || "No bio added yet."}</p>
+              <small>{visibilityLabel(p.bio_visibility)}</small>
+            </div>
+            <div className="profile-field-preview">
+              <span>Link</span>
+              <p>{p.link_label || p.link_url || "No profile link added yet."}</p>
+              <small>{visibilityLabel(p.link_visibility)}</small>
+            </div>
+          </div>
+          <div className="profile-home-actions">
+            <Link to={`/p/${p.handle}`} className="profile-hub-secondary-action">
+              View public profile
+            </Link>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setName(p.first_name);
+                setDisplay(p.display_name);
+                setHandle(p.handle);
+                setEventEmailEnabled(p.event_email_enabled);
+                setBio(p.bio);
+                setBioVisibility(p.bio_visibility);
+                setLinkLabel(p.link_label);
+                setLinkUrl(p.link_url);
+                setLinkVisibility(p.link_visibility);
+                setEditing(true);
+              }}
+            >
+              Edit Profile
+            </Button>
+          </div>
+        </section>
       )}
     </main>
   );

@@ -20,6 +20,7 @@ import { trackBeta } from "../../../packages/data/telemetry";
 import { errorMessages } from "../../../packages/domain/coordination";
 import { SessionGate } from "./coordination";
 import { Modal } from "./shells";
+import { MiniProfileLauncher } from "./profile";
 export interface MyEvent {
   id: string;
   title: string;
@@ -1542,9 +1543,9 @@ export function ConnectedEventHub() {
                   <div>
                     <span className="small muted">Hosted by</span>
                     {hub.host?.handle ? (
-                      <Link to={`/p/${hub.host.handle}`} className="host-profile-link">
+                      <MiniProfileLauncher handle={hub.host.handle} className="host-profile-link">
                         {hub.host.display_name ?? "Event host"}
-                      </Link>
+                      </MiniProfileLauncher>
                     ) : (
                       <strong>{hub.host?.display_name ?? "Event host"}</strong>
                     )}
@@ -2307,9 +2308,9 @@ export function PublicEventHub() {
             <div>
               <span className="small muted">Hosted by</span>
               {event.host_handle ? (
-                <Link to={`/p/${event.host_handle}`} className="host-profile-link">
+                <MiniProfileLauncher handle={event.host_handle} className="host-profile-link">
                   {event.host_name ?? "Event host"}
-                </Link>
+                </MiniProfileLauncher>
               ) : (
                 <strong>{event.host_name ?? "Event host"}</strong>
               )}

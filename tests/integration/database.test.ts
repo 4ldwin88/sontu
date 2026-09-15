@@ -1207,6 +1207,7 @@ describe("public profile hubs", () => {
       )[0].r;
       expect(hub).toMatchObject({
         status: "ready",
+        viewer: { owner: false, close: false, connection_status: "none" },
         profile: { display_name: "Profile", handle },
       });
       expect(JSON.stringify(hub)).not.toContain("email");
@@ -1258,6 +1259,14 @@ describe("public profile hubs", () => {
       status: "ready",
       connection_status: "PENDING",
     });
+    const requesterHubAfterRequest = (
+      await sql<{ r: any }>("select public.sontu_public_profile_hub($1) r", [
+        ownerProfile.handle,
+      ])
+    )[0].r;
+    expect(requesterHubAfterRequest.viewer.connection_status).toBe(
+      "pending_sent",
+    );
     const requesterRead = (
       await sql<{ r: any }>("select public.sontu_connections($1,$2) r", [
         "read",
@@ -1278,6 +1287,14 @@ describe("public profile hubs", () => {
       handle: expect.any(String),
     });
     expect(JSON.stringify(ownerRead.requests[0])).not.toContain("email");
+    const ownerViewOfRequester = (
+      await sql<{ r: any }>("select public.sontu_public_profile_hub($1) r", [
+        ownerRead.requests[0].handle,
+      ])
+    )[0].r;
+    expect(ownerViewOfRequester.viewer.connection_status).toBe(
+      "pending_received",
+    );
     expect(
       (
         await sql<{ r: any }>("select public.sontu_connections($1,$2) r", [
@@ -1294,6 +1311,13 @@ describe("public profile hubs", () => {
     )[0].r;
     expect(accepted.requests).toEqual([]);
     expect(accepted.connections[0].status).toBe("ACCEPTED");
+    const ownerHubAfterAccept = (
+      await sql<{ r: any }>("select public.sontu_public_profile_hub($1) r", [
+        ownerRead.requests[0].handle,
+      ])
+    )[0].r;
+    expect(ownerHubAfterAccept.viewer.connection_status).toBe("connected");
+    expect(JSON.stringify(ownerHubAfterAccept)).not.toContain("email");
   });
 
   it("applies General, Close, and Only-me profile field visibility without group inference", async () => {
