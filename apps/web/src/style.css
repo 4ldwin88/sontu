@@ -2872,6 +2872,44 @@ td {
   color: var(--text-secondary);
   line-height: 1.35;
 }
+.profile-activity-list {
+  display: grid;
+  gap: 10px;
+  margin: 24px 28px 18px;
+}
+.profile-activity-card {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) 20px;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-primary);
+  text-decoration: none;
+}
+.profile-activity-cover {
+  height: 52px;
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(6, 42, 87, 0.18), rgba(0, 138, 255, 0.16)),
+    url("../images/sunset.jpg") center/cover;
+}
+.profile-activity-card span:nth-child(2) {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.profile-activity-card strong,
+.profile-activity-card small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.profile-activity-card small {
+  color: var(--text-secondary);
+}
 .profile-viewer-note {
   display: inline-flex;
   margin: 12px 0 0 !important;

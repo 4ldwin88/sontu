@@ -519,6 +519,18 @@ type PublicProfileHubResult = {
       link?: { label: string; url: string };
     };
     counts?: { followers?: number; following?: number };
+    activity?: Array<{
+      id: string;
+      relationship: "host";
+      title: string;
+      starts_at: string | null;
+      timezone: string;
+      venue_label: string;
+      cover_key: string;
+      category: string;
+      format: string;
+      lifecycle: string;
+    }>;
   };
 };
 type ProfileConnectionStatus =
@@ -656,6 +668,16 @@ function ProfileHubContent({
   if (result.status !== "ready" || !result.profile) return null;
   const following = Boolean(result.viewer?.following);
   const connectionStatus = result.viewer?.connection_status ?? "none";
+  const activity = result.profile.activity ?? [];
+  const formatEventDate = (value: string | null) =>
+    value
+      ? new Intl.DateTimeFormat(undefined, {
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        }).format(new Date(value))
+      : "Date pending";
   return (
     <section className={compact ? "profile-hub-card mini" : "profile-hub-card"}>
       <div className="profile-hub-cover" aria-hidden="true">
@@ -736,10 +758,31 @@ function ProfileHubContent({
       )}
       {!compact && tab === "activity" && (
         <div className="profile-hub-panel">
-          <div className="profile-hub-empty">
-            <CalendarDays size={18} />
-            <span>Public event activity will appear here when this member chooses to share it.</span>
-          </div>
+          {activity.length ? (
+            <div className="profile-activity-list">
+              {activity.map((item) => (
+                <Link
+                  key={item.id}
+                  to={`/event/${item.id}`}
+                  className="profile-activity-card"
+                >
+                  <span className="profile-activity-cover" aria-hidden="true" />
+                  <span>
+                    <strong>{item.title}</strong>
+                    <small>
+                      Hosting · {formatEventDate(item.starts_at)} · {item.venue_label}
+                    </small>
+                  </span>
+                  <ArrowRight size={18} aria-hidden="true" />
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <div className="profile-hub-empty">
+              <CalendarDays size={18} />
+              <span>Public hosted events will appear here when this member publishes them.</span>
+            </div>
+          )}
         </div>
       )}
       {!compact && tab === "relationship" && (

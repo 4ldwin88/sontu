@@ -1439,6 +1439,72 @@ describe("public profile hubs", () => {
     expect(unfollow).toMatchObject({ status: "ready", following: false });
   });
 
+  it("shows only public hosted events on profile activity", async () => {
+    const owner = randomUUID(),
+      otherHost = randomUUID(),
+      publicEvent = randomUUID(),
+      privateEvent = randomUUID(),
+      unlistedEvent = randomUUID(),
+      attendeeOnlyEvent = randomUUID();
+    await sql(
+      "insert into auth.users(id,email) values($1,$2),($3,$4)",
+      [
+        owner,
+        "activity-owner@example.com",
+        otherHost,
+        "activity-other-host@example.com",
+      ],
+    );
+    await asHost(owner);
+    const ownerProfile = (
+      await sql<{ r: any }>("select public.sontu_account_profile($1,$2) r", [
+        "create",
+        JSON.stringify({ first_name: "Activity" }),
+      ])
+    )[0].r.profile;
+
+    await sql(
+      `insert into sontu_private.event_instances(id,host_owner_user_id,lifecycle,event_kind,visibility,event_category,event_format)
+       values
+        ($1,$2,'PUBLISHED','SIMPLE','PUBLIC','Music','in-person'),
+        ($3,$2,'PUBLISHED','SIMPLE','PRIVATE','Private','in-person'),
+        ($4,$2,'PUBLISHED','SIMPLE','UNLISTED','Unlisted','in-person'),
+        ($5,$6,'PUBLISHED','SIMPLE','PUBLIC','Community','in-person')`,
+      [publicEvent, owner, privateEvent, unlistedEvent, attendeeOnlyEvent, otherHost],
+    );
+    await sql(
+      `insert into sontu_private.event_versions(event_instance_id,version_number,title,description,starts_at,ends_at,timezone,venue_label,cover_key,materiality_class,created_by)
+       values
+        ($1,1,'Public hosted event','Visible on profile','2031-07-01T20:00:00Z','2031-07-01T22:00:00Z','America/Toronto','Public venue','music','INITIAL',$5),
+        ($2,1,'Private hosted event','Hidden from profile','2031-07-02T20:00:00Z','2031-07-02T22:00:00Z','America/Toronto','Private venue','food','INITIAL',$5),
+        ($3,1,'Unlisted hosted event','Hidden from profile','2031-07-03T20:00:00Z','2031-07-03T22:00:00Z','America/Toronto','Unlisted venue','market','INITIAL',$5),
+        ($4,1,'Attendee-only event','Hidden from profile','2031-07-04T20:00:00Z','2031-07-04T22:00:00Z','America/Toronto','Other venue','sunset','INITIAL',$6)`,
+      [publicEvent, privateEvent, unlistedEvent, attendeeOnlyEvent, owner, otherHost],
+    );
+    await sql(
+      "insert into sontu_private.event_participants(event_instance_id,participant_user_id,display_name,commitment_state) values($1,$2,'Activity','CONFIRMED')",
+      [attendeeOnlyEvent, owner],
+    );
+
+    await asHost("");
+    const hub = (
+      await sql<{ r: any }>("select public.sontu_public_profile_hub($1) r", [
+        ownerProfile.handle,
+      ])
+    )[0].r;
+    expect(hub.profile.activity).toHaveLength(1);
+    expect(hub.profile.activity[0]).toMatchObject({
+      id: publicEvent,
+      relationship: "host",
+      title: "Public hosted event",
+      venue_label: "Public venue",
+    });
+    expect(JSON.stringify(hub.profile.activity)).not.toContain("Private hosted event");
+    expect(JSON.stringify(hub.profile.activity)).not.toContain("Unlisted hosted event");
+    expect(JSON.stringify(hub.profile.activity)).not.toContain("Attendee-only event");
+    expect(JSON.stringify(hub)).not.toContain("activity-owner@example.com");
+  });
+
   it("applies General, Close, and Only-me profile field visibility without group inference", async () => {
     const owner = randomUUID(),
       closeViewer = randomUUID(),
