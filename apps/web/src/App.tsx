@@ -88,9 +88,9 @@ function SectionHeading({
 }
 function Home() {
   const real = useMyEvents();
-  const featured = real.signed
-    ? real.items.filter((event) => event.lifecycle === "PUBLISHED").slice(0, 3)
-    : [];
+  const featured = real.items
+    .filter((event) => event.lifecycle === "PUBLISHED")
+    .slice(0, 3);
   const upcoming = forView(real.items, "Upcoming").slice(0, 2);
   const hosted = forView(real.items, "Hosting").find(
     (event) => event.lifecycle === "PUBLISHED",
