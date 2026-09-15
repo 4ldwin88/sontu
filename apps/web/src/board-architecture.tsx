@@ -1,11 +1,10 @@
 import { useEffect } from "react";
+import type { ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
   ArrowRight,
   Bell,
   CalendarClock,
-  CalendarDays,
-  CheckCircle2,
   Compass,
   Megaphone,
   MessageSquareText,
@@ -14,7 +13,7 @@ import {
   Users,
 } from "lucide-react";
 import { trackBeta } from "../../../packages/data/telemetry";
-import { Button, EmptyState, StatusBadge, TextAction } from "../../../packages/ui-web";
+import { EmptyState, StatusBadge, TextAction } from "../../../packages/ui-web";
 import { forView, SimpleEventCard, useMyEvents, when } from "./invitations";
 
 const mainProps = { id: "board-main", tabIndex: -1 };
@@ -46,7 +45,7 @@ function BoardActionCard({
   tone = "neutral",
 }: {
   to: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
   title: string;
   body: string;
   tone?: "neutral" | "warm" | "cool" | "moss";
