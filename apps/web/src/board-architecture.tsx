@@ -1,7 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import type { ReactNode } from "react";
-import { createPortal } from "react-dom";
-import { Link, useLocation } from "react-router-dom";
+import { Link } from "react-router-dom";
 import {
   ArrowRight,
   Bell,
@@ -18,48 +17,6 @@ import { EmptyState, StatusBadge, TextAction } from "../../../packages/ui-web";
 import { forView, SimpleEventCard, useMyEvents, when } from "./invitations";
 
 const mainProps = { id: "main", tabIndex: -1 };
-
-type BoardRoute = "home" | "feed" | null;
-
-function useBoardRouteMarker(route: BoardRoute) {
-  useEffect(() => {
-    if (route) document.documentElement.dataset.boardRoute = route;
-    else delete document.documentElement.dataset.boardRoute;
-    return () => {
-      delete document.documentElement.dataset.boardRoute;
-    };
-  }, [route]);
-}
-
-function useDiscoverGestureMarker(active: boolean) {
-  useEffect(() => {
-    if (!active) return;
-    const frame = requestAnimationFrame(() => {
-      document.querySelector(".view-toggle")?.classList.add("filter-row");
-    });
-    return () => {
-      cancelAnimationFrame(frame);
-      document.querySelector(".view-toggle")?.classList.remove("filter-row");
-    };
-  }, [active]);
-}
-
-function useShellMain(route: BoardRoute) {
-  const [target, setTarget] = useState<HTMLElement | null>(null);
-
-  useEffect(() => {
-    if (!route) {
-      setTarget(null);
-      return;
-    }
-    const frame = requestAnimationFrame(() => {
-      setTarget(document.querySelector<HTMLElement>("main#main"));
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [route]);
-
-  return target;
-}
 
 function BoardMetric({ label, value }: { label: string; value: string | number }) {
   return (
@@ -323,22 +280,5 @@ export function BoardFeed() {
     <main {...mainProps} className="board-feed board-screen">
       <BoardFeedContent />
     </main>
-  );
-}
-
-export function BoardArchitectureOverlay() {
-  const location = useLocation();
-  const route: BoardRoute = location.pathname === "/home" ? "home" : location.pathname === "/feed" ? "feed" : null;
-  const target = useShellMain(route);
-  useBoardRouteMarker(route);
-  useDiscoverGestureMarker(location.pathname === "/discover");
-
-  if (!route || !target) return null;
-
-  return createPortal(
-    <div className={`board-portal-root board-${route} board-screen`}>
-      {route === "home" ? <BoardHomeContent /> : <BoardFeedContent />}
-    </div>,
-    target,
   );
 }
