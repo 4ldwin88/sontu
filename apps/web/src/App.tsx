@@ -962,7 +962,7 @@ export default function App() {
         <Route path="/sign-in" element={<AccountPortal key="signin" />} />
         <Route path="/sign-up" element={<AccountPortal key="signup" />} />
         <Route path="/account/setup" element={<MinimumProfile />} />
-        <Route path="/@:handle" element={<PublicProfileHub />} />
+        <Route path="/:profileHandle" element={<PublicProfileHub />} />
         <Route path="/p/:handle" element={<PublicProfileHub />} />
         <Route
           element={

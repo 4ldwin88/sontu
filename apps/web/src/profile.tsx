@@ -201,7 +201,10 @@ type PublicProfileHubState = {
 };
 
 export function PublicProfileHub() {
-  const { handle = "" } = useParams();
+  const { handle: pathHandle, profileHandle } = useParams();
+  const handle = profileHandle?.startsWith("@")
+    ? profileHandle.slice(1)
+    : (pathHandle ?? "");
   const account = useAccount();
   const [state, setState] = useState<PublicProfileHubState | null>(null);
   const [requestStatus, setRequestStatus] = useState("");
