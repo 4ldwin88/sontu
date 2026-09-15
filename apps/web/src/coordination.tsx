@@ -50,6 +50,7 @@ import type {
   EventDeliverySummary,
   OrganizationMember,
 } from "../../../packages/data/sontu";
+import { trackBeta } from "../../../packages/data/telemetry";
 import {
   canAttemptCheckIn,
   checkInAdmissionLabel,
@@ -331,6 +332,11 @@ function RsvpFormManager({ eventId }: { eventId: string }) {
   const save = async () => {
     setBusy(true);
     setMessage("");
+    trackBeta("rsvp_form_save_attempted", "hosting", {
+      question_count: questions.length,
+      choice_question_count: questions.filter((q) => q.type === "SINGLE_SELECT")
+        .length,
+    });
     try {
       const result = await rpc<{ status: string; error_code?: string }>(
         "sontu_rsvp_form",
@@ -352,9 +358,15 @@ function RsvpFormManager({ eventId }: { eventId: string }) {
         },
       );
       if (result.status !== "ready") throw new Error(result.error_code);
+      trackBeta("rsvp_form_save_succeeded", "hosting", {
+        question_count: questions.length,
+      });
       setMessage("RSVP form saved.");
       await load();
     } catch {
+      trackBeta("rsvp_form_save_failed", "hosting", {
+        question_count: questions.length,
+      });
       setMessage("Check the questions and try again.");
     } finally {
       setBusy(false);

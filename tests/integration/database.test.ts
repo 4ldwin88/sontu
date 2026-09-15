@@ -1779,6 +1779,55 @@ describe("explicit beta dev notes", () => {
   });
 });
 
+describe("temporary beta telemetry", () => {
+  it("allows safe milestone inserts without client-side read access", async () => {
+    await asHost("");
+    await db.exec("set role anon");
+    try {
+      const session = randomUUID();
+      const id = randomUUID();
+      await sql(
+        "insert into public.sontu_beta_telemetry(id,session_id,event_name,screen,metadata) values($1,$2,'route_view','home',$3)",
+        [id, session, JSON.stringify({ route: "home" })],
+      );
+      await expect(
+        sql("select event_name from public.sontu_beta_telemetry where id=$1", [
+          id,
+        ]),
+      ).rejects.toThrow();
+    } finally {
+      await db.exec("reset role");
+      await asHost();
+    }
+  });
+
+  it("rejects impersonation and sensitive telemetry metadata", async () => {
+    await asHost();
+    await db.exec("set role authenticated");
+    try {
+      await sql(
+        "insert into public.sontu_beta_telemetry(id,session_id,event_name,screen,metadata) values($1,$2,'rsvp_form_save_failed','hosting',$3)",
+        [randomUUID(), randomUUID(), JSON.stringify({ error_code: "INVALID_INPUT" })],
+      );
+      await expect(
+        sql(
+          "insert into public.sontu_beta_telemetry(id,session_id,user_id,event_name,screen,metadata) values($1,$2,$3,'route_view','home','{}')",
+          [randomUUID(), randomUUID(), stranger],
+        ),
+      ).rejects.toThrow();
+      await expect(
+        sql(
+          "insert into public.sontu_beta_telemetry(id,session_id,event_name,screen,metadata) values($1,$2,'accommodation_request_failed','invitation',$3)",
+          [randomUUID(), randomUUID(), JSON.stringify({ request: "email me at tester@example.com" })],
+        ),
+      ).rejects.toThrow();
+    } finally {
+      await db.exec("reset role");
+      await asHost();
+    }
+  });
+});
+
 describe("commerce-ready admission authority", () => {
   it("keeps orders private and derives admission validity from payment state", async () => {
     await asHost();

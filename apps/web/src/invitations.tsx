@@ -16,6 +16,7 @@ import {
   EventImage,
 } from "../../../packages/ui-web";
 import { rpc, supabase } from "../../../packages/data/sontu";
+import { trackBeta } from "../../../packages/data/telemetry";
 import { errorMessages } from "../../../packages/domain/coordination";
 import { SessionGate } from "./coordination";
 import { Modal } from "./shells";
@@ -795,6 +796,10 @@ function AccommodationRequest({
   if (!token) return null;
   const save = async (action: "SAVE" | "WITHDRAW") => {
     setBusy(true);
+    trackBeta("accommodation_request_attempted", "invitation", {
+      action: action.toLowerCase(),
+      has_content: action === "SAVE" ? Boolean(content.trim()) : null,
+    });
     try {
       const result = await rpc<{ status: string; error_code?: string }>(
         "sontu_participant_accommodation",
@@ -812,8 +817,19 @@ function AccommodationRequest({
             : "Withdrawn"
           : "Unable to save",
       );
+      trackBeta(
+        result.status === "ready"
+          ? "accommodation_request_succeeded"
+          : "accommodation_request_failed",
+        "invitation",
+        { action: action.toLowerCase(), error_code: result.error_code ?? null },
+      );
       if (result.status === "ready" && action === "WITHDRAW") setContent("");
     } catch {
+      trackBeta("accommodation_request_failed", "invitation", {
+        action: action.toLowerCase(),
+        step: "transport",
+      });
       setStatus("Unable to save");
     } finally {
       setBusy(false);
@@ -972,6 +988,9 @@ function InvitationContent({
     if (busy || !view?.event) return;
     setBusy(true);
     setError("");
+    trackBeta("public_event_response_attempted", "invitation", {
+      action: decision.toLowerCase(),
+    });
     pending.current ??= {
       decision,
       expected_version: view.event.current_version,
@@ -992,14 +1011,27 @@ function InvitationContent({
         sessionStorage.removeItem(recoveryKey);
       } catch {}
       setUnknown(false);
-      if (r.status === "ready") await load();
-      else
+      if (r.status === "ready") {
+        trackBeta("public_event_response_succeeded", "invitation", {
+          action: decision.toLowerCase(),
+        });
+        await load();
+      } else {
+        trackBeta("public_event_response_failed", "invitation", {
+          action: decision.toLowerCase(),
+          error_code: r.error_code ?? null,
+        });
         setError(
           errorMessages[r.error_code ?? ""] ??
             "This response is unavailable. Refresh to review the current event.",
         );
+      }
     } catch {
       setUnknown(true);
+      trackBeta("public_event_response_failed", "invitation", {
+        action: decision.toLowerCase(),
+        step: "transport",
+      });
       setError("Your response is unconfirmed. Retry the same request.");
     } finally {
       setBusy(false);
@@ -2024,6 +2056,9 @@ export function PublicEventHub() {
     setError("");
     setUnknown(false);
     setPending(request);
+    trackBeta("public_event_response_attempted", "invitation", {
+      action: request.action.toLowerCase(),
+    });
     try {
       sessionStorage.setItem(pendingKey, JSON.stringify(request));
     } catch {
@@ -2048,9 +2083,16 @@ export function PublicEventHub() {
           errorMessages[result.error_code ?? ""] ??
             "This response is no longer available.",
         );
+        trackBeta("public_event_response_failed", "invitation", {
+          action: request.action.toLowerCase(),
+          error_code: result.error_code ?? null,
+        });
         await loadParticipation();
         return;
       }
+      trackBeta("public_event_response_succeeded", "invitation", {
+        action: request.action.toLowerCase(),
+      });
       setPending(null);
       try {
         sessionStorage.removeItem(pendingKey);
@@ -2060,6 +2102,10 @@ export function PublicEventHub() {
       await loadParticipation();
     } catch {
       setUnknown(true);
+      trackBeta("public_event_response_failed", "invitation", {
+        action: request.action.toLowerCase(),
+        step: "transport",
+      });
       setError(
         "Your response is unconfirmed. Retry the same request before trying anything else.",
       );

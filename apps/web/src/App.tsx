@@ -47,6 +47,7 @@ import {
   Users,
 } from "lucide-react";
 import { eventViews } from "../../../packages/application/projections";
+import { screenFromPath, trackBeta } from "../../../packages/data/telemetry";
 import {
   Button,
   Chip,
@@ -838,6 +839,11 @@ export default function App() {
   const [accent, setAccent] = useState(
     () => localStorage.getItem("sontu-accent") ?? "ocean",
   );
+  useEffect(() => {
+    trackBeta("route_view", screenFromPath(location.pathname), {
+      route: screenFromPath(location.pathname),
+    });
+  }, [location.pathname]);
   useEffect(() => {
     const mq = matchMedia("(prefers-color-scheme: dark)");
     const apply = () => {

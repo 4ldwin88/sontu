@@ -37,6 +37,7 @@ import {
   rpc,
 } from "../../../packages/data/sontu";
 import type { OrganizationContext } from "../../../packages/data/sontu";
+import { trackBeta } from "../../../packages/data/telemetry";
 import { errorMessages } from "../../../packages/domain/coordination";
 import {
   emptyDraft,
@@ -620,12 +621,28 @@ function DraftEditor({
     setError("");
     pending.current = req;
     keep(id, req);
+    trackBeta(
+      req.cmd === "publish" ? "create_event_publish_attempted" : "create_event_save_attempted",
+      "hosting",
+      {
+        format,
+        category,
+        visibility,
+        participation_access: participationAccess,
+        publish_after: Boolean(req.publishAfter),
+      },
+    );
     try {
       const r = await hostCommand(req.cmd, id, req.version, req.input, req.op);
       setUnknown(false);
       if (r.status !== "ready") {
         pending.current = null;
         keep(id, null);
+        trackBeta(
+          req.cmd === "publish" ? "create_event_publish_failed" : "create_event_save_failed",
+          "hosting",
+          { error_code: r.error_code ?? null },
+        );
         setError(
           errorMessages[r.error_code ?? ""] ??
             "Could not save. Your entered details are still here.",
@@ -636,6 +653,7 @@ function DraftEditor({
       if (req.cmd === "publish") {
         pending.current = null;
         keep(id, null);
+        trackBeta("create_event_publish_succeeded", "hosting");
         navigate(`/core/events/${id}/host`, { replace: true });
         return;
       }
@@ -645,6 +663,10 @@ function DraftEditor({
       );
       if (access.status !== "ready") {
         setUnknown(true);
+        trackBeta("create_event_save_failed", "hosting", {
+          step: "visibility",
+          error_code: access.error_code ?? null,
+        });
         setError(
           errorMessages[access.error_code ?? ""] ??
             "Event details saved, but visibility could not be confirmed. Please retry.",
@@ -657,6 +679,10 @@ function DraftEditor({
       );
       if (participation.status !== "ready") {
         setUnknown(true);
+        trackBeta("create_event_save_failed", "hosting", {
+          step: "participation_access",
+          error_code: participation.error_code ?? null,
+        });
         setError(
           errorMessages[participation.error_code ?? ""] ??
             "Event details saved, but the RSVP setting could not be confirmed. Please retry.",
@@ -666,6 +692,9 @@ function DraftEditor({
       setForm(req.input as unknown as DraftFields);
       setDirty(false);
       setSaved(true);
+      trackBeta("create_event_save_succeeded", "hosting", {
+        publish_after: Boolean(req.publishAfter),
+      });
       if (req.publishAfter) {
         const publishRequest: Request = {
           cmd: "publish",
@@ -686,6 +715,9 @@ function DraftEditor({
         );
         if (published.status !== "ready") {
           setUnknown(true);
+          trackBeta("create_event_publish_failed", "hosting", {
+            error_code: published.error_code ?? null,
+          });
           setError(
             errorMessages[published.error_code ?? ""] ??
               "Draft saved, but publishing could not be confirmed. Retry publishing.",
@@ -694,6 +726,7 @@ function DraftEditor({
         }
         pending.current = null;
         keep(id, null);
+        trackBeta("create_event_publish_succeeded", "hosting");
         navigate(`/core/events/${id}/host`, { replace: true });
         return;
       }
@@ -705,6 +738,11 @@ function DraftEditor({
       }
     } catch {
       setUnknown(true);
+      trackBeta(
+        req.cmd === "publish" ? "create_event_publish_failed" : "create_event_save_failed",
+        "hosting",
+        { step: "transport" },
+      );
       setError(
         "The save outcome is unconfirmed. Retry this same request to recover the result.",
       );

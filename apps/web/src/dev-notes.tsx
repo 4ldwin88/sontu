@@ -5,6 +5,7 @@ import { useLocation } from "react-router-dom";
 import { Plus } from "lucide-react";
 import { Button } from "../../../packages/ui-web";
 import { supabase } from "../../../packages/data/sontu";
+import { trackBeta, type TelemetryScreen } from "../../../packages/data/telemetry";
 import { useAccount } from "./account-state";
 import { Modal } from "./shells";
 
@@ -79,6 +80,7 @@ function Notes({ signedIn }: { signedIn: boolean }) {
     const note = pending.current;
     setBusy(true);
     setMessage("");
+    trackBeta("dev_note_submit_attempted", note.screen as TelemetryScreen);
     try {
       const { error } = await supabase.from("sontu_dev_notes").insert(note);
       if (error && error.code !== "23505") throw error;
@@ -97,9 +99,11 @@ function Notes({ signedIn }: { signedIn: boolean }) {
       setUnknown(false);
       setBody("");
       await load();
+      trackBeta("dev_note_submit_succeeded", note.screen as TelemetryScreen);
       setMessage("Note saved for development review.");
     } catch {
       setUnknown(true);
+      trackBeta("dev_note_submit_failed", note.screen as TelemetryScreen);
       setMessage("Saving is unconfirmed. Retry the same note safely.");
     } finally {
       setBusy(false);
