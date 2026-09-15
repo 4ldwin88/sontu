@@ -1889,7 +1889,7 @@ export function ConnectedEventHub() {
                   <StatusBadge>Responses closed</StatusBadge>
                 ) : viewer.commitment_state === "CONFIRMED" ? (
                   <>
-                    <div className="hub-confirmed">You’re going!</div>
+                    <div className="hub-confirmed">You’re going.</div>
                     <AdmissionCredential admission={admission} />
                     <Button
                       disabled={busy}
@@ -1912,7 +1912,7 @@ export function ConnectedEventHub() {
                       }
                       onClick={() => void respond("ACCEPT_INVITE")}
                     >
-                      Going
+                      Accept invitation
                     </Button>
                     <Button
                       disabled={busy}
