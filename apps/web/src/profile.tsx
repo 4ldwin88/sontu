@@ -513,7 +513,11 @@ type PublicProfileHubResult = {
   profile?: {
     display_name: string;
     handle: string;
-    fields?: { bio?: string; link?: { label: string; url: string } };
+    fields?: {
+      bio?: string;
+      interests?: string[];
+      link?: { label: string; url: string };
+    };
     counts?: { followers?: number; following?: number };
   };
 };
@@ -721,6 +725,13 @@ function ProfileHubContent({
               <span>{result.profile.fields.link.label}</span>
             </a>
           )}
+          {result.profile.fields?.interests?.length ? (
+            <div className="profile-hub-interests" aria-label="Interests">
+              {result.profile.fields.interests.map((interest) => (
+                <span key={interest}>{interest}</span>
+              ))}
+            </div>
+          ) : null}
         </div>
       )}
       {!compact && tab === "activity" && (

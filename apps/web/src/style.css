@@ -2661,6 +2661,24 @@ td {
   color: var(--interactive-primary);
   font-weight: 800;
 }
+.interest-chip-row,
+.profile-hub-interests {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.interest-chip-row small,
+.profile-hub-interests span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  background: var(--selected);
+  color: var(--interactive-primary);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
 .profile-home-actions {
   display: grid;
   gap: 12px;
@@ -2822,6 +2840,9 @@ td {
   color: var(--interactive-primary);
   font-weight: 700;
   overflow-wrap: anywhere;
+}
+.profile-hub-interests {
+  margin: 0 28px 20px;
 }
 .profile-hub-empty {
   display: flex;

@@ -22,6 +22,8 @@ export type AccountProfile = {
   link_label: string;
   link_url: string;
   link_visibility: "GENERAL" | "CLOSE" | "ONLY_ME";
+  interests: string[];
+  interests_visibility: "GENERAL" | "CLOSE" | "ONLY_ME";
   revision: number;
 };
 export type ProfileResult = {

@@ -1473,6 +1473,8 @@ describe("public profile hubs", () => {
           link_label: "Public link",
           link_url: "https://example.com",
           link_visibility: "GENERAL",
+          interests: ["Music", "Food & Drink", "Outdoors"],
+          interests_visibility: "CLOSE",
         }),
       ])
     )[0].r;
@@ -1533,6 +1535,7 @@ describe("public profile hubs", () => {
     expect(publicHub.profile.fields).toEqual({
       link: { label: "Public link", url: "https://example.com" },
     });
+    expect(publicHub.profile.fields.interests).toBeUndefined();
 
     await asHost(closeViewer);
     const closeHub = (
@@ -1542,6 +1545,10 @@ describe("public profile hubs", () => {
     )[0].r;
     expect(closeHub.viewer.close).toBe(true);
     expect(closeHub.profile.fields.bio).toBe("Close-circle bio");
+    expect(closeHub.profile.fields.interests).toEqual(
+      expect.arrayContaining(["Food & Drink", "Music", "Outdoors"]),
+    );
+    expect(closeHub.profile.fields.interests).toHaveLength(3);
 
     await asHost(groupedViewer);
     const groupedHub = (
@@ -1551,6 +1558,7 @@ describe("public profile hubs", () => {
     )[0].r;
     expect(groupedHub.viewer.close).toBe(false);
     expect(groupedHub.profile.fields.bio).toBeUndefined();
+    expect(groupedHub.profile.fields.interests).toBeUndefined();
 
     await asHost(owner);
     const ownerOnly = (

@@ -441,6 +441,8 @@ export function RealProfile({ onBack }: { onBack: () => void }) {
     [linkLabel, setLinkLabel] = useState(p?.link_label ?? ""),
     [linkUrl, setLinkUrl] = useState(p?.link_url ?? ""),
     [linkVisibility, setLinkVisibility] = useState<Visibility>(p?.link_visibility ?? "GENERAL"),
+    [interests, setInterests] = useState((p?.interests ?? []).join(", ")),
+    [interestsVisibility, setInterestsVisibility] = useState<Visibility>(p?.interests_visibility ?? "GENERAL"),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
   const normalizeProfileUrl = (value: string) => {
@@ -450,6 +452,15 @@ export function RealProfile({ onBack }: { onBack: () => void }) {
     if (/^http:\/\//i.test(trimmed)) return trimmed.replace(/^http:\/\//i, "https://");
     return `https://${trimmed}`;
   };
+  const parseInterests = (value: string) =>
+    Array.from(
+      new Set(
+        value
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean),
+      ),
+    );
   const visibilityOptions: Array<{
     value: Visibility;
     label: string;
@@ -554,6 +565,8 @@ export function RealProfile({ onBack }: { onBack: () => void }) {
                 link_label: linkLabel,
                 link_url: normalizeProfileUrl(linkUrl),
                 link_visibility: linkVisibility,
+                interests: parseInterests(interests),
+                interests_visibility: interestsVisibility,
                 revision: p.revision,
               });
               if (r.status === "ready") {
@@ -577,6 +590,8 @@ export function RealProfile({ onBack }: { onBack: () => void }) {
                         "Choose General, Close, or Only me visibility.",
                       INVALID_LINK:
                         "Use a valid website link.",
+                      INVALID_INTERESTS:
+                        "Use up to 12 interests, 32 characters each.",
                     } as Record<string, string>
                   )[r.error_code ?? ""] ?? "Check your name and try again.",
                 );
@@ -639,6 +654,16 @@ export function RealProfile({ onBack }: { onBack: () => void }) {
             />
             {visibilityField("Link visibility", linkVisibility, setLinkVisibility)}
           </div>
+          <div className="profile-edit-field">
+            <TextField
+              label="Interests"
+              maxLength={420}
+              value={interests}
+              onChange={(e) => setInterests(e.target.value)}
+              placeholder="Music, Food & Drink, Outdoors"
+            />
+            {visibilityField("Interests visibility", interestsVisibility, setInterestsVisibility)}
+          </div>
           <p className="small muted">
             {p.handle_provisional
               ? "Your first handle choice is available immediately."
@@ -668,6 +693,19 @@ export function RealProfile({ onBack }: { onBack: () => void }) {
               <p>{p.link_label || p.link_url || "No profile link added yet."}</p>
               <small>{visibilityLabel(p.link_visibility)}</small>
             </div>
+            <div className="profile-field-preview">
+              <span>Interests</span>
+              {p.interests.length ? (
+                <div className="interest-chip-row">
+                  {p.interests.map((interest) => (
+                    <small key={interest}>{interest}</small>
+                  ))}
+                </div>
+              ) : (
+                <p>No interests added yet.</p>
+              )}
+              <small>{visibilityLabel(p.interests_visibility)}</small>
+            </div>
           </div>
           <div className="profile-home-actions">
             <Link to={`/p/${p.handle}`} className="profile-hub-secondary-action">
@@ -685,6 +723,8 @@ export function RealProfile({ onBack }: { onBack: () => void }) {
                 setLinkLabel(p.link_label);
                 setLinkUrl(p.link_url);
                 setLinkVisibility(p.link_visibility);
+                setInterests(p.interests.join(", "));
+                setInterestsVisibility(p.interests_visibility);
                 setEditing(true);
               }}
             >
