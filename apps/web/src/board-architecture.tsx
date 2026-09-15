@@ -31,6 +31,19 @@ function useBoardRouteMarker(route: BoardRoute) {
   }, [route]);
 }
 
+function useDiscoverGestureMarker(active: boolean) {
+  useEffect(() => {
+    if (!active) return;
+    const frame = requestAnimationFrame(() => {
+      document.querySelector(".view-toggle")?.classList.add("filter-row");
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      document.querySelector(".view-toggle")?.classList.remove("filter-row");
+    };
+  }, [active]);
+}
+
 function useShellMain(route: BoardRoute) {
   const [target, setTarget] = useState<HTMLElement | null>(null);
 
@@ -318,6 +331,7 @@ export function BoardArchitectureOverlay() {
   const route: BoardRoute = location.pathname === "/home" ? "home" : location.pathname === "/feed" ? "feed" : null;
   const target = useShellMain(route);
   useBoardRouteMarker(route);
+  useDiscoverGestureMarker(location.pathname === "/discover");
 
   if (!route || !target) return null;
 
