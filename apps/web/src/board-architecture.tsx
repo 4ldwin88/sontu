@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import type { ReactNode } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link } from "react-router-dom";
 import {
   ArrowRight,
   Bell,
@@ -16,17 +16,7 @@ import { trackBeta } from "../../../packages/data/telemetry";
 import { EmptyState, StatusBadge, TextAction } from "../../../packages/ui-web";
 import { forView, SimpleEventCard, useMyEvents, when } from "./invitations";
 
-const mainProps = { id: "board-main", tabIndex: -1 };
-
-function useBoardRouteMarker(route: "home" | "feed" | null) {
-  useEffect(() => {
-    if (route) document.documentElement.dataset.boardRoute = route;
-    else delete document.documentElement.dataset.boardRoute;
-    return () => {
-      delete document.documentElement.dataset.boardRoute;
-    };
-  }, [route]);
-}
+const mainProps = { id: "main", tabIndex: -1 };
 
 function BoardMetric({ label, value }: { label: string; value: string | number }) {
   return (
@@ -83,7 +73,7 @@ export function BoardHome() {
 
   return (
     <main {...mainProps} className="board-home board-screen">
-      <section className="board-hero-band" aria-labelledby="board-home-title">
+      <section className="board-hero-band home-welcome" aria-labelledby="board-home-title">
         <div className="board-hero-copy">
           <span className="eyebrow">Home</span>
           <h1 id="board-home-title">What matters next.</h1>
@@ -225,7 +215,7 @@ export function BoardFeed() {
         <section className="board-feed-list" aria-label="Event updates">
           {published.length ? (
             published.map((event, index) => (
-              <article className="board-feed-item" key={event.id}>
+              <article className="board-feed-item feed-item" key={event.id}>
                 <div className="board-feed-icon">
                   {index === 0 ? <Megaphone /> : index === 1 ? <CalendarClock /> : <MessageSquareText />}
                 </div>
@@ -244,9 +234,17 @@ export function BoardFeed() {
               </article>
             ))
           ) : (
-            <EmptyState>
-              <p>Real event updates will appear here when hosts publish them.</p>
-            </EmptyState>
+            <article className="board-feed-item feed-item">
+              <div className="board-feed-icon">
+                <Megaphone />
+              </div>
+              <div>
+                <StatusBadge tone="neutral">Event update model</StatusBadge>
+                <h2>No event updates yet</h2>
+                <p>Real event updates will appear here when hosts publish them.</p>
+                <TextAction to="/discover">Discover events</TextAction>
+              </div>
+            </article>
           )}
         </section>
         <aside className="board-feed-rail">
@@ -267,13 +265,4 @@ export function BoardFeed() {
       </div>
     </main>
   );
-}
-
-export function BoardArchitectureOverlay() {
-  const location = useLocation();
-  const route = location.pathname === "/home" ? "home" : location.pathname === "/feed" ? "feed" : null;
-  useBoardRouteMarker(route);
-  if (route === "home") return <BoardHome />;
-  if (route === "feed") return <BoardFeed />;
-  return null;
 }
