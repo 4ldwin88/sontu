@@ -30,7 +30,7 @@ export default defineConfig({
     allowedHosts: ["terminal.local"],
     fs: { allow: ["../.."] },
   },
-  resolve: { dedupe: ["react", "react-dom"] },
+  resolve: { dedupe: ["react", "react-dom", "react-router", "react-router-dom"] },
   test: {
     environment: "jsdom",
     setupFiles: ["../../tests/setup.ts"],
