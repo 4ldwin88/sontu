@@ -44,6 +44,7 @@ import {
   List,
   MapPin,
   Plus,
+  UserCheck,
   Users,
 } from "lucide-react";
 import { eventViews } from "../../../packages/application/projections";
@@ -591,6 +592,7 @@ function Notifications({ embedded = false }: { embedded?: boolean }) {
   const real = useMyEvents();
   const [responding, setResponding] = useState<string | null>(null);
   const [responseError, setResponseError] = useState("");
+  const [responseNotice, setResponseNotice] = useState("");
   const [connectionRequests, setConnectionRequests] = useState<
     Array<{ id: string; display_name: string; handle: string; created_at: string }>
   >([]);
@@ -668,6 +670,7 @@ function Notifications({ embedded = false }: { embedded?: boolean }) {
     if (responding) return;
     setResponding(`${eventId}:${decision}`);
     setResponseError("");
+    setResponseNotice("");
     try {
       const hub = await rpc<{
         status: string;
@@ -688,6 +691,11 @@ function Notifications({ embedded = false }: { embedded?: boolean }) {
         throw new Error(
           "This invitation changed. Open it to review the latest details.",
         );
+      setResponseNotice(
+        decision === "ACCEPT_INVITE"
+          ? "You’re going. The event is now in your plans."
+          : "Invitation declined.",
+      );
       real.reload();
     } catch (error) {
       setResponseError(
@@ -706,6 +714,7 @@ function Notifications({ embedded = false }: { embedded?: boolean }) {
     if (responding) return;
     setResponding(`${connectionId}:${action}`);
     setResponseError("");
+    setResponseNotice("");
     try {
       const result = await rpc<{ status: string; error_code?: string }>(
         "sontu_connections",
@@ -718,6 +727,11 @@ function Notifications({ embedded = false }: { embedded?: boolean }) {
             : "That request could not be denied.",
         );
       await loadConnectionRequests();
+      setResponseNotice(
+        action === "accept"
+          ? "Connection accepted. You can manage this relationship from Connections."
+          : "Connection request denied.",
+      );
     } catch (error) {
       setResponseError(
         error instanceof Error
@@ -743,8 +757,8 @@ function Notifications({ embedded = false }: { embedded?: boolean }) {
   );
   return (
     <Container {...(embedded ? {} : mainProps)} className="settings-page">
-      <h1>Event updates</h1>
-      <p className="muted">From your events and invitations.</p>
+      <h1>Notifications</h1>
+      <p className="muted">People, events, and system updates that need your attention.</p>
       {!real.signed ? (
         <div className="empty-state panel">
           <h2>Sign in to see updates</h2>
@@ -761,15 +775,37 @@ function Notifications({ embedded = false }: { embedded?: boolean }) {
         replies.length ||
         connectionRequests.length ? (
         <>
+          <div className="notification-summary panel" aria-label="Notification summary">
+            <span>
+              <UserCheck size={18} />
+              {connectionRequests.length} connection{" "}
+              {connectionRequests.length === 1 ? "request" : "requests"}
+            </span>
+            <span>
+              <CalendarDays size={18} />
+              {invitations.length + updates.length} event{" "}
+              {invitations.length + updates.length === 1 ? "item" : "items"}
+            </span>
+          </div>
+          {responseNotice && (
+            <p className="notification-result" role="status">
+              {responseNotice}
+            </p>
+          )}
           {connectionRequests.map((request) => (
             <div className="notification-card" key={`connection-${request.id}`}>
-              <div className="panel">
-                <StatusBadge tone="info">Connection request</StatusBadge>
-                <h2>{request.display_name} wants to connect</h2>
-                <p>
-                  @{request.handle} sent a mutual connection request. Accepting
-                  may reveal profile fields marked for connections.
-                </p>
+              <div className="panel notification-panel">
+                <span className="notification-avatar" aria-hidden="true">
+                  {request.display_name.slice(0, 1).toUpperCase()}
+                </span>
+                <div className="notification-body">
+                  <StatusBadge tone="info">Connection request</StatusBadge>
+                  <h2>{request.display_name} wants to connect</h2>
+                  <p>
+                    @{request.handle} sent a mutual connection request. Accepting
+                    may reveal profile fields marked for connections.
+                  </p>
+                </div>
                 <div className="coord-actions">
                   <Button
                     disabled={!!responding}
@@ -885,7 +921,7 @@ function Notifications({ embedded = false }: { embedded?: boolean }) {
               </div>
             </div>
           ))}
-          {responseError && <p role="alert">{responseError}</p>}
+          {responseError && <p className="notification-error" role="alert">{responseError}</p>}
         </>
       ) : (
         <div className="empty-state panel">

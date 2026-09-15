@@ -1310,6 +1310,78 @@ tr:last-child td {
   display: block;
   margin-top: 20px;
 }
+.notification-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 22px;
+  padding: 14px;
+}
+.notification-summary span {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  background: var(--surface-muted);
+  font-weight: 650;
+}
+.notification-summary svg {
+  flex: 0 0 auto;
+  color: var(--interactive-primary);
+}
+.notification-panel {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 12px;
+}
+.notification-panel .coord-actions {
+  grid-column: 2;
+  margin-top: 4px;
+}
+.notification-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  color: var(--interactive-primary);
+  background: var(--selected);
+  font-weight: 800;
+}
+.notification-body {
+  display: grid;
+  gap: 7px;
+}
+.notification-body h2 {
+  margin: 0;
+}
+.notification-body p {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+.notification-result,
+.notification-error {
+  margin: 16px 0 0;
+  padding: 12px 14px;
+  border-radius: 8px;
+  line-height: 1.45;
+}
+.notification-result {
+  border: 1px solid var(--success);
+  color: var(--success);
+  background: var(--success-bg);
+}
+.notification-error {
+  border: 1px solid var(--error);
+  color: var(--error);
+  background: var(--error-bg);
+}
 .image-fallback {
   display: flex;
   align-items: center;
@@ -1363,6 +1435,9 @@ tr:last-child td {
   }
   .portal-body {
     padding: 24px;
+  }
+  .notification-summary {
+    grid-template-columns: 1fr;
   }
   .workspace-event .button {
     display: none;
