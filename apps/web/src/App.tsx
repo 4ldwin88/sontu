@@ -976,6 +976,8 @@ export default function App() {
           <Route path="/discover" element={<Discover />} />
           <Route path="/events" element={<Events />} />
           <Route path="/feed" element={<Feed />} />
+          <Route path="/p/:handle" element={<PublicProfileHub />} />
+          <Route path="/@:profileHandle" element={<PublicProfileHub />} />
           <Route
             path="/events/:eventId"
             element={<EventRouteRedirect />}
