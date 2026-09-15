@@ -163,6 +163,7 @@ export function ConnectionsPage({ onBack }: { onBack: () => void }) {
     [contexts, setContexts] = useState<ConnectionContext[]>([]),
     [handle, setHandle] = useState(""),
     [contextName, setContextName] = useState(""),
+    [section, setSection] = useState<"people" | "requests" | "groups">("people"),
     [message, setMessage] = useState("");
   const readConnections = async () =>
     rpc<{
@@ -206,7 +207,7 @@ export function ConnectionsPage({ onBack }: { onBack: () => void }) {
   };
   const accepted = connections.filter((connection) => connection.status === "ACCEPTED");
   return (
-    <main id="main" tabIndex={-1} className="settings-page">
+    <main id="main" tabIndex={-1} className="settings-page relationship-hub">
       <button
         onClick={onBack}
         className="icon-button back-chevron"
@@ -216,8 +217,26 @@ export function ConnectionsPage({ onBack }: { onBack: () => void }) {
       </button>
       <h1>Connections</h1>
       <p className="muted">
-        Choose people and private contexts for future invitations.
+        Find people, review requests, and organize private groups for future invitations.
       </p>
+      <div className="relationship-tabs" role="tablist" aria-label="Connections sections">
+        {[
+          ["people", `People (${connections.length})`],
+          ["requests", `Requests (${requests.length})`],
+          ["groups", `Groups (${contexts.length})`],
+        ].map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            role="tab"
+            aria-selected={section === value}
+            className={section === value ? "selected" : ""}
+            onClick={() => setSection(value as "people" | "requests" | "groups")}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
       <section className="panel">
         <form
           onSubmit={(event) => {
@@ -236,14 +255,16 @@ export function ConnectionsPage({ onBack }: { onBack: () => void }) {
         </form>
         {message && <p role="status">{message}</p>}
       </section>
-      <section className="panel">
+      {section === "requests" && <section className="panel relationship-section">
         <h2>Requests</h2>
         {requests.length ? (
           requests.map((request) => (
-            <div key={request.id} className="settings-row">
-              <span>
-                {request.display_name} · @{request.handle}
-              </span>
+            <div key={request.id} className="relationship-row">
+              <span className="avatar">{request.display_name.slice(0, 1).toUpperCase()}</span>
+              <div>
+                <strong>{request.display_name}</strong>
+                <small>@{request.handle}</small>
+              </div>
               <div className="coord-actions">
                 <Button onClick={() => void run("accept", { connection_id: request.id })}>
                   Accept
@@ -258,22 +279,32 @@ export function ConnectionsPage({ onBack }: { onBack: () => void }) {
             </div>
           ))
         ) : (
-          <p className="muted">No connection requests.</p>
+          <div className="relationship-empty">
+            <Users size={28} />
+            <strong>No connection requests</strong>
+            <p className="muted">New requests will appear here for quick review.</p>
+          </div>
         )}
-      </section>
-      <section className="panel">
+      </section>}
+      {section === "people" && <section className="panel relationship-section">
         <h2>People</h2>
         {connections.length ? (
           connections.map((connection) => (
-            <div key={connection.id} className="settings-row">
-              <span>
-                {connection.display_name} · @{connection.handle}{" "}
-                {connection.status === "PENDING"
-                  ? "(pending)"
-                  : connection.is_close
-                    ? "(Close)"
-                    : ""}
-              </span>
+            <div key={connection.id} className="relationship-row">
+              <span className="avatar">{connection.display_name.slice(0, 1).toUpperCase()}</span>
+              <div>
+                <MiniProfileLauncher handle={connection.handle} className="participant-profile-link">
+                  {connection.display_name}
+                </MiniProfileLauncher>
+                <small>
+                  @{connection.handle}
+                  {connection.status === "PENDING"
+                    ? " · pending"
+                    : connection.is_close
+                      ? " · Close"
+                      : ""}
+                </small>
+              </div>
               {connection.status === "ACCEPTED" ? (
                 <div className="coord-actions">
                   <Button
@@ -317,10 +348,14 @@ export function ConnectionsPage({ onBack }: { onBack: () => void }) {
             </div>
           ))
         ) : (
-          <p className="muted">No connections yet.</p>
+          <div className="relationship-empty">
+            <Users size={28} />
+            <strong>Find your people</strong>
+            <p className="muted">Search by handle to start a mutual connection request.</p>
+          </div>
         )}
-      </section>
-      <section className="panel">
+      </section>}
+      {section === "groups" && <section className="panel relationship-section">
         <h2>Private contexts</h2>
         <form
           onSubmit={(event) => {
@@ -337,11 +372,13 @@ export function ConnectionsPage({ onBack }: { onBack: () => void }) {
           />
           <Button type="submit">Create context</Button>
         </form>
-        {contexts.map((context) => (
-          <div key={context.id} className="settings-row">
-            <span>
-              {context.name} · {context.members.length} people
-            </span>
+        {contexts.length ? contexts.map((context) => (
+          <div key={context.id} className="relationship-row">
+            <span className="avatar">{context.name.slice(0, 1).toUpperCase()}</span>
+            <div>
+              <strong>{context.name}</strong>
+              <small>{context.members.length} people · private to you</small>
+            </div>
             <select
               aria-label={`Add person to ${context.name}`}
               defaultValue=""
@@ -368,8 +405,14 @@ export function ConnectionsPage({ onBack }: { onBack: () => void }) {
                 ))}
             </select>
           </div>
-        ))}
-      </section>
+        )) : (
+          <div className="relationship-empty">
+            <Users size={28} />
+            <strong>Create your groups</strong>
+            <p className="muted">Groups are private and only organize your own connections.</p>
+          </div>
+        )}
+      </section>}
     </main>
   );
 }

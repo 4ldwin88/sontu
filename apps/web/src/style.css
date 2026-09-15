@@ -2671,9 +2671,7 @@ td {
   justify-content: center;
   align-items: flex-start;
   padding: 24px;
-  background:
-    linear-gradient(180deg, rgba(14, 165, 233, 0.18), transparent 34%),
-    var(--app-bg);
+  background: linear-gradient(180deg, #eef8ff 0%, #ffffff 46%, var(--app-bg) 100%);
 }
 .public-profile-hub .back-chevron {
   position: fixed;
@@ -2685,9 +2683,9 @@ td {
   margin-top: 56px;
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: 20px;
+  border-radius: 24px;
   background: var(--surface);
-  box-shadow: var(--shadow-soft);
+  box-shadow: 0 18px 44px rgba(15, 45, 91, 0.12);
 }
 .profile-hub-card.mini {
   width: 100%;
@@ -2701,7 +2699,8 @@ td {
   height: 132px;
   overflow: hidden;
   background:
-    linear-gradient(135deg, var(--navy), var(--ocean-deep) 52%, var(--ocean-light));
+    linear-gradient(180deg, rgba(15, 45, 91, 0.08), rgba(15, 45, 91, 0.2)),
+    url("../images/sunset.jpg") center/cover;
 }
 .profile-hub-cover span {
   position: absolute;
@@ -2847,7 +2846,7 @@ td {
   width: min(100%, 480px);
   max-height: min(720px, calc(100vh - 40px));
   overflow: auto;
-  border-radius: 18px;
+  border-radius: 24px;
   background: var(--surface);
   box-shadow: 0 24px 60px rgba(6, 22, 42, 0.24);
 }
@@ -2860,6 +2859,68 @@ td {
 }
 .profile-edit-field {
   margin: 20px 0;
+}
+.relationship-hub {
+  background: linear-gradient(180deg, #eef8ff 0%, #ffffff 260px);
+}
+.relationship-tabs {
+  display: flex;
+  gap: 8px;
+  margin: 18px 0;
+  overflow-x: auto;
+}
+.relationship-tabs button {
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-weight: 800;
+  white-space: nowrap;
+}
+.relationship-tabs button.selected {
+  border-color: var(--interactive-primary);
+  background: var(--interactive-primary);
+  color: white;
+}
+.relationship-section {
+  display: grid;
+  gap: 14px;
+}
+.relationship-row {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+}
+.relationship-row:first-of-type {
+  border-top: 0;
+}
+.relationship-row > div:first-of-type {
+  display: grid;
+  min-width: 0;
+}
+.relationship-row small {
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+.relationship-row .coord-actions,
+.relationship-row select {
+  grid-column: 2;
+}
+.relationship-empty {
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  padding: 28px 14px;
+  text-align: center;
+  color: var(--interactive-primary);
+}
+.relationship-empty p {
+  margin: 0;
 }
 .visibility-picker {
   position: relative;
@@ -4382,7 +4443,11 @@ button.back-link {
   height: 44px;
 }
 .hub-about {
-  padding: 26px 0 12px;
+  margin-top: 18px;
+  padding: 18px;
+  border: 1px solid rgba(191, 222, 247, 0.82);
+  border-radius: 18px;
+  background: linear-gradient(180deg, #f7fcff 0%, #ffffff 100%);
 }
 .hub-about h2,
 .hub-going h2 {
@@ -4498,8 +4563,10 @@ button.back-link {
 }
 .hub-going {
   margin-top: 24px;
-  padding-top: 18px;
-  border-top: 1px solid var(--border);
+  padding: 18px;
+  border: 1px solid rgba(191, 222, 247, 0.82);
+  border-radius: 18px;
+  background: linear-gradient(180deg, #f7fcff 0%, #ffffff 100%);
 }
 .hub-going .section-heading {
   margin-bottom: 4px;
