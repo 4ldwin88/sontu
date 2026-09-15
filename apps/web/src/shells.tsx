@@ -1,4 +1,6 @@
 import { useAccount } from "./account-state";
+import { useMyEvents } from "./invitations";
+import { rpc } from "../../../packages/data/sontu";
 import {
   useCallback,
   useEffect,
@@ -59,6 +61,25 @@ export function TopUtilities({
   onOpen: (panel: "profile" | "notifications") => void;
 }) {
   const account = useAccount();
+  const myEvents = useMyEvents();
+  const pendingInvites = myEvents.items.filter(
+    (event) =>
+      event.invitation_state === "CREATED" &&
+      event.commitment_state === "NO_COMMITMENT",
+  ).length;
+  const pendingUpdates = myEvents.items.filter(
+    (event) =>
+      !event.hosting &&
+      event.commitment_state === "CONFIRMED" &&
+      event.reconfirmation_required,
+  ).length;
+  const [pendingReplies, setPendingReplies] = useState(0);
+  useEffect(() => {
+    if (!myEvents.signed) return;
+    rpc<{ status: string; items?: unknown[] }>("sontu_event_question_notifications", { action: "read", question_id: null })
+      .then((result) => setPendingReplies(result.status === "ready" ? (result.items?.length ?? 0) : 0))
+      .catch(() => setPendingReplies(0));
+  }, [myEvents.signed, myEvents.items]);
   return (
     <header className="top-utilities">
       <button
@@ -91,7 +112,7 @@ export function TopUtilities({
           aria-haspopup="dialog"
         >
           <Bell size={21} />
-          <span className="notification-dot" />
+          {pendingInvites + pendingUpdates + (myEvents.signed ? pendingReplies : 0) > 0 && <span className="notification-dot" />}
         </button>
       </div>
     </header>

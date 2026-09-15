@@ -3,6 +3,18 @@ import AxeBuilder from "@axe-core/playwright";
 import { createClient } from "@supabase/supabase-js";
 import { randomUUID, randomBytes } from "node:crypto";
 const enabled = !!process.env.SONTU_TEST_PASSWORD;
+async function createValidationFixture(api: ReturnType<typeof createClient>) {
+  const result = await api.rpc("sontu_host_command", {
+    cmd: "create_fixture",
+    event_id: null,
+    expected_version: 1,
+    operation_id: randomUUID(),
+    input: {},
+  });
+  expect(result.error).toBeNull();
+  expect(result.data.status).toBe("ready");
+  return result.data.event_id as string;
+}
 test("authenticated host and scoped participants complete the core workflow", async ({
   page,
 }, info) => {
@@ -21,21 +33,10 @@ test("authenticated host and scoped participants complete the core workflow", as
   await page.getByLabel("Email", { exact: true }).fill(email);
   await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(
-    page.getByRole("button", { name: "Create test event", exact: true }),
-  ).toBeVisible();
-  await page
-    .getByRole("button", { name: "Create test event", exact: true })
-    .click();
-  await expect(
-    page.getByRole("button", { name: "Publish test event" }),
-  ).toBeVisible();
-  const eventId = page.url().match(/core\/events\/([^/]+)/)![1];
-  await page.getByRole("button", { name: "Publish test event" }).click();
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "Confirm", exact: true })
-    .click();
+  // Browser-only setup remains API-level so the production host UI contains no
+  // synthetic-event control. The workflow itself continues through real UI.
+  const eventId = await createValidationFixture(api);
+  await page.goto(`/#/core/events/${eventId}/host`);
   await expect(
     page.getByRole("button", { name: "Change start time" }),
   ).toBeVisible();
@@ -170,6 +171,38 @@ test("authenticated host and scoped participants complete the core workflow", as
   // Reload verifies durable state through the real session and backend.
   await page.reload();
   await expect(page.getByText("12 / 12", { exact: true })).toBeVisible();
+  await nav.getByRole("button", { name: "Participants", exact: true }).click();
+  await expect(page.getByText("Admission: Valid").first()).toBeVisible();
+  await nav.getByRole("button", { name: "Analytics", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Analytics", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(
+      "Counts come directly from RSVPs, invitations, delivery records, admissions and check-ins. No estimated reach or fabricated conversion data.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  const analytics = await api.rpc("sontu_host_operational_analytics", {
+    event_id: eventId,
+  });
+  expect(analytics.error).toBeNull();
+  expect(analytics.data.status).toBe("ready");
+  expect(analytics.data.admissions.valid).toBeGreaterThan(0);
+  expect(analytics.data.check_in.checked_in).toBe(0);
+  await nav.getByRole("button", { name: "Assistant", exact: true }).click();
+  await expect(
+    page.getByText(
+      "This workspace can draft, summarize and flag. It cannot publish, message guests, charge, refund, change access, or settle obligations.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Draft event reminder", exact: true })
+    .click();
+  await expect(page.getByLabel("Editable draft")).toBeVisible();
+  await expect(page.getByText("Nothing is sent automatically.")).toBeVisible();
+  await nav.getByRole("button", { name: "Overview", exact: true }).click();
   await page.getByRole("button", { name: "Change start time" }).click();
   await page
     .getByLabel("New start time (event time zone)")
@@ -198,6 +231,33 @@ test("authenticated host and scoped participants complete the core workflow", as
   await expect(
     page.getByText("Open unresolved", { exact: true }),
   ).toBeVisible();
+  await nav.getByRole("button", { name: "Assistant", exact: true }).click();
+  await expect(
+    page.getByText(
+      "This event is cancelled. Do not send reminders or make access assumptions.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Draft event reminder", exact: true }),
+  ).toBeDisabled();
+  const cancelled = await api.rpc("sontu_host_projection", {
+    event_id: eventId,
+  });
+  expect(cancelled.error).toBeNull();
+  expect(cancelled.data.data.admission_summary.valid).toBe(0);
+  expect(cancelled.data.data.admission_summary.used).toBe(0);
+  expect(cancelled.data.data.admission_summary.invalid).toBeGreaterThan(0);
+  expect(
+    cancelled.data.data.participants
+      .filter((participant: { admission_status: string | null }) =>
+        Boolean(participant.admission_status),
+      )
+      .every(
+        (participant: { admission_status: string }) =>
+          participant.admission_status === "CANCELLED_EVENT_INVALID",
+      ),
+  ).toBe(true);
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth + 1,
@@ -207,4 +267,85 @@ test("authenticated host and scoped participants complete the core workflow", as
     path: info.outputPath("core-cancelled.png"),
     fullPage: true,
   });
+});
+
+test("admission status governs host check-in and cancellation", async ({
+  page,
+}) => {
+  test.skip(!enabled, "Requires isolated Supabase test credentials");
+  test.setTimeout(90000);
+  const email = process.env.SONTU_TEST_EMAIL!;
+  const password = process.env.SONTU_TEST_PASSWORD!;
+  const api = createClient(
+    process.env.SONTU_TEST_API!,
+    process.env.SONTU_TEST_KEY!,
+    { auth: { persistSession: false } },
+  );
+  expect(
+    (await api.auth.signInWithPassword({ email, password })).error,
+  ).toBeNull();
+  await page.goto("/#/core");
+  await page.getByLabel("Email", { exact: true }).fill(email);
+  await page.getByLabel("Password", { exact: true }).fill(password);
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  const eventId = await createValidationFixture(api);
+
+  const before = await api.rpc("sontu_host_projection", { event_id: eventId });
+  expect(before.error).toBeNull();
+  expect(before.data.data.admission_summary.valid).toBeGreaterThan(0);
+  const started = await api.rpc("sontu_start_event", {
+    event_id: eventId,
+    operation_id: randomUUID(),
+  });
+  expect(started.error).toBeNull();
+  expect(started.data.status).toBe("ready");
+
+  await page.goto(`/#/core/events/${eventId}/check-in`);
+  await expect(
+    page.getByRole("heading", { name: "Check-in", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("Valid admission").first()).toBeVisible();
+  const checkIn = page
+    .getByRole("button", { name: "Check in", exact: true })
+    .first();
+  await expect(checkIn).toBeEnabled();
+  await checkIn.click();
+  await expect(page.getByText(/^Admitted —/)).toBeVisible();
+  const verifyAgain = page
+    .getByRole("button", { name: "Verify again", exact: true })
+    .first();
+  await expect(verifyAgain).toBeEnabled();
+  await verifyAgain.click();
+  await expect(page.getByText(/^Already used —/)).toBeVisible();
+
+  const afterCheckIn = await api.rpc("sontu_host_operational_analytics", {
+    event_id: eventId,
+  });
+  expect(afterCheckIn.error).toBeNull();
+  expect(afterCheckIn.data.check_in.checked_in).toBe(1);
+  expect(afterCheckIn.data.admissions.used).toBe(1);
+
+  const current = await api.rpc("sontu_host_projection", { event_id: eventId });
+  const cancelled = await api.rpc("sontu_host_command", {
+    cmd: "cancel",
+    event_id: eventId,
+    expected_version: current.data.data.event.current_version_number,
+    operation_id: randomUUID(),
+    input: { confirmed: true },
+  });
+  expect(cancelled.error).toBeNull();
+  expect(cancelled.data.status).toBe("ready");
+  await page.reload();
+  await expect(page.getByText("Check-in is not open yet.")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Verify again", exact: true }).first(),
+  ).toBeDisabled();
+  const finalProjection = await api.rpc("sontu_host_projection", {
+    event_id: eventId,
+  });
+  expect(finalProjection.data.data.admission_summary.valid).toBe(0);
+  expect(finalProjection.data.data.admission_summary.used).toBe(0);
+  expect(finalProjection.data.data.admission_summary.invalid).toBeGreaterThan(
+    0,
+  );
 });

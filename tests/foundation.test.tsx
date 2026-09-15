@@ -4,6 +4,8 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { AccountProvider } from "../apps/web/src/account-state";
 import App from "../apps/web/src/App";
+import { eventCardHref } from "../apps/web/src/invitations";
+import { SystemState } from "../packages/ui-web";
 import { eventById, events } from "../packages/test-fixtures/events";
 import {
   eventsForView,
@@ -19,6 +21,21 @@ function open(path = "/home") {
   );
 }
 describe("governed presentation boundaries", () => {
+  it("opens hosted events through the authenticated event hub", () => {
+    const hosted = {
+      id: "organization-event",
+      lifecycle: "PUBLISHED",
+      hosting: true,
+      owner_kind: "ORGANIZATION",
+      owner_name: "RAJA",
+    } as Parameters<typeof eventCardHref>[0];
+    expect(eventCardHref(hosted)).toBe("/my-events/organization-event");
+    expect(eventCardHref({ ...hosted, lifecycle: "DRAFT" }, "Dinner"))
+      .toBe("/create/organization-event?format=in-person&category=Dinner");
+    expect(eventCardHref({ ...hosted, hosting: false })).toBe(
+      "/event/organization-event",
+    );
+  });
   it("exposes exactly four global roots", () => {
     open();
     expect(
@@ -27,17 +44,14 @@ describe("governed presentation boundaries", () => {
         .map((x) => x.textContent),
     ).toEqual(["Home", "Discover", "Events", "Feed"]);
   });
-  it("retains relationship tabs and reveals contextual creation only in Hosting", async () => {
+  it("retains relationship tabs and keeps creation available across event views", async () => {
     open("/events");
-    expect(
-      screen.queryByRole("button", { name: "Create Event" }),
-    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create Event" })).toBeVisible();
     await userEvent.click(screen.getByRole("tab", { name: "Hosting" }));
     expect(screen.getByRole("button", { name: "Create Event" })).toBeVisible();
-    expect(screen.getByRole("link", { name: /Manage event/ })).toHaveAttribute(
-      "href",
-      "/events/sunset-social/host",
-    );
+    expect(
+      screen.getByText("Sign in to see events connected to your account."),
+    ).toBeVisible();
   });
   it("supports keyboard navigation among Events tabs", async () => {
     open("/events");
@@ -49,49 +63,8 @@ describe("governed presentation boundaries", () => {
     );
     expect(screen.getByRole("tab", { name: "Invited" })).toHaveFocus();
   });
-  it("does not expose global navigation inside a hosted workspace", () => {
-    open("/events/sunset-social/host");
-    expect(
-      screen.queryByRole("navigation", { name: "Main navigation" }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.getByRole("link", { name: "Close workspace" }),
-    ).toHaveAttribute("href", "/events?view=Hosting");
-    expect(
-      screen.getByRole("heading", { name: "Sunset Social at Diamond Bay" }),
-    ).toBeVisible();
-  });
-  it("uses the same event identity in the wide route", () => {
-    open("/host/events/sunset-social");
-    expect(
-      screen.getByRole("heading", { name: "Sunset Social at Diamond Bay" }),
-    ).toBeVisible();
-    expect(
-      screen.getByRole("link", { name: /View event page/ }),
-    ).toHaveAttribute("href", "/events/sunset-social");
-  });
-  it("denies non-host access before showing operational data", () => {
-    open("/events/sailing/host");
-    expect(
-      screen.getByRole("heading", {
-        name: "This workspace isn’t available to you",
-      }),
-    ).toBeVisible();
-    expect(screen.queryByText("Portable speaker")).not.toBeInTheDocument();
-  });
-  it("returns unavailable for unknown identities", () => {
-    expect(hostProjection(undefined).status).toBe("unavailable");
-    open("/events/missing");
-    expect(
-      screen.getByRole("heading", { name: "This event isn’t available" }),
-    ).toBeVisible();
-  });
-  it("never renders unknown as success", async () => {
-    open("/preview/states");
-    await userEvent.selectOptions(
-      screen.getByLabelText("Preview state"),
-      "pending_unknown",
-    );
+  it("never renders an unresolved outcome as success", () => {
+    render(<SystemState state={{ status: "pending_unknown" }} />);
     expect(
       screen.getByText(
         "The outcome is unresolved. Don’t treat this as confirmed.",
@@ -99,32 +72,34 @@ describe("governed presentation boundaries", () => {
     ).toBeVisible();
     expect(screen.queryByText("Sample data loaded")).not.toBeInTheDocument();
   });
-  it("retries a presentation error without implying a consequential mutation", async () => {
-    open("/preview/states");
-    await userEvent.selectOptions(
-      screen.getByLabelText("Preview state"),
-      "error",
+  it("offers a retry for presentation errors without implying mutation", async () => {
+    let retried = false;
+    render(
+      <SystemState state={{ status: "error" }} onRetry={() => (retried = true)} />,
     );
     await userEvent.click(screen.getByRole("button", { name: "Try again" }));
-    expect(screen.getByText("Sample data loaded")).toBeVisible();
+    expect(retried).toBe(true);
   });
-  it("filters actual fixture projections and provides an empty recovery path", async () => {
+  it("does not mix placeholder events into discovery", async () => {
     open("/discover");
     await userEvent.type(screen.getByRole("searchbox"), "unfindable");
-    expect(screen.getByText("Nothing here yet")).toBeVisible();
-    await userEvent.click(
-      screen.getByRole("button", { name: "Clear filters" }),
-    );
+    expect(await screen.findByText("Nothing here yet")).toBeVisible();
     expect(
-      screen.getByRole("heading", { name: "Coastal sessions: live music" }),
+      screen.getByText("No real discoverable events are available yet."),
     ).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "Clear search" }));
+    expect(screen.getByRole("searchbox")).toHaveValue("");
   });
-  it("keeps feed items bound to event destinations", () => {
+  it("does not render placeholder feed items", () => {
     open("/feed");
-    const links = screen.getAllByRole("link", { name: /View event/ });
-    expect(links).toHaveLength(3);
-    for (const a of links)
-      expect(a.getAttribute("href")).toMatch(/^\/events\//);
+    expect(
+      screen.getByText(
+        "Real event updates will appear here when hosts publish them.",
+      ),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("link", { name: /View event/ }),
+    ).not.toBeInTheDocument();
   });
   it("keeps cosmetic choice separate from event truth", async () => {
     open("/settings");
@@ -145,8 +120,20 @@ describe("governed presentation boundaries", () => {
     open("/events?view=Hosting");
     await userEvent.click(screen.getByRole("button", { name: "Create Event" }));
     expect(
-      await screen.findByRole("button", { name: "Sign in" }),
+      await screen.findByRole("dialog", {
+        name: "Sign in to create your event",
+      }),
     ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Continue with Google" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Continue with Apple" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Continue with email" }),
+    ).toBeVisible();
+    expect(await screen.findByRole("link", { name: "Sign in" })).toBeVisible();
     expect(events).toHaveLength(6);
   });
   it("separates participation from host access", () => {

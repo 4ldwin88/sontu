@@ -19,6 +19,13 @@ function category(path: string) {
   );
 }
 type Note = { id: string; body: string; screen: string; created_at?: string };
+function noteTime(value?: string) {
+  if (!value) return "Time unavailable";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Time unavailable";
+  const two = (part: number) => String(part).padStart(2, "0");
+  return `${two(date.getMonth() + 1)}/${two(date.getDate())} ${two(date.getHours())}:${two(date.getMinutes())}:${two(date.getSeconds())}`;
+}
 export function DevNotes() {
   const account = useAccount();
   return (
@@ -129,7 +136,7 @@ function Notes({ signedIn }: { signedIn: boolean }) {
             void load();
           }}
         >
-          <Plus size={25} />
+          <Plus size={18} />
           <span>Dev note</span>
         </button>,
         target,
@@ -198,7 +205,10 @@ function Notes({ signedIn }: { signedIn: boolean }) {
                 <ul>
                   {notes.map((n) => (
                     <li key={n.id}>
-                      <small>{n.screen}</small>
+                      <div className="dev-note-meta">
+                        <small>{n.screen}</small>
+                        <time dateTime={n.created_at}>{noteTime(n.created_at)}</time>
+                      </div>
                       <p>{n.body}</p>
                     </li>
                   ))}

@@ -197,8 +197,9 @@ test("account portal registers, resumes minimum profile, and keeps real identity
   // The invited participant can also create an event with this same account.
   await page.goto("/#/events?view=Hosting");
   await page.getByRole("button", { name: "Create Event", exact: true }).click();
+  await page.getByRole("button", { name: "Birthday", exact: true }).click();
   await page
-    .getByRole("button", { name: "Start a new draft", exact: true })
+    .getByRole("button", { name: "Continue to event details", exact: true })
     .click();
   await expect(
     page.getByRole("heading", { name: "The idea", exact: true }),
@@ -210,8 +211,10 @@ test("account portal registers, resumes minimum profile, and keeps real identity
     ),
   ).toBeVisible();
   await page.getByRole("button", { name: "Sign out" }).click();
-  await expect(page.getByText("No account is signed in.")).toBeVisible();
-  await page.goto("/#/home");
+  await expect(page).toHaveURL(/#\/home$/);
+  await expect(
+    page.getByRole("heading", { name: "More together." }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Profile and appearance" }).click();
   await expect(
     page

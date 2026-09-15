@@ -9,7 +9,6 @@ import {
   Link,
   Navigate,
   useLocation,
-  useNavigate,
   useParams,
 } from "react-router-dom";
 import {
@@ -17,17 +16,27 @@ import {
   CalendarDays,
   CheckCircle2,
   Clock3,
+  ImagePlus,
   RefreshCw,
+  Upload,
 } from "lucide-react";
 import { Button, StatusBadge, TextField } from "../../../packages/ui-web";
 import { FocusedWorkspaceShell, WidePortalShell, Modal } from "./shells";
 import {
   createParticipantToken,
   checkInParticipant,
+  checkInCredential,
   checkInRead,
+  changeEventCover,
   closeEvent,
+  startEvent,
   eventOperationsCommand,
   eventOperationsRead,
+  eventDeliveryRead,
+  dispatchEventEmail,
+  sendInvitationEmail,
+  eventOwner,
+  organizationDetail,
   assignOperationItem,
   hostCommand,
   hostRead,
@@ -37,7 +46,13 @@ import {
   teamCommand,
   teamRead,
 } from "../../../packages/data/sontu";
+import type {
+  EventDeliverySummary,
+  OrganizationMember,
+} from "../../../packages/data/sontu";
 import {
+  canAttemptCheckIn,
+  checkInAdmissionLabel,
   errorMessages,
   providerOutcome,
   settlement,
@@ -81,10 +96,12 @@ const date = (value: string | null, zone = "America/Toronto") =>
       }).format(new Date(value))
     : "Schedule not set";
 const label = (s: string) =>
-  s === "todo" ? "To Do" : s
-    .toLowerCase()
-    .replaceAll("_", " ")
-    .replace(/^./, (x) => x.toUpperCase());
+  s === "todo"
+    ? "To Do"
+    : s
+        .toLowerCase()
+        .replaceAll("_", " ")
+        .replace(/^./, (x) => x.toUpperCase());
 function Feedback({
   message,
   unknown = false,
@@ -160,10 +177,7 @@ function CoreEvents() {
         event_kind: string;
       }[]
     >([]),
-    [busy, setBusy] = useState(false),
     [error, setError] = useState("");
-  const navigate = useNavigate();
-  const createOp = useRef<string | null>(recover<string>("create"));
   const load = useCallback(async () => {
     try {
       const r = await rpc<{ status: string; events: typeof items }>(
@@ -182,7 +196,7 @@ function CoreEvents() {
     <>
       <header className="section-heading">
         <div>
-          <span className="eyebrow">Core Validation</span>
+          <span className="eyebrow">Hosting</span>
           <h1>Bring people together.</h1>
           <Link className="button primary" to="/create">
             Create Event
@@ -196,48 +210,6 @@ function CoreEvents() {
           Sign out
         </Button>
       </header>
-      <section className="panel">
-        <h2>Wednesday Community Dinner</h2>
-        <p>
-          Create a private test draft with twelve synthetic participants and one
-          simulated provider. No invitations or messages are sent.
-        </p>
-        <Button
-          disabled={busy}
-          onClick={async () => {
-            setBusy(true);
-            setError("");
-            createOp.current ??= crypto.randomUUID();
-            journal("create", createOp.current);
-            try {
-              const r = await hostCommand(
-                "create_fixture",
-                null,
-                1,
-                {},
-                createOp.current,
-              );
-              if (r.status === "ready") {
-                createOp.current = null;
-                journal("create", null);
-                navigate(`/core/events/${r.event_id}/host`);
-              } else
-                setError(
-                  errorMessages[r.error_code ?? ""] ??
-                    "Could not create draft.",
-                );
-            } catch {
-              setError(
-                "Draft creation is unconfirmed. Retry uses the same request to avoid duplication.",
-              );
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          {busy ? "Creating…" : "Create test event"}
-        </Button>
-      </section>
       {error && <Feedback message={error} onRetry={() => void load()} />}
       <div className="coord-event-list">
         {items.map((e) => (
@@ -274,6 +246,849 @@ interface Action {
   op: string;
   version: number;
 }
+type HostRsvpQuestion = {
+  id?: string;
+  prompt: string;
+  type: "SINGLE_SELECT" | "SHORT_TEXT";
+  required: boolean;
+  per_attendee: boolean;
+  options: string[];
+};
+function RsvpFormManager({ eventId }: { eventId: string }) {
+  const [questions, setQuestions] = useState<HostRsvpQuestion[]>([]);
+  const [responses, setResponses] = useState<
+    {
+      participant_id: string;
+      invitee_name: string;
+      attendee_name: string | null;
+      question: string;
+      answer: string;
+      updated_at: string;
+    }[]
+  >([]);
+  const [busy, setBusy] = useState(false),
+    [message, setMessage] = useState("");
+  const load = useCallback(async () => {
+    const result = await rpc<{ status: string; questions: HostRsvpQuestion[] }>(
+      "sontu_rsvp_form",
+      { action: "READ", event_id: eventId },
+    );
+    if (result.status === "ready") setQuestions(result.questions ?? []);
+    const summary = await rpc<{ status: string; responses?: typeof responses }>(
+      "sontu_rsvp_response_summary",
+      { event_id: eventId },
+    );
+    if (summary.status === "ready") setResponses(summary.responses ?? []);
+  }, [eventId]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  const update = (index: number, patch: Partial<HostRsvpQuestion>) =>
+    setQuestions((rows) =>
+      rows.map((row, i) => (i === index ? { ...row, ...patch } : row)),
+    );
+  const save = async () => {
+    setBusy(true);
+    setMessage("");
+    try {
+      const result = await rpc<{ status: string; error_code?: string }>(
+        "sontu_rsvp_form",
+        {
+          action: "CONFIGURE",
+          event_id: eventId,
+          payload: {
+            questions: questions.map(
+              ({ prompt, type, required, per_attendee, options }) => ({
+                prompt,
+                type,
+                required,
+                per_attendee,
+                options:
+                  type === "SINGLE_SELECT" ? options.filter(Boolean) : [],
+              }),
+            ),
+          },
+        },
+      );
+      if (result.status !== "ready") throw new Error(result.error_code);
+      setMessage("RSVP form saved.");
+      await load();
+    } catch {
+      setMessage("Check the questions and try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className="panel">
+      <span className="eyebrow">Planning details</span>
+      <h2>RSVP form</h2>
+      <p className="muted">
+        Add only details you will use. Choice questions can apply once per named
+        attendee, for example meal selection.
+      </p>
+      {questions.map((q, index) => (
+        <fieldset key={q.id ?? index} className="host-rsvp-question">
+          <legend>Question {index + 1}</legend>
+          <TextField
+            label="Question"
+            value={q.prompt}
+            maxLength={180}
+            onChange={(e) => update(index, { prompt: e.target.value })}
+          />
+          <label>
+            <span>Answer type</span>
+            <select
+              value={q.type}
+              onChange={(e) =>
+                update(index, {
+                  type: e.target.value as HostRsvpQuestion["type"],
+                  per_attendee:
+                    e.target.value === "SHORT_TEXT" ? false : q.per_attendee,
+                })
+              }
+            >
+              <option value="SINGLE_SELECT">Choose one</option>
+              <option value="SHORT_TEXT">Short answer</option>
+            </select>
+          </label>
+          {q.type === "SINGLE_SELECT" && (
+            <TextField
+              label="Choices (one per line)"
+              value={q.options.join("\n")}
+              onChange={(e) =>
+                update(index, { options: e.target.value.split("\n") })
+              }
+            />
+          )}
+          <label>
+            <input
+              type="checkbox"
+              checked={q.required}
+              onChange={(e) => update(index, { required: e.target.checked })}
+            />{" "}
+            Required
+          </label>
+          {q.type === "SINGLE_SELECT" && (
+            <label>
+              <input
+                type="checkbox"
+                checked={q.per_attendee}
+                onChange={(e) =>
+                  update(index, { per_attendee: e.target.checked })
+                }
+              />{" "}
+              Ask each named attendee
+            </label>
+          )}
+          <Button
+            variant="quiet"
+            onClick={() =>
+              setQuestions((rows) => rows.filter((_, i) => i !== index))
+            }
+          >
+            Remove question
+          </Button>
+        </fieldset>
+      ))}
+      {questions.length < 12 && (
+        <Button
+          variant="secondary"
+          onClick={() =>
+            setQuestions((rows) => [
+              ...rows,
+              {
+                prompt: "",
+                type: "SINGLE_SELECT",
+                required: false,
+                per_attendee: false,
+                options: ["", ""],
+              },
+            ])
+          }
+        >
+          Add question
+        </Button>
+      )}{" "}
+      <Button disabled={busy} onClick={() => void save()}>
+        {busy ? "Saving…" : "Save RSVP form"}
+      </Button>
+      {message && <p role="status">{message}</p>}
+      {responses.length > 0 && (
+        <>
+          <h3>Submitted responses</h3>
+          <div className="host-rsvp-responses">
+            {responses.map((response) => (
+              <p
+                key={`${response.participant_id}:${response.attendee_name ?? "primary"}:${response.question}`}
+              >
+                <strong>
+                  {response.attendee_name ?? response.invitee_name}
+                </strong>{" "}
+                · {response.question}: {response.answer}
+              </p>
+            ))}
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+type SeatingTable = {
+  id: string;
+  label: string;
+  capacity: number;
+  assigned_count: number;
+  assignments: {
+    participant_id: string;
+    attendee_name: string;
+    invitee_name: string;
+  }[];
+};
+function SeatingManager({
+  eventId,
+  participants,
+}: {
+  eventId: string;
+  participants: HostProjection["participants"];
+}) {
+  const [tables, setTables] = useState<SeatingTable[]>([]),
+    [label, setLabel] = useState(""),
+    [capacity, setCapacity] = useState("8"),
+    [busy, setBusy] = useState(false),
+    [message, setMessage] = useState("");
+  const [selectedTable, setSelectedTable] = useState(""),
+    [selectedParticipant, setSelectedParticipant] = useState(""),
+    [attendeeName, setAttendeeName] = useState("");
+  const load = useCallback(async () => {
+    const result = await rpc<{ status: string; tables?: SeatingTable[] }>(
+      "sontu_event_seating",
+      { action: "READ", event_id: eventId },
+    );
+    if (result.status === "ready") setTables(result.tables ?? []);
+  }, [eventId]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  const act = async (input: Record<string, unknown>) => {
+    setBusy(true);
+    setMessage("");
+    try {
+      const result = await rpc<{ status: string; error_code?: string }>(
+        "sontu_event_seating",
+        { event_id: eventId, ...input },
+      );
+      if (result.status !== "ready") throw new Error(result.error_code);
+      await load();
+    } catch (cause) {
+      setMessage(
+        cause instanceof Error && cause.message === "CAPACITY_FULL"
+          ? "That table is full."
+          : "The seating change could not be saved.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+  const confirmed = participants.filter(
+    (p) => p.commitment_state === "CONFIRMED",
+  );
+  return (
+    <section className="panel">
+      <span className="eyebrow">Optional event logistics</span>
+      <h2>Seating</h2>
+      <p className="muted">
+        Use simple table assignments when this event needs them. This is
+        intentionally not a floorplan editor.
+      </p>
+      <form
+        className="coord-auth"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void act({
+            action: "UPSERT_TABLE",
+            table_label: label,
+            table_capacity: Number(capacity),
+          }).then(() => {
+            setLabel("");
+          });
+        }}
+      >
+        <TextField
+          label="Table name"
+          value={label}
+          required
+          maxLength={80}
+          onChange={(e) => setLabel(e.target.value)}
+        />
+        <TextField
+          label="Seats"
+          type="number"
+          min="1"
+          max="100"
+          value={capacity}
+          required
+          onChange={(e) => setCapacity(e.target.value)}
+        />
+        <Button disabled={busy}>Add table</Button>
+      </form>
+      {tables.length > 0 && (
+        <form
+          className="coord-auth"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void act({
+              action: "ASSIGN",
+              table_id: selectedTable,
+              participant_id: selectedParticipant,
+              attendee_name: attendeeName,
+            }).then(() => setAttendeeName(""));
+          }}
+        >
+          <label>
+            <span>Table</span>
+            <select
+              required
+              value={selectedTable}
+              onChange={(e) => setSelectedTable(e.target.value)}
+            >
+              <option value="">Choose table</option>
+              {tables.map((table) => (
+                <option key={table.id} value={table.id}>
+                  {table.label} · {table.assigned_count}/{table.capacity}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>Invitee</span>
+            <select
+              required
+              value={selectedParticipant}
+              onChange={(e) => {
+                setSelectedParticipant(e.target.value);
+                const person = confirmed.find((p) => p.id === e.target.value);
+                setAttendeeName(person?.display_name ?? "");
+              }}
+            >
+              <option value="">Choose invitee</option>
+              {confirmed.map((person) => (
+                <option key={person.id} value={person.id}>
+                  {person.display_name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <TextField
+            label="Name at the table"
+            value={attendeeName}
+            required
+            maxLength={100}
+            onChange={(e) => setAttendeeName(e.target.value)}
+          />
+          <Button disabled={busy}>Assign seat</Button>
+        </form>
+      )}
+      {tables.map((table) => (
+        <div key={table.id} className="host-seating-table">
+          <div>
+            <h3>{table.label}</h3>
+            <p className="small muted">
+              {table.assigned_count} of {table.capacity} seats assigned
+            </p>
+          </div>
+          <Button
+            variant="quiet"
+            disabled={busy}
+            onClick={() =>
+              void act({ action: "DELETE_TABLE", table_id: table.id })
+            }
+          >
+            Remove table
+          </Button>
+          {table.assignments.map((assignment) => (
+            <p key={`${assignment.participant_id}:${assignment.attendee_name}`}>
+              <strong>{assignment.attendee_name}</strong>
+              {assignment.attendee_name !== assignment.invitee_name &&
+                ` · invited by ${assignment.invitee_name}`}{" "}
+              <Button
+                variant="quiet"
+                disabled={busy}
+                onClick={() =>
+                  void act({
+                    action: "UNASSIGN",
+                    participant_id: assignment.participant_id,
+                    attendee_name: assignment.attendee_name,
+                  })
+                }
+              >
+                Remove
+              </Button>
+            </p>
+          ))}
+        </div>
+      ))}
+      {tables.length === 0 && (
+        <p className="muted">
+          No tables added. Most events will not need this.
+        </p>
+      )}
+      {message && <p role="status">{message}</p>}
+    </section>
+  );
+}
+
+type OperationalAnalytics = {
+  status: string;
+  error_code?: string;
+  lifecycle: string;
+  capacity: number | null;
+  rsvp: { confirmed: number; reserved_places: number; remaining_places: number | null; awaiting: number; declined_or_withdrawn: number };
+  invitations: {
+    created: number;
+    accepted: number;
+    declined: number;
+    active_links: number;
+  };
+  delivery: { pending: number; sent: number; failed: number };
+  admissions: { valid: number; used: number; invalid: number; pending: number };
+  check_in: { checked_in: number };
+};
+type CredentialLifecycle = {
+  status: string;
+  counts: { active: number; revoked: number; expired: number };
+};
+function HostOperationalAnalytics({ eventId }: { eventId: string }) {
+  const [data, setData] = useState<OperationalAnalytics | null>(null);
+  const [credentials, setCredentials] = useState<CredentialLifecycle | null>(null);
+  const [error, setError] = useState("");
+  const latestRequest = useRef(0);
+  const load = useCallback(async () => {
+    const request = ++latestRequest.current;
+    try {
+      const result = await rpc<OperationalAnalytics>(
+        "sontu_host_operational_analytics",
+        { event_id: eventId },
+      );
+      if (result.status !== "ready") throw new Error(result.error_code);
+      if (request !== latestRequest.current) return;
+      setData(result);
+      setError("");
+    } catch {
+      if (request !== latestRequest.current) return;
+      setError(
+        "Operational analytics are unavailable. No estimates are shown.",
+      );
+    }
+  }, [eventId]);
+  const loadCredentials = useCallback(async () => {
+    try {
+      const result = await rpc<CredentialLifecycle>(
+        "sontu_host_credential_lifecycle_projection",
+        { event_id: eventId },
+      );
+      if (result.status === "ready") setCredentials(result);
+    } catch {
+      setCredentials(null);
+    }
+  }, [eventId]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  useEffect(() => {
+    void loadCredentials();
+  }, [loadCredentials]);
+  if (error) return <Feedback message={error} onRetry={() => void load()} />;
+  if (!data) return <p role="status">Loading operational analytics…</p>;
+  const groups = [
+    [
+      "RSVP",
+      [
+        ["Confirmed", data.rsvp.confirmed],
+        ["Reserved places", data.rsvp.reserved_places],
+        ["Awaiting", data.rsvp.awaiting],
+        ["Declined / withdrawn", data.rsvp.declined_or_withdrawn],
+      ],
+    ],
+    [
+      "Invitations",
+      [
+        ["Created", data.invitations.created],
+        ["Accepted", data.invitations.accepted],
+        ["Declined", data.invitations.declined],
+        ["Active links", data.invitations.active_links],
+      ],
+    ],
+    [
+      "Delivery",
+      [
+        ["Sent", data.delivery.sent],
+        ["Pending", data.delivery.pending],
+        ["Failed", data.delivery.failed],
+      ],
+    ],
+    [
+      "Admissions & check-in",
+      [
+        ["Valid", data.admissions.valid],
+        ["Used", data.admissions.used],
+        ["Pending", data.admissions.pending],
+        ["Invalid", data.admissions.invalid],
+        ["Checked in", data.check_in.checked_in],
+      ],
+    ],
+    ...(credentials
+      ? [[
+          "Credentials",
+          [
+            ["Active", credentials.counts.active],
+            ["Revoked", credentials.counts.revoked],
+            ["Expired", credentials.counts.expired],
+          ],
+        ] as const]
+      : []),
+  ] as const;
+  return (
+    <section className="panel" aria-labelledby="operational-analytics-heading">
+      <div className="section-heading">
+        <div>
+          <span className="eyebrow">Live operational records</span>
+          <h2 id="operational-analytics-heading">Analytics</h2>
+          <p className="muted">
+            Counts come directly from RSVPs, invitations, delivery records,
+            admissions and check-ins. No estimated reach or fabricated
+            conversion data.
+          </p>
+        </div>
+        <Button variant="secondary" onClick={() => { void load(); void loadCredentials(); }}>
+          Refresh
+        </Button>
+      </div>
+      {data.capacity !== null && (
+        <p>
+          <strong>
+            {data.rsvp.reserved_places} of {data.capacity}
+          </strong>{" "}
+          attendee places reserved
+        </p>
+      )}
+      {groups.map(([title, items]) => (
+        <section key={title} className="host-analytics-group">
+          <h3>{title}</h3>
+          <div className="host-stat-grid">
+            {items.map(([name, value]) => (
+              <div key={name}>
+                <strong>{value}</strong>
+                <span>{name}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      ))}
+    </section>
+  );
+}
+
+function BoundedEventAssistant({ data }: { data: HostProjection }) {
+  const [draft, setDraft] = useState("");
+  const canDraft = !["CANCELLED", "COMPLETED"].includes(data.event.lifecycle);
+  const confirmed = data.participants.filter(
+    (p) => p.commitment_state === "CONFIRMED",
+  ).length;
+  const awaiting = data.participants.filter(
+    (p) =>
+      p.commitment_state === "NO_COMMITMENT" &&
+      p.invitation_state === "CREATED" &&
+      !p.link_revoked,
+  ).length;
+  const failedDelivery = data.communications
+    .filter(
+      (item) =>
+        item.dispatch_state.includes("FAILED") ||
+        item.dispatch_state === "CONFIGURATION_UNAVAILABLE",
+    )
+    .reduce((total, item) => total + item.count, 0);
+  const flags = [
+    failedDelivery > 0
+      ? `${failedDelivery} message${failedDelivery === 1 ? "" : "s"} need delivery review.`
+      : null,
+    awaiting > 0
+      ? `${awaiting} invitation${awaiting === 1 ? " is" : "s are"} still awaiting a response.`
+      : null,
+    data.event.lifecycle === "IN_PROGRESS" &&
+    (data.admission_summary?.valid ?? 0) > 0
+      ? `${data.admission_summary?.valid ?? 0} valid admission${data.admission_summary?.valid === 1 ? " remains" : "s remain"} available for check-in.`
+      : null,
+    data.event.lifecycle === "CANCELLED"
+      ? "This event is cancelled. Do not send reminders or make access assumptions."
+      : null,
+    data.event.lifecycle === "COMPLETED"
+      ? "This event is completed. Drafting is paused."
+      : null,
+  ].filter((item): item is string => !!item);
+  const makeDraft = () => {
+    if (!canDraft) return;
+    setDraft(
+      `Reminder: ${data.version.title}\n${date(data.version.starts_at, data.version.timezone)}\n${data.version.venue_label}\n\nYou’re receiving this because you’re connected to this event. Please review the event page for the latest details.`,
+    );
+  };
+  return (
+    <section className="panel" aria-labelledby="assistant-heading">
+      <span className="eyebrow">Bounded assistance</span>
+      <h2 id="assistant-heading">Event assistant</h2>
+      <p className="muted">
+        This workspace can draft, summarize and flag. It cannot publish, message
+        guests, charge, refund, change access, or settle obligations.
+      </p>
+      <section>
+        <h3>Summary</h3>
+        <p>
+          {confirmed} confirmed · {awaiting} awaiting response ·{" "}
+          {data.admission_summary?.used ?? 0} checked in
+        </p>
+      </section>
+      <section>
+        <h3>Flags</h3>
+        {flags.length ? (
+          <ul>
+            {flags.map((flag) => (
+              <li key={flag}>{flag}</li>
+            ))}
+          </ul>
+        ) : (
+          <p className="muted">
+            No operational flags from the available records.
+          </p>
+        )}
+      </section>
+      <section>
+        <h3>Draft</h3>
+        <Button variant="secondary" onClick={makeDraft} disabled={!canDraft}>
+          Draft event reminder
+        </Button>
+        {!canDraft && (
+          <p className="small muted">
+            Reminder drafting is unavailable after an event is cancelled or
+            completed.
+          </p>
+        )}
+        {draft && (
+          <>
+            <label className="field">
+              <span>Editable draft</span>
+              <textarea
+                rows={7}
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+              />
+            </label>
+            <p className="small muted">Nothing is sent automatically.</p>
+          </>
+        )}
+      </section>
+    </section>
+  );
+}
+function AccommodationManager({ eventId }: { eventId: string }) {
+  const { team } = useTeam(eventId);
+  const [requests, setRequests] = useState<
+      {
+        id: string;
+        participant_name: string;
+        content: string;
+        status: string;
+        updated_at: string;
+      }[]
+    >([]),
+    [staffIds, setStaffIds] = useState<string[]>([]),
+    [message, setMessage] = useState("");
+  const load = useCallback(async () => {
+    const result = await rpc<{
+      status: string;
+      requests?: typeof requests;
+      staff_user_ids?: string[];
+    }>("sontu_event_accommodations", { action: "READ", event_id: eventId });
+    if (result.status === "ready") {
+      setRequests(result.requests ?? []);
+      setStaffIds(result.staff_user_ids ?? []);
+    }
+  }, [eventId]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  const acknowledge = async (id: string) => {
+    try {
+      const result = await rpc<{ status: string }>(
+        "sontu_event_accommodations",
+        { action: "ACKNOWLEDGE", event_id: eventId, request_id: id },
+      );
+      if (result.status === "ready") await load();
+      else setMessage("The request could not be updated.");
+    } catch {
+      setMessage("The request could not be updated.");
+    }
+  };
+  const setStaff = async (userId: string, grant: boolean) => {
+    try {
+      const result = await rpc<{ status: string }>(
+        "sontu_event_accommodations",
+        {
+          action: grant ? "GRANT_STAFF" : "REVOKE_STAFF",
+          event_id: eventId,
+          staff_user_id: userId,
+        },
+      );
+      if (result.status === "ready") await load();
+      else setMessage("Staff access could not be updated.");
+    } catch {
+      setMessage("Staff access could not be updated.");
+    }
+  };
+  return (
+    <section className="panel">
+      <span className="eyebrow">Private operational information</span>
+      <h2>Accommodation requests</h2>
+      <p className="muted">
+        Only you and explicitly assigned event staff can view these requests.
+        Content is automatically deleted 30 days after the event; do not copy it
+        into general event notes.
+      </p>
+      {team?.members.length ? (
+        <div className="host-rsvp-responses">
+          <strong>Assigned staff</strong>
+          <p className="small muted">
+            Choose only teammates who need this information to support guests.
+          </p>
+          {team.members.map((member) => (
+            <label className="check-row" key={member.id}>
+              <input
+                type="checkbox"
+                checked={staffIds.includes(member.user_id)}
+                onChange={(e) =>
+                  void setStaff(member.user_id, e.target.checked)
+                }
+              />
+              <span>
+                {member.display_name} · {teamRoleLabel(member.role)}
+              </span>
+            </label>
+          ))}
+        </div>
+      ) : (
+        <p className="small muted">
+          Add a teammate first if someone else needs access.
+        </p>
+      )}
+      {requests.length ? (
+        requests.map((request) => (
+          <div className="host-rsvp-responses" key={request.id}>
+            <strong>{request.participant_name}</strong>
+            <p>{request.content}</p>
+            <p className="small muted">{label(request.status)}</p>
+            {request.status === "OPEN" && (
+              <Button
+                variant="secondary"
+                onClick={() => void acknowledge(request.id)}
+              >
+                Mark acknowledged
+              </Button>
+            )}
+          </div>
+        ))
+      ) : (
+        <p className="muted">No active requests.</p>
+      )}
+      {message && <p role="status">{message}</p>}
+    </section>
+  );
+}
+function AccessibilityManager({ eventId }: { eventId: string }) {
+  const [info, setInfo] = useState({
+      step_free_entry: false,
+      accessible_washroom: false,
+      seating_available: false,
+      quiet_space_available: false,
+      public_notes: "",
+    }),
+    [message, setMessage] = useState(""),
+    [busy, setBusy] = useState(false);
+  const load = useCallback(async () => {
+    const r = await rpc<{ status: string; information?: typeof info }>(
+      "sontu_event_accessibility",
+      { action: "READ", event_id: eventId },
+    );
+    if (r.status === "ready" && r.information) setInfo(r.information);
+  }, [eventId]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  const save = async () => {
+    setBusy(true);
+    try {
+      const r = await rpc<{ status: string }>("sontu_event_accessibility", {
+        action: "SAVE",
+        event_id: eventId,
+        payload: info,
+      });
+      setMessage(
+        r.status === "ready"
+          ? "Accessibility information saved."
+          : "Could not save accessibility information.",
+      );
+    } catch {
+      setMessage("Could not save accessibility information.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const toggles: [keyof typeof info, string][] = [
+    ["step_free_entry", "Step-free entry"],
+    ["accessible_washroom", "Accessible washroom"],
+    ["seating_available", "Seating available"],
+    ["quiet_space_available", "Quiet space available"],
+  ];
+  return (
+    <section className="panel">
+      <span className="eyebrow">Event information</span>
+      <h2>Accessibility</h2>
+      <p className="muted">
+        Share only confirmed venue or event arrangements. Guests can still send
+        a private request when their needs are not covered here.
+      </p>
+      {toggles.map(([key, text]) => (
+        <label className="check-row" key={key}>
+          <input
+            type="checkbox"
+            checked={!!info[key]}
+            onChange={(e) =>
+              setInfo((current) => ({ ...current, [key]: e.target.checked }))
+            }
+          />
+          <span>{text}</span>
+        </label>
+      ))}
+      <label className="field">
+        <span>
+          Additional accessibility details{" "}
+          <small className="muted">Optional</small>
+        </span>
+        <textarea
+          maxLength={1000}
+          rows={4}
+          value={info.public_notes}
+          onChange={(e) =>
+            setInfo((current) => ({ ...current, public_notes: e.target.value }))
+          }
+          placeholder="For example: entry route, parking, or a contact point for arrival support."
+        />
+      </label>
+      <Button disabled={busy} onClick={() => void save()}>
+        {busy ? "Saving…" : "Save accessibility information"}
+      </Button>
+      {message && <p role="status">{message}</p>}
+    </section>
+  );
+}
 export function CoreHost() {
   const { eventId } = useParams();
   return (
@@ -285,9 +1100,22 @@ export function CoreHost() {
   );
 }
 function HostContent({ id }: { id: string }) {
+  const covers = ["food", "sunset", "music", "market", "yoga", "sailing"];
   const account = useAccount();
   const [editSource, setEditSource] = useState<HostProjection | null>(null);
   const [data, setData] = useState<HostProjection | null>(null),
+    [delivery, setDelivery] = useState<EventDeliverySummary[]>([]),
+    [deliveryRecipients, setDeliveryRecipients] = useState<
+      { name: string; kind: string; state: string }[]
+    >([]),
+    [deliveryBusy, setDeliveryBusy] = useState(false),
+    [participationAccess, setParticipationAccess] = useState<
+      "ANYONE" | "SONTU_USERS_ONLY" | null
+    >(null),
+    [eventVisibility, setEventVisibility] = useState<
+      "PUBLIC" | "UNLISTED" | "PRIVATE" | null
+    >(null),
+    [participationBusy, setParticipationBusy] = useState(false),
     [section, setSection] = useState("overview"),
     [guestQuery, setGuestQuery] = useState(""),
     [guestFilter, setGuestFilter] = useState("all"),
@@ -304,13 +1132,57 @@ function HostContent({ id }: { id: string }) {
     [reason, setReason] = useState(""),
     [time, setTime] = useState(""),
     [description, setDescription] = useState(""),
-    [link, setLink] = useState<{ name: string; url: string } | null>(null);
+    [link, setLink] = useState<{
+      name: string;
+      url: string;
+      email?: string;
+      token: string;
+    } | null>(null),
+    [inviteEmailBusy, setInviteEmailBusy] = useState(false);
   const pending = useRef<Action | null>(recover<Action>(id));
   const load = useCallback(async () => {
     try {
-      const r = await hostRead(id);
+      const [
+        r,
+        deliveryResult,
+        recipientResult,
+        participationResult,
+        visibilityResult,
+      ] = await Promise.all([
+        hostRead(id),
+        eventDeliveryRead(id).catch(() => null),
+        rpc<{
+          status: string;
+          recipients?: { name: string; kind: string; state: string }[];
+        }>("sontu_event_delivery_recipients", { event_id: id }).catch(
+          () => null,
+        ),
+        rpc<{
+          status: string;
+          participation_access?: "ANYONE" | "SONTU_USERS_ONLY";
+        }>("sontu_event_participation_access", {
+          action: "read",
+          event_id: id,
+          value: null,
+        }).catch(() => null),
+        rpc<{ status: string; visibility?: "PUBLIC" | "UNLISTED" | "PRIVATE" }>(
+          "sontu_event_visibility",
+          { action: "read", event_id: id, value: null },
+        ).catch(() => null),
+      ]);
       if (r.status === "ready" && r.data) {
         setData(r.data);
+        if (deliveryResult?.status === "ready")
+          setDelivery(deliveryResult.summary ?? []);
+        if (recipientResult?.status === "ready")
+          setDeliveryRecipients(recipientResult.recipients ?? []);
+        if (
+          participationResult?.status === "ready" &&
+          participationResult.participation_access
+        )
+          setParticipationAccess(participationResult.participation_access);
+        if (visibilityResult?.status === "ready" && visibilityResult.visibility)
+          setEventVisibility(visibilityResult.visibility);
         if (!pending.current) setError("");
       } else
         setError(
@@ -319,7 +1191,7 @@ function HostContent({ id }: { id: string }) {
     } catch {
       setError("Unable to refresh event status. Please try again.");
     }
-  }, [id]);
+  }, [id, setError]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -331,13 +1203,21 @@ function HostContent({ id }: { id: string }) {
     pending.current = action;
     journal(id, action);
     try {
-      const r = await hostCommand(
-        action.cmd,
-        id,
-        action.version,
-        action.input,
-        action.op,
-      );
+      const r =
+        action.cmd === "change_cover"
+          ? await changeEventCover(
+              id,
+              action.version,
+              String(action.input.cover_key),
+              action.op,
+            )
+          : await hostCommand(
+              action.cmd,
+              id,
+              action.version,
+              action.input,
+              action.op,
+            );
       setUnknown(false);
       pending.current = null;
       journal(id, null);
@@ -357,6 +1237,13 @@ function HostContent({ id }: { id: string }) {
             "Participant";
           setLink({
             name,
+            email:
+              action.cmd === "invite_participant"
+                ? String(action.input.email)
+                : data?.participants.find(
+                    (p) => p.id === action.input.participant_id,
+                  )?.invitation_email,
+            token: r.token,
             url:
               location.origin +
               location.pathname +
@@ -396,6 +1283,75 @@ function HostContent({ id }: { id: string }) {
         op: crypto.randomUUID(),
       });
   };
+  const updateParticipationAccess = async (
+    value: "ANYONE" | "SONTU_USERS_ONLY",
+  ) => {
+    if (participationBusy || value === participationAccess) return;
+    setParticipationBusy(true);
+    setError("");
+    setSuccess("");
+    try {
+      const result = await rpc<{
+        status: string;
+        error_code?: string;
+        participation_access?: "ANYONE" | "SONTU_USERS_ONLY";
+      }>("sontu_event_participation_access", {
+        action: "write",
+        event_id: id,
+        value,
+      });
+      if (result.status !== "ready") {
+        setError(
+          errorMessages[result.error_code ?? ""] ??
+            "The RSVP access setting could not be changed.",
+        );
+        return;
+      }
+      setParticipationAccess(result.participation_access ?? value);
+      setSuccess(
+        value === "ANYONE"
+          ? "Guest RSVP is now available to anyone on the public event page."
+          : "Future RSVPs now require a Sontu account. Existing RSVPs are unchanged.",
+      );
+    } catch {
+      setError(
+        "The RSVP access outcome could not be confirmed. Refresh before trying again.",
+      );
+    } finally {
+      setParticipationBusy(false);
+    }
+  };
+  const beginEvent = async () => {
+    if (
+      busy ||
+      !data ||
+      !window.confirm(
+        "Start this event now? Check-in will open and new RSVPs will close.",
+      )
+    )
+      return;
+    setBusy(true);
+    setError("");
+    setSuccess("");
+    try {
+      const result = await startEvent(id);
+      if (result.status !== "ready") {
+        setError(
+          errorMessages[result.error_code ?? ""] ??
+            "The event could not be started.",
+        );
+        return;
+      }
+      setSuccess("Event started. Check-in is now open and RSVPs are closed.");
+      await load();
+    } catch {
+      setError(
+        "The start result could not be confirmed. Refresh before trying again.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
   const open = (kind: string) => {
     setError("");
     setSuccess("");
@@ -409,7 +1365,24 @@ function HostContent({ id }: { id: string }) {
   };
   const nav = (
     <nav className="workspace-nav" aria-label="Event workspace modules">
-      {["overview", "participants", "team", "todo", "resources", "check-in", "results", "history"].map((s) => (
+      {[
+        "overview",
+        "participants",
+        "analytics",
+        "assistant",
+        "rsvp",
+        "seating",
+        "accessibility",
+        "accommodations",
+        "questions",
+        "discussion",
+        "team",
+        "todo",
+        "resources",
+        "check-in",
+        "results",
+        "history",
+      ].map((s) => (
         <button
           key={s}
           aria-current={section === s ? "page" : undefined}
@@ -478,6 +1451,29 @@ function HostContent({ id }: { id: string }) {
     );
   });
   const disabled = busy || unknown;
+  const sendQueuedEmail = async () => {
+    if (deliveryBusy) return;
+    setDeliveryBusy(true);
+    setError("");
+    setSuccess("");
+    try {
+      const result = await dispatchEventEmail(id);
+      setSuccess(
+        result.status === "configuration_unavailable"
+          ? `Email is not configured yet. ${result.processed} queued message${result.processed === 1 ? "" : "s"} remains visible as not sent.`
+          : result.processed === 0
+            ? "No queued event emails need delivery."
+            : `${result.sent ?? 0} event email${result.sent === 1 ? "" : "s"} sent${result.failed ? `; ${result.failed} needs a retry.` : "."}`,
+      );
+      await load();
+    } catch {
+      setError(
+        "The delivery request could not be confirmed. Refresh to see the authoritative delivery state.",
+      );
+    } finally {
+      setDeliveryBusy(false);
+    }
+  };
   return (
     <main
       id="main"
@@ -576,6 +1572,75 @@ function HostContent({ id }: { id: string }) {
                     </strong>
                   </div>
                 </section>
+                {data.event.lifecycle === "PUBLISHED" &&
+                  (eventVisibility === "PUBLIC" ||
+                    eventVisibility === "UNLISTED") &&
+                  participationAccess && (
+                    <section className="panel host-rsvp-access">
+                      <div className="section-heading">
+                        <div>
+                          <h2>Public RSVP access</h2>
+                          <p className="small muted">
+                            This controls future RSVPs. It does not change or
+                            remove people already going.
+                          </p>
+                        </div>
+                        <StatusBadge tone="info">
+                          {participationAccess === "ANYONE"
+                            ? "Guests allowed"
+                            : "Accounts required"}
+                        </StatusBadge>
+                      </div>
+                      <div className="coord-actions">
+                        <Button
+                          disabled={disabled || participationBusy}
+                          variant={
+                            participationAccess === "ANYONE"
+                              ? "secondary"
+                              : "primary"
+                          }
+                          onClick={() =>
+                            void updateParticipationAccess("ANYONE")
+                          }
+                        >
+                          Anyone can RSVP
+                        </Button>
+                        <Button
+                          disabled={disabled || participationBusy}
+                          variant={
+                            participationAccess === "SONTU_USERS_ONLY"
+                              ? "secondary"
+                              : "quiet"
+                          }
+                          onClick={() =>
+                            void updateParticipationAccess("SONTU_USERS_ONLY")
+                          }
+                        >
+                          Sontu users only
+                        </Button>
+                      </div>
+                    </section>
+                  )}
+                {data.event.lifecycle === "PUBLISHED" && (
+                  <section className="panel host-rsvp-access">
+                    <div className="section-heading">
+                      <div>
+                        <h2>Ready to begin?</h2>
+                        <p className="small muted">
+                          Starting opens check-in and closes all new RSVPs. You
+                          can complete the event after operations are
+                          reconciled.
+                        </p>
+                      </div>
+                      <Button
+                        disabled={disabled}
+                        onClick={() => void beginEvent()}
+                      >
+                        Start event
+                      </Button>
+                    </div>
+                  </section>
+                )}
                 <section
                   className="host-guest-summary"
                   aria-label="Guest summary"
@@ -696,6 +1761,13 @@ function HostContent({ id }: { id: string }) {
                         >
                           Edit description
                         </Button>
+                        <Button
+                          disabled={disabled}
+                          variant="quiet"
+                          onClick={() => setModal("change_cover")}
+                        >
+                          <ImagePlus size={18} /> Change picture
+                        </Button>
                       </>
                     )
                   )}
@@ -785,6 +1857,67 @@ function HostContent({ id }: { id: string }) {
                 </section>
               )}
             </div>
+            {data.event.event_kind === "SIMPLE" && (
+              <section className="panel">
+                <div className="section-heading">
+                  <div>
+                    <span className="eyebrow">Participant communications</span>
+                    <h2>Event email delivery</h2>
+                    <p className="muted">
+                      RSVP confirmations, material changes and cancellations are
+                      queued separately from participation. Sending an email
+                      does not count as a response.
+                    </p>
+                  </div>
+                  <Button
+                    variant="secondary"
+                    disabled={deliveryBusy || disabled}
+                    onClick={() => void sendQueuedEmail()}
+                  >
+                    {deliveryBusy ? "Sending…" : "Send queued emails"}
+                  </Button>
+                </div>
+                {delivery.length ? (
+                  <div className="tags" aria-label="Email delivery status">
+                    {delivery.map((item) => (
+                      <StatusBadge
+                        key={`${item.kind}-${item.state}`}
+                        tone={
+                          item.state === "SENT"
+                            ? "success"
+                            : item.state.includes("FAILED") ||
+                                item.state === "CONFIGURATION_UNAVAILABLE"
+                              ? "warning"
+                              : "neutral"
+                        }
+                      >
+                        {item.count} {label(item.kind).toLowerCase()} ·{" "}
+                        {label(item.state).toLowerCase()}
+                      </StatusBadge>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="muted">No event emails are queued.</p>
+                )}
+                {deliveryRecipients.length > 0 && (
+                  <details>
+                    <summary>Recipient delivery details</summary>
+                    {deliveryRecipients.map((item) => (
+                      <p key={`${item.name}-${item.kind}`} className="small">
+                        {item.name} · {label(item.kind).toLowerCase()} ·{" "}
+                        {label(item.state).toLowerCase()}
+                      </p>
+                    ))}
+                  </details>
+                )}
+                <p className="small muted">
+                  Guest RSVP emails confirm the reservation details. A private
+                  guest-management link is included so a guest can revisit the
+                  event or cancel their RSVP until guest access expires after
+                  the event.
+                </p>
+              </section>
+            )}
             {data.event.event_kind !== "SIMPLE" && (
               <section className="panel coord-provider">
                 <div>
@@ -992,6 +2125,61 @@ function HostContent({ id }: { id: string }) {
                         ? label(p.response)
                         : label(p.commitment_state)}
                     </p>
+                    {p.admission_status && (
+                      <p className="small">
+                        Admission:{" "}
+                        <StatusBadge
+                          tone={
+                            p.admission_status === "VALID"
+                              ? "info"
+                              : p.admission_status === "USED"
+                                ? "success"
+                                : "neutral"
+                          }
+                        >
+                          {label(p.admission_status)}
+                        </StatusBadge>
+                      </p>
+                    )}
+                    {p.invitation_email && (
+                      <label className="small muted">
+                        Guest places
+                        <select
+                          value={p.plus_one_allowance ?? 0}
+                          disabled={
+                            disabled || p.commitment_state !== "CONFIRMED"
+                          }
+                          onChange={async (event) => {
+                            setError("");
+                            try {
+                              const result = await rpc<{
+                                status: string;
+                                error_code?: string;
+                              }>("sontu_rsvp_party_allowance", {
+                                event_id: id,
+                                participant_id: p.id,
+                                allowance: Number(event.target.value),
+                              });
+                              if (result.status !== "ready")
+                                throw new Error(result.error_code);
+                              await load();
+                            } catch {
+                              setError(
+                                "The guest-place allowance could not be updated.",
+                              );
+                            }
+                          }}
+                        >
+                          {[0, 1, 2, 3, 4].map((count) => (
+                            <option key={count} value={count}>
+                              {count}
+                            </option>
+                          ))}
+                        </select>
+                        {p.commitment_state !== "CONFIRMED" &&
+                          " · available after RSVP"}
+                      </label>
+                    )}
                   </div>
                   <div className="coord-actions">
                     <Button
@@ -1025,6 +2213,20 @@ function HostContent({ id }: { id: string }) {
               ))}
             </ul>
           </section>
+        )}
+        {section === "rsvp" && data.event.event_kind === "SIMPLE" && (
+          <RsvpFormManager eventId={id} />
+        )}
+        {section === "analytics" && <HostOperationalAnalytics eventId={id} />}
+        {section === "assistant" && <BoundedEventAssistant data={data} />}
+        {section === "seating" && data.event.event_kind === "SIMPLE" && (
+          <SeatingManager eventId={id} participants={data.participants} />
+        )}
+        {section === "accessibility" && data.event.event_kind === "SIMPLE" && (
+          <AccessibilityManager eventId={id} />
+        )}
+        {section === "accommodations" && data.event.event_kind === "SIMPLE" && (
+          <AccommodationManager eventId={id} />
         )}
         {section === "history" && (
           <>
@@ -1082,8 +2284,12 @@ function HostContent({ id }: { id: string }) {
           </>
         )}
         {section === "todo" && <EventOperations eventId={id} kind="todo" />}
-        {section === "resources" && <EventOperations eventId={id} kind="resources" />}
+        {section === "resources" && (
+          <EventOperations eventId={id} kind="resources" />
+        )}
         {section === "team" && <TeamPanel eventId={id} />}
+        {section === "questions" && <AskHostInbox eventId={id} />}
+        {section === "discussion" && <DiscussionManagement eventId={id} />}
         {section === "check-in" && <CheckInPanel eventId={id} />}
         {section === "results" && <EventResults eventId={id} onClosed={load} />}
         {modal === "change_schedule" && editSource && (
@@ -1121,7 +2327,50 @@ function HostContent({ id }: { id: string }) {
             }}
           />
         )}
-        {modal && modal !== "change_schedule" && (
+        {modal === "change_cover" && (
+          <Modal
+            title="Choose your picture"
+            onClose={() => !busy && setModal(null)}
+          >
+            <button
+              type="button"
+              className="picture-upload-placeholder"
+              disabled
+            >
+              <Upload size={20} />
+              <span>
+                <strong>Upload a photo</strong>
+                <small>Coming soon</small>
+              </span>
+            </button>
+            <fieldset
+              className="cover-options stock-cover-options host-cover-options"
+              disabled={busy || unknown}
+            >
+              <legend>Choose a stock photo</legend>
+              {covers.map((cover) => (
+                <button
+                  type="button"
+                  key={cover}
+                  className={data.version.cover_key === cover ? "selected" : ""}
+                  aria-pressed={data.version.cover_key === cover}
+                  onClick={() =>
+                    void run({
+                      cmd: "change_cover",
+                      input: { cover_key: cover },
+                      version: data.event.current_version_number,
+                      op: crypto.randomUUID(),
+                    })
+                  }
+                >
+                  <img src={`/images/${cover}.jpg`} alt="" />
+                  <span>{cover[0].toUpperCase() + cover.slice(1)}</span>
+                </button>
+              ))}
+            </fieldset>
+          </Modal>
+        )}
+        {modal && modal !== "change_schedule" && modal !== "change_cover" && (
           <Modal title={label(modal)} onClose={() => !busy && setModal(null)}>
             <form
               onSubmit={(e) => {
@@ -1182,8 +2431,8 @@ function HostContent({ id }: { id: string }) {
                         (p) => p.commitment_state === "CONFIRMED",
                       ).length
                     }{" "}
-                    committed guests may be affected. Email delivery is not
-                    connected; contact guests yourself.
+                    committed guests may be affected. After saving, review the
+                    queued delivery status before relying on an email.
                   </p>
                 </>
               ) : modal === "cancel" ? (
@@ -1204,8 +2453,9 @@ function HostContent({ id }: { id: string }) {
                     remain in history.
                   </p>
                   <p>
-                    Email delivery is not connected. No cancellation email will
-                    be sent automatically. Contact affected guests yourself.
+                    Cancellation emails are queued separately. Confirm the
+                    delivery status after cancelling; a queued email is not
+                    proof that it was delivered or read.
                   </p>
                 </section>
               ) : modal === "cosmetic_edit" ? (
@@ -1324,6 +2574,41 @@ function HostContent({ id }: { id: string }) {
             >
               Copy invitation link
             </Button>
+            {data.event.event_kind === "SIMPLE" && link.email && (
+              <Button
+                variant="secondary"
+                disabled={inviteEmailBusy}
+                onClick={() =>
+                  void (async () => {
+                    setInviteEmailBusy(true);
+                    try {
+                      const result = await sendInvitationEmail({
+                        event_id: id,
+                        recipient_email: link.email!,
+                        token: link.token,
+                        invitation_url: link.url,
+                      });
+                      setCopyMessage(
+                        result.status === "ready"
+                          ? `Invitation emailed to ${link.email}.`
+                          : result.status === "configuration_unavailable"
+                            ? "Email sender is not configured yet. Your private link is still available."
+                            : "The email could not be delivered yet. Your private link is still available.",
+                      );
+                      await load();
+                    } catch {
+                      setCopyMessage(
+                        "The email outcome could not be confirmed. Your private link is still available.",
+                      );
+                    } finally {
+                      setInviteEmailBusy(false);
+                    }
+                  })()
+                }
+              >
+                Email invitation
+              </Button>
+            )}
             {copyMessage && <p role="status">{copyMessage}</p>}
             <TextField
               label="Private response link"
@@ -1363,125 +2648,1102 @@ interface ParticipantView {
     actionable: boolean;
   };
 }
-function EventResults({eventId,onClosed}:{eventId:string;onClosed:()=>Promise<void>}) {
- const [data,setData]=useState<EventResultsProjection|null>(null); const [busy,setBusy]=useState(false); const [error,setError]=useState(""); const [success,setSuccess]=useState("");
- const load=useCallback(async()=>{try{const r=await resultsRead(eventId);if(r.status!=="ready")throw new Error();setData(r);setError("");}catch{setError("Unable to load the event closeout status.");}},[eventId]); useEffect(()=>{void load();},[load]);
- const blockers=data?data.summary.open_todos+data.summary.needed_resources+data.summary.unresolved_obligations:0;
- const finish=async()=>{if(!data||busy||blockers>0||!confirm("Complete this event and freeze its operational results? This cannot be undone."))return;setBusy(true);setError("");try{const r=await closeEvent(eventId);if(r.status!=="ready"){const messages:Record<string,string>={UNRESOLVED_OBLIGATIONS:"Resolve or explicitly disposition every open obligation first.",OPEN_TODOS:"Complete the remaining event tasks first.",NEEDED_RESOURCES:"Resolve the remaining needed resources first."};setError(messages[r.error_code??""]??"The event could not be completed.");return;}setSuccess("Event completed. Its operational results are now preserved in history.");await Promise.all([load(),onClosed()]);}catch{setError("The completion result is unknown. Refresh before trying again.");}finally{setBusy(false);}};
- return <section className="panel event-operations" aria-labelledby="results-heading"><div className="section-heading"><div><span className="eyebrow">Operational outcome</span><h2 id="results-heading">Results &amp; Closeout</h2><p className="muted">Reconcile the event before completing it. Unverified attendance remains unknown—not quietly rewritten as a no-show.</p></div>{data&&<StatusBadge>{label(data.lifecycle)}</StatusBadge>}</div>
-  {error&&<Feedback message={error} onRetry={()=>void load()}/>} {success&&<p className="coord-success" role="status">{success}</p>} {!data&&!error&&<p role="status">Loading results…</p>}
-  {data&&<><div className="metric-grid"><article><strong>{data.summary.confirmed}</strong><span>Confirmed</span></article><article><strong>{data.summary.admitted}</strong><span>Admitted</span></article><article><strong>{data.summary.attendance_unknown}</strong><span>Attendance unknown</span></article><article><strong>{data.summary.declined_or_withdrawn}</strong><span>Declined or withdrawn</span></article></div>
-   <h3>Closeout checks</h3><ul className="coord-history"><li><strong>{data.summary.unresolved_obligations===0?"Ready":"Blocked"} · Obligations</strong><p>{data.summary.unresolved_obligations} unresolved</p></li><li><strong>{data.summary.open_todos===0?"Ready":"Blocked"} · To Do</strong><p>{data.summary.open_todos} open</p></li><li><strong>{data.summary.needed_resources===0?"Ready":"Blocked"} · Resources</strong><p>{data.summary.needed_resources} still needed</p></li></ul>
-   {data.closeout?<div className="coord-feedback"><strong>Completed {date(data.closeout.closed_at)}</strong><p>Snapshot preserved: {data.closeout.admitted} admitted; {data.closeout.attendance_unknown} attendance unknown.</p></div>:<Button disabled={busy||blockers>0||data.lifecycle!=="PUBLISHED"} onClick={()=>void finish()}>{busy?"Completing…":"Complete event"}</Button>}
-  </>}
- </section>;
+function EventResults({
+  eventId,
+  onClosed,
+}: {
+  eventId: string;
+  onClosed: () => Promise<void>;
+}) {
+  const [data, setData] = useState<EventResultsProjection | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const load = useCallback(async () => {
+    try {
+      const r = await resultsRead(eventId);
+      if (r.status !== "ready") throw new Error();
+      setData(r);
+      setError("");
+    } catch {
+      setError("Unable to load the event closeout status.");
+    }
+  }, [eventId]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  const blockers = data
+    ? data.summary.open_todos +
+      data.summary.needed_resources +
+      data.summary.unresolved_obligations
+    : 0;
+  const finish = async () => {
+    if (
+      !data ||
+      busy ||
+      blockers > 0 ||
+      !confirm(
+        "Complete this event and freeze its operational results? This cannot be undone.",
+      )
+    )
+      return;
+    setBusy(true);
+    setError("");
+    try {
+      const r = await closeEvent(eventId);
+      if (r.status !== "ready") {
+        const messages: Record<string, string> = {
+          UNRESOLVED_OBLIGATIONS:
+            "Resolve or explicitly disposition every open obligation first.",
+          OPEN_TODOS: "Complete the remaining event tasks first.",
+          NEEDED_RESOURCES: "Resolve the remaining needed resources first.",
+        };
+        setError(
+          messages[r.error_code ?? ""] ?? "The event could not be completed.",
+        );
+        return;
+      }
+      setSuccess(
+        "Event completed. Its operational results are now preserved in history.",
+      );
+      await Promise.all([load(), onClosed()]);
+    } catch {
+      setError(
+        "The completion result is unknown. Refresh before trying again.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section
+      className="panel event-operations"
+      aria-labelledby="results-heading"
+    >
+      <div className="section-heading">
+        <div>
+          <span className="eyebrow">Operational outcome</span>
+          <h2 id="results-heading">Results &amp; Closeout</h2>
+          <p className="muted">
+            Reconcile the event before completing it. Unverified attendance
+            remains unknown—not quietly rewritten as a no-show.
+          </p>
+        </div>
+        {data && <StatusBadge>{label(data.lifecycle)}</StatusBadge>}
+      </div>
+      {error && <Feedback message={error} onRetry={() => void load()} />}{" "}
+      {success && (
+        <p className="coord-success" role="status">
+          {success}
+        </p>
+      )}{" "}
+      {!data && !error && <p role="status">Loading results…</p>}
+      {data && (
+        <>
+          <div className="metric-grid">
+            <article>
+              <strong>{data.summary.confirmed}</strong>
+              <span>Confirmed</span>
+            </article>
+            <article>
+              <strong>{data.summary.admitted}</strong>
+              <span>Admitted</span>
+            </article>
+            <article>
+              <strong>{data.summary.attendance_unknown}</strong>
+              <span>Attendance unknown</span>
+            </article>
+            <article>
+              <strong>{data.summary.declined_or_withdrawn}</strong>
+              <span>Declined or withdrawn</span>
+            </article>
+          </div>
+          <h3>Closeout checks</h3>
+          <ul className="coord-history">
+            <li>
+              <strong>
+                {data.summary.unresolved_obligations === 0
+                  ? "Ready"
+                  : "Blocked"}{" "}
+                · Obligations
+              </strong>
+              <p>{data.summary.unresolved_obligations} unresolved</p>
+            </li>
+            <li>
+              <strong>
+                {data.summary.open_todos === 0 ? "Ready" : "Blocked"} · To Do
+              </strong>
+              <p>{data.summary.open_todos} open</p>
+            </li>
+            <li>
+              <strong>
+                {data.summary.needed_resources === 0 ? "Ready" : "Blocked"} ·
+                Resources
+              </strong>
+              <p>{data.summary.needed_resources} still needed</p>
+            </li>
+          </ul>
+          {data.closeout ? (
+            <div className="coord-feedback">
+              <strong>Completed {date(data.closeout.closed_at)}</strong>
+              <p>
+                Snapshot preserved: {data.closeout.admitted} admitted;{" "}
+                {data.closeout.attendance_unknown} attendance unknown.
+              </p>
+            </div>
+          ) : (
+            <Button
+              disabled={
+                busy ||
+                blockers > 0 ||
+                !["PUBLISHED", "IN_PROGRESS"].includes(data.lifecycle)
+              }
+              onClick={() => void finish()}
+            >
+              {busy ? "Completing…" : "Complete event"}
+            </Button>
+          )}
+        </>
+      )}
+    </section>
+  );
 }
 export function CheckInWorkspace() {
-  const {eventId}=useParams();
-  return <FocusedWorkspaceShell title="Event Check-in" back="/events?view=Hosting"><SessionGate><main id="main" tabIndex={-1} className="coord-entry"><CheckInPanel eventId={eventId!}/></main></SessionGate></FocusedWorkspaceShell>;
+  const { eventId } = useParams();
+  return (
+    <FocusedWorkspaceShell title="Event Check-in" back="/events?view=Hosting">
+      <SessionGate>
+        <main id="main" tabIndex={-1} className="coord-entry">
+          <CheckInPanel eventId={eventId!} />
+        </main>
+      </SessionGate>
+    </FocusedWorkspaceShell>
+  );
 }
-function CheckInPanel({eventId}:{eventId:string}) {
-  const [data,setData]=useState<CheckInProjection|null>(null); const [query,setQuery]=useState(""); const [busy,setBusy]=useState(false); const [error,setError]=useState(""); const [result,setResult]=useState<{kind:string;name:string}|null>(null);
-  const load=useCallback(async()=>{try{const r=await checkInRead(eventId);if(r.status!=="ready")throw new Error();setData(r);setError("");}catch{setError("Unable to verify check-in access or attendee status. Try again before admitting anyone.");}},[eventId]);
-  useEffect(()=>{void load();},[load]);
-  const admit=async(id:string,name:string)=>{if(busy)return;setBusy(true);setError("");setResult(null);try{const r=await checkInParticipant(eventId,id);setResult({kind:r.result??"UNABLE_TO_VERIFY",name});await load();}catch{setResult({kind:"UNABLE_TO_VERIFY",name});}finally{setBusy(false);}};
-  const message=result&&({ADMITTED:`Admitted — ${result.name} is checked in.`,ALREADY_USED:`Already used — ${result.name} was previously checked in.`,WRONG_EVENT:`Wrong event — do not admit ${result.name}.`,INVALID:`Invalid — ${result.name} is not eligible for admission.`,UNABLE_TO_VERIFY:`Unable to verify ${result.name}. Do not assume admission.`} as Record<string,string>)[result.kind];
-  const visible=data?.participants.filter(p=>p.display_name.toLowerCase().includes(query.trim().toLowerCase()))??[];
-  return <section className="panel event-operations" aria-labelledby="check-in-heading"><div className="section-heading"><div><span className="eyebrow">Admission operations</span><h2 id="check-in-heading">Check-in</h2><p className="muted">Search the attendee list, verify the result, then admit. Every attempt is audited.</p></div>{data&&<StatusBadge>{data.counts.admitted} / {data.counts.eligible} admitted</StatusBadge>}</div>
-    {message&&<div className="coord-feedback" role="alert"><strong>{message}</strong></div>}{error&&<Feedback message={error} onRetry={()=>void load()}/>}<TextField label="Find attendee" type="search" value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search by name"/>
-    {!data&&!error&&<p role="status">Loading current admission status…</p>}{data&&visible.length===0&&<div className="operation-empty"><strong>No matching attendees.</strong><p>Check the spelling or confirm that the invitation was accepted.</p></div>}
-    <ul className="operation-list">{visible.map(p=><li key={p.id}><div><strong>{p.display_name}</strong><span>{p.checked_in_at?`Checked in ${new Date(p.checked_in_at).toLocaleTimeString([], {hour:"numeric",minute:"2-digit"})}`:p.commitment_state==="CONFIRMED"?"Eligible":"Not eligible"}</span></div><Button variant={p.checked_in_at?"quiet":"secondary"} disabled={busy||p.commitment_state!=="CONFIRMED"} onClick={()=>void admit(p.id,p.display_name)}>{p.checked_in_at?"Verify again":"Check in"}</Button></li>)}</ul>
-  </section>;
+function CheckInPanel({ eventId }: { eventId: string }) {
+  const [data, setData] = useState<CheckInProjection | null>(null);
+  const [query, setQuery] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [result, setResult] = useState<{ kind: string; name: string } | null>(
+    null,
+  );
+  const load = useCallback(async () => {
+    try {
+      const r = await checkInRead(eventId);
+      if (r.status !== "ready") throw new Error();
+      setData(r);
+      setError("");
+    } catch {
+      setError(
+        "Unable to verify check-in access or attendee status. Try again before admitting anyone.",
+      );
+    }
+  }, [eventId]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  const admit = async (id: string, name: string) => {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    setResult(null);
+    try {
+      const r = await checkInParticipant(eventId, id);
+      setResult({ kind: r.result ?? "UNABLE_TO_VERIFY", name });
+      await load();
+    } catch {
+      setResult({ kind: "UNABLE_TO_VERIFY", name });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const admitCredential = async (value: string) => {
+    if (busy || !value.trim()) return;
+    setBusy(true); setError(""); setResult(null);
+    try {
+      const r = await checkInCredential(eventId, value.trim());
+      setResult({ kind: r.result ?? "UNABLE_TO_VERIFY", name: "Credential" });
+      await load();
+    } catch { setResult({ kind: "UNABLE_TO_VERIFY", name: "Credential" }); }
+    finally { setBusy(false); }
+  };
+  const message =
+    result &&
+    (
+      {
+        ADMITTED: `Admitted — ${result.name} is checked in.`,
+        ALREADY_USED: `Already used — ${result.name} was previously checked in.`,
+        WRONG_EVENT: `Wrong event — do not admit ${result.name}.`,
+        INVALID: `Invalid — ${result.name} is not eligible for admission.`,
+        UNABLE_TO_VERIFY: `Unable to verify ${result.name}. Do not assume admission.`,
+      } as Record<string, string>
+    )[result.kind];
+  const visible =
+    data?.participants.filter((p) =>
+      p.display_name.toLowerCase().includes(query.trim().toLowerCase()),
+    ) ?? [];
+  return (
+    <section
+      className="panel event-operations"
+      aria-labelledby="check-in-heading"
+    >
+      <div className="section-heading">
+        <div>
+          <span className="eyebrow">Admission operations</span>
+          <h2 id="check-in-heading">Check-in</h2>
+          <p className="muted">
+            Search the attendee list, verify the result, then admit. Every
+            attempt is audited.
+          </p>
+        </div>
+        {data && (
+          <StatusBadge>
+            {data.counts.admitted} / {data.counts.eligible} admitted
+          </StatusBadge>
+        )}
+      </div>
+      {data?.event.lifecycle !== "IN_PROGRESS" && (
+        <div className="coord-feedback">
+          <strong>Check-in is not open yet.</strong>
+          <p>The host must start the event before anyone can be admitted.</p>
+        </div>
+      )}
+      {message && (
+        <div className="coord-feedback" role="alert">
+          <strong>{message}</strong>
+        </div>
+      )}
+      {error && <Feedback message={error} onRetry={() => void load()} />}
+      <TextField
+        label="Find attendee"
+        type="search"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Search by name"
+      />
+      <form onSubmit={(e) => { e.preventDefault(); const form = new FormData(e.currentTarget); void admitCredential(String(form.get("credential") ?? "")); }}>
+        <TextField label="Credential reference" name="credential" placeholder="Paste or scan credential ID" />
+        <Button type="submit" variant="secondary" disabled={busy || data?.event.lifecycle !== "IN_PROGRESS"}>Verify credential</Button>
+      </form>
+      {!data && !error && (
+        <p role="status">Loading current admission status…</p>
+      )}
+      {data && visible.length === 0 && (
+        <div className="operation-empty">
+          <strong>No matching attendees.</strong>
+          <p>Check the spelling or confirm that the invitation was accepted.</p>
+        </div>
+      )}
+      <ul className="operation-list">
+        {visible.map((p) => (
+          <li key={p.id}>
+            <div>
+              <strong>{p.display_name}</strong>
+              <span>
+                {p.checked_in_at
+                  ? `Checked in ${new Date(p.checked_in_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
+                  : checkInAdmissionLabel(p.admission_status, p.checked_in_at)}
+              </span>
+            </div>
+            <Button
+              variant={p.checked_in_at ? "quiet" : "secondary"}
+              disabled={
+                busy ||
+                !canAttemptCheckIn(
+                  data?.event.lifecycle ?? "",
+                  p.admission_status,
+                )
+              }
+              onClick={() => void admit(p.id, p.display_name)}
+            >
+              {p.checked_in_at ? "Verify again" : "Check in"}
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
 }
-const teamRoleLabel = (role: TeamMember["role"]) => ({CO_HOST:"Co-host",EVENT_MANAGER:"Event manager",CHECK_IN_STAFF:"Check-in staff",VOLUNTEER:"Volunteer",PHOTOGRAPHER:"Photographer"})[role];
+const teamRoleLabel = (role: TeamMember["role"]) =>
+  ({
+    CO_HOST: "Co-host",
+    EVENT_MANAGER: "Event manager",
+    CHECK_IN_STAFF: "Check-in staff",
+    VOLUNTEER: "Volunteer",
+    PHOTOGRAPHER: "Photographer",
+  })[role];
 function useTeam(eventId: string) {
-  const [team,setTeam]=useState<TeamProjection|null>(null);
-  const reload=useCallback(async()=>setTeam(await teamRead(eventId)),[eventId]);
-  useEffect(()=>{void reload();},[reload]);
-  return {team,reload};
+  const [team, setTeam] = useState<TeamProjection | null>(null);
+  const reload = useCallback(
+    async () => setTeam(await teamRead(eventId)),
+    [eventId],
+  );
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+  return { team, reload };
 }
-function TeamGoing({eventId,query,filter}:{eventId:string;query:string;filter:string}) {
-  const {team}=useTeam(eventId);
-  if (filter!=="all"&&filter!=="attending") return null;
-  return <>{team?.members.filter(m=>m.attends_event&&`${m.display_name} ${m.email}`.toLowerCase().includes(query.trim().toLowerCase())).map(m=><li key={`team-${m.id}`}>
-    <div><strong>{m.display_name}</strong>{m.public_visibility!=="HIDDEN"&&<>{" "}<StatusBadge>{m.public_visibility==="PUBLIC_ROLE"?teamRoleLabel(m.role):"Event team"}</StatusBadge></>}<p>Going</p></div>
-  </li>)}</>;
+function TeamGoing({
+  eventId,
+  query,
+  filter,
+}: {
+  eventId: string;
+  query: string;
+  filter: string;
+}) {
+  const { team } = useTeam(eventId);
+  if (filter !== "all" && filter !== "attending") return null;
+  return (
+    <>
+      {team?.members
+        .filter(
+          (m) =>
+            m.attends_event &&
+            `${m.display_name} ${m.email}`
+              .toLowerCase()
+              .includes(query.trim().toLowerCase()),
+        )
+        .map((m) => (
+          <li key={`team-${m.id}`}>
+            <div>
+              <strong>{m.display_name}</strong>
+              {m.public_visibility !== "HIDDEN" && (
+                <>
+                  {" "}
+                  <StatusBadge>
+                    {m.public_visibility === "PUBLIC_ROLE"
+                      ? teamRoleLabel(m.role)
+                      : "Event team"}
+                  </StatusBadge>
+                </>
+              )}
+              <p>Going</p>
+            </div>
+          </li>
+        ))}
+    </>
+  );
 }
-function TeamPanel({eventId}:{eventId:string}) {
-  const {team,reload}=useTeam(eventId); const [email,setEmail]=useState(""); const [role,setRole]=useState<TeamMember["role"]>("VOLUNTEER"); const [busy,setBusy]=useState(false); const [error,setError]=useState("");
-  const run=async(cmd:string,id:string|null,input:Record<string,unknown>)=>{setBusy(true);setError("");try{const r=await teamCommand(cmd,eventId,id,input);if(r.status!=="ready")setError(errorMessages[r.error_code??""]??(r.error_code==="ACCOUNT_NOT_FOUND"?"No Sontu account uses that email yet.":"That team change could not be saved."));else{setEmail("");await reload();}}catch{setError("The team change is unconfirmed. Refresh before trying again.");}finally{setBusy(false);}};
-  return <section className="panel event-operations" aria-labelledby="team-heading"><div className="section-heading"><div><span className="eyebrow">Event-scoped</span><h2 id="team-heading">Team &amp; Roles</h2><p className="muted">Give existing Sontu accounts only the access they need. Attendance and public role display are separate.</p></div></div>
-    {error&&<Feedback message={error} onRetry={()=>void reload()}/>}<form className="operation-add" onSubmit={e=>{e.preventDefault();void run("add_member",null,{email,role,attends_event:true,public_visibility:"EVENT_TEAM"});}}><TextField label="Teammate email" type="email" required value={email} onChange={e=>setEmail(e.target.value)}/><label><span>Role</span><select value={role} onChange={e=>setRole(e.target.value as TeamMember["role"])}>{(["CO_HOST","EVENT_MANAGER","CHECK_IN_STAFF","VOLUNTEER","PHOTOGRAPHER"] as const).map(r=><option value={r} key={r}>{teamRoleLabel(r)}</option>)}</select></label><Button disabled={busy}>{busy?"Saving…":"Add teammate"}</Button></form>
-    {!team&&<p role="status">Loading team…</p>}{team?.members.length===0&&<div className="operation-empty"><strong>No teammates yet.</strong><p>Add someone only when this event needs shared operation.</p></div>}
-    <ul className="operation-list">{team?.members.map(m=><li key={m.id}><div><strong>{m.display_name}</strong><span>{m.email}</span><div className="coord-actions"><label><span className="sr-only">Role for {m.display_name}</span><select value={m.role} onChange={e=>void run("update_member",m.id,{role:e.target.value})}>{(["CO_HOST","EVENT_MANAGER","CHECK_IN_STAFF","VOLUNTEER","PHOTOGRAPHER"] as const).map(r=><option value={r} key={r}>{teamRoleLabel(r)}</option>)}</select></label><label><input type="checkbox" checked={m.attends_event} onChange={e=>void run("update_member",m.id,{attends_event:e.target.checked})}/> Going</label><label><span className="sr-only">Public role visibility for {m.display_name}</span><select value={m.public_visibility} onChange={e=>void run("update_member",m.id,{public_visibility:e.target.value})}><option value="EVENT_TEAM">Show Event team</option><option value="PUBLIC_ROLE">Show exact role</option><option value="HIDDEN">Hide role badge</option></select></label></div></div><Button variant="quiet" disabled={busy} onClick={()=>{if(confirm(`Remove ${m.display_name} from this event team?`))void run("remove_member",m.id,{})}}>Remove</Button></li>)}</ul>
-  </section>;
+function TeamPanel({ eventId }: { eventId: string }) {
+  const { team, reload } = useTeam(eventId);
+  const [email, setEmail] = useState("");
+  const [organizationName, setOrganizationName] = useState("");
+  const [organizationMembers, setOrganizationMembers] = useState<
+    OrganizationMember[]
+  >([]);
+  const [role, setRole] = useState<TeamMember["role"]>("VOLUNTEER");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    eventOwner(eventId)
+      .then(async (owner) => {
+        if (
+          owner.status !== "ready" ||
+          owner.owner_kind !== "ORGANIZATION" ||
+          !owner.organization_id
+        )
+          return;
+        const detail = await organizationDetail(owner.organization_id);
+        if (detail.status === "ready") {
+          setOrganizationName(
+            detail.organization?.display_name ??
+              owner.owner_name ??
+              "Organization",
+          );
+          setOrganizationMembers(detail.members ?? []);
+        }
+      })
+      .catch(() => setError("Could not load the organization directory."));
+  }, [eventId]);
+  const run = async (
+    cmd: string,
+    id: string | null,
+    input: Record<string, unknown>,
+  ) => {
+    setBusy(true);
+    setError("");
+    try {
+      const r = await teamCommand(cmd, eventId, id, input);
+      if (r.status !== "ready")
+        setError(
+          errorMessages[r.error_code ?? ""] ??
+            (r.error_code === "ACCOUNT_NOT_FOUND"
+              ? "No Sontu account uses that email yet."
+              : "That team change could not be saved."),
+        );
+      else {
+        setEmail("");
+        await reload();
+      }
+    } catch {
+      setError("The team change is unconfirmed. Refresh before trying again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className="panel event-operations" aria-labelledby="team-heading">
+      <div className="section-heading">
+        <div>
+          <span className="eyebrow">Event-scoped</span>
+          <h2 id="team-heading">Team &amp; Roles</h2>
+          <p className="muted">
+            Give existing Sontu accounts only the access they need. Attendance
+            and public role display are separate.
+          </p>
+        </div>
+      </div>
+      {error && <Feedback message={error} onRetry={() => void reload()} />}
+      <form
+        className="operation-add"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void run("add_member", null, {
+            email,
+            role,
+            attends_event: true,
+            public_visibility: "EVENT_TEAM",
+          });
+        }}
+      >
+        {organizationMembers.length > 0 && (
+          <label>
+            <span>{organizationName} member</span>
+            <select value={email} onChange={(e) => setEmail(e.target.value)}>
+              <option value="">Choose a teammate</option>
+              {organizationMembers
+                .filter(
+                  (member) =>
+                    !team?.members.some(
+                      (existing) => existing.user_id === member.user_id,
+                    ),
+                )
+                .map((member) => (
+                  <option key={member.user_id} value={member.email}>
+                    {member.display_name} · {member.role.toLowerCase()}
+                  </option>
+                ))}
+            </select>
+          </label>
+        )}
+        <TextField
+          label={
+            organizationMembers.length
+              ? "Or enter member email"
+              : "Teammate email"
+          }
+          type="email"
+          required
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+        />
+        <label>
+          <span>Role</span>
+          <select
+            value={role}
+            onChange={(e) => setRole(e.target.value as TeamMember["role"])}
+          >
+            {(
+              [
+                "CO_HOST",
+                "EVENT_MANAGER",
+                "CHECK_IN_STAFF",
+                "VOLUNTEER",
+                "PHOTOGRAPHER",
+              ] as const
+            ).map((r) => (
+              <option value={r} key={r}>
+                {teamRoleLabel(r)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <Button disabled={busy}>{busy ? "Saving…" : "Add teammate"}</Button>
+      </form>
+      {!team && <p role="status">Loading team…</p>}
+      {team?.members.length === 0 && (
+        <div className="operation-empty">
+          <strong>No teammates yet.</strong>
+          <p>Add someone only when this event needs shared operation.</p>
+        </div>
+      )}
+      <ul className="operation-list">
+        {team?.members.map((m) => (
+          <li key={m.id}>
+            <div>
+              <strong>{m.display_name}</strong>
+              <span>{m.email}</span>
+              <div className="coord-actions">
+                <label>
+                  <span className="sr-only">Role for {m.display_name}</span>
+                  <select
+                    value={m.role}
+                    onChange={(e) =>
+                      void run("update_member", m.id, { role: e.target.value })
+                    }
+                  >
+                    {(
+                      [
+                        "CO_HOST",
+                        "EVENT_MANAGER",
+                        "CHECK_IN_STAFF",
+                        "VOLUNTEER",
+                        "PHOTOGRAPHER",
+                      ] as const
+                    ).map((r) => (
+                      <option value={r} key={r}>
+                        {teamRoleLabel(r)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={m.attends_event}
+                    onChange={(e) =>
+                      void run("update_member", m.id, {
+                        attends_event: e.target.checked,
+                      })
+                    }
+                  />{" "}
+                  Going
+                </label>
+                <label>
+                  <span className="sr-only">
+                    Public role visibility for {m.display_name}
+                  </span>
+                  <select
+                    value={m.public_visibility}
+                    onChange={(e) =>
+                      void run("update_member", m.id, {
+                        public_visibility: e.target.value,
+                      })
+                    }
+                  >
+                    <option value="EVENT_TEAM">Show Event team</option>
+                    <option value="PUBLIC_ROLE">Show exact role</option>
+                    <option value="HIDDEN">Hide role badge</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+            <Button
+              variant="quiet"
+              disabled={busy}
+              onClick={() => {
+                if (confirm(`Remove ${m.display_name} from this event team?`))
+                  void run("remove_member", m.id, {});
+              }}
+            >
+              Remove
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
 }
-function EventOperations({ eventId, kind }: { eventId: string; kind: "todo" | "resources" }) {
+type HostQuestion = {
+  id: string;
+  question: string;
+  response: string | null;
+  state: "OPEN" | "ANSWERED" | "CLOSED";
+  created_at: string;
+};
+function AskHostInbox({ eventId }: { eventId: string }) {
+  const [items, setItems] = useState<HostQuestion[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [error, setError] = useState("");
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const result = await rpc<{
+        status: string;
+        error_code?: string;
+        items?: HostQuestion[];
+      }>("sontu_event_host_questions", {
+        action: "read",
+        event_id: eventId,
+        question_id: null,
+        body: null,
+      });
+      if (result.status === "ready") setItems(result.items ?? []);
+      else setError("Questions are unavailable for this event.");
+    } catch {
+      setError("Could not load participant questions.");
+    } finally {
+      setLoading(false);
+    }
+  }, [eventId]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  const respond = async (item: HostQuestion, action: "answer" | "close") => {
+    const body = drafts[item.id]?.trim() ?? "";
+    if ((action === "answer" && !body) || busyId) return;
+    setBusyId(item.id);
+    setError("");
+    try {
+      const result = await rpc<{ status: string; error_code?: string }>(
+        "sontu_event_host_questions",
+        {
+          action,
+          event_id: eventId,
+          question_id: item.id,
+          body: action === "answer" ? body : null,
+        },
+      );
+      if (result.status === "ready") {
+        setDrafts((current) => ({ ...current, [item.id]: "" }));
+        await load();
+      } else setError("That question could not be updated.");
+    } catch {
+      setError("That update is unconfirmed. Please retry.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+  return (
+    <section
+      className="panel event-operations ask-host-inbox"
+      aria-labelledby="questions-heading"
+    >
+      <div className="section-heading">
+        <div>
+          <span className="eyebrow">Private participant messages</span>
+          <h2 id="questions-heading">Participant questions</h2>
+          <p className="muted">
+            Confirmed Sontu participants can contact you privately about this
+            event.
+          </p>
+        </div>
+        <Button
+          variant="secondary"
+          onClick={() => void load()}
+          disabled={loading}
+        >
+          Refresh
+        </Button>
+      </div>
+      {error && (
+        <p className="coord-feedback" role="status">
+          {error}
+        </p>
+      )}
+      {loading ? (
+        <p role="status">Loading questions…</p>
+      ) : !items.length ? (
+        <p className="muted">No participant questions yet.</p>
+      ) : (
+        <ul className="ask-host-list">
+          {items.map((item) => (
+            <li key={item.id}>
+              <div className="section-heading">
+                <strong>Participant question</strong>
+                <StatusBadge
+                  tone={item.state === "ANSWERED" ? "info" : "neutral"}
+                >
+                  {label(item.state)}
+                </StatusBadge>
+              </div>
+              <p>{item.question}</p>
+              {item.response ? (
+                <p className="ask-host-response">
+                  <strong>Your response:</strong> {item.response}
+                </p>
+              ) : item.state === "OPEN" ? (
+                <div className="ask-host-actions">
+                  <label className="field">
+                    <span>Response</span>
+                    <textarea
+                      rows={3}
+                      maxLength={2000}
+                      value={drafts[item.id] ?? ""}
+                      onChange={(e) =>
+                        setDrafts((current) => ({
+                          ...current,
+                          [item.id]: e.target.value,
+                        }))
+                      }
+                      placeholder="Write a private response"
+                    />
+                  </label>
+                  <div className="inline-actions">
+                    <Button
+                      disabled={
+                        busyId === item.id || !(drafts[item.id] ?? "").trim()
+                      }
+                      onClick={() => void respond(item, "answer")}
+                    >
+                      Send response
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      disabled={busyId === item.id}
+                      onClick={() => void respond(item, "close")}
+                    >
+                      Close question
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+function DiscussionManagement({ eventId }: { eventId: string }) {
+  const [enabled, setEnabled] = useState(false);
+  const [items, setItems] = useState<
+    {
+      id: string;
+      body: string;
+      author_name: string;
+      state: "VISIBLE" | "HIDDEN";
+      created_at: string;
+    }[]
+  >([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const load = useCallback(async () => {
+    try {
+      const result = await rpc<{
+        status: string;
+        enabled?: boolean;
+        items?: typeof items;
+      }>("sontu_event_discussion", {
+        action: "read",
+        event_id: eventId,
+        post_id: null,
+        body: null,
+        enabled: null,
+      });
+      if (result.status !== "ready") throw new Error();
+      setEnabled(!!result.enabled);
+      setItems(result.items ?? []);
+      setError("");
+    } catch {
+      setError("Could not load discussion settings.");
+    }
+  }, [eventId]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  const act = async (
+    action: "configure" | "hide",
+    post_id: string | null = null,
+    value = !enabled,
+  ) => {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await rpc<{ status: string }>("sontu_event_discussion", {
+        action,
+        event_id: eventId,
+        post_id,
+        body: null,
+        enabled: action === "configure" ? value : null,
+      });
+      if (result.status !== "ready") throw new Error();
+      await load();
+    } catch {
+      setError("That discussion update could not be confirmed.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section
+      className="panel event-operations"
+      aria-labelledby="discussion-heading"
+    >
+      <div className="section-heading">
+        <div>
+          <span className="eyebrow">Event-scoped conversation</span>
+          <h2 id="discussion-heading">Discussion</h2>
+          <p className="muted">
+            Participants can talk only inside this event. This never creates
+            direct messaging.
+          </p>
+        </div>
+        <Button
+          variant={enabled ? "secondary" : "primary"}
+          disabled={busy}
+          onClick={() => void act("configure")}
+        >
+          {enabled ? "Close discussion" : "Open discussion"}
+        </Button>
+      </div>
+      {error && (
+        <p className="coord-feedback" role="status">
+          {error}
+        </p>
+      )}
+      {!enabled && (
+        <p className="muted">Discussion is currently closed to participants.</p>
+      )}
+      {enabled &&
+        (items.length ? (
+          <ul className="ask-host-list">
+            {items.map((item) => (
+              <li key={item.id}>
+                <div className="section-heading">
+                  <strong>{item.author_name}</strong>
+                  <StatusBadge
+                    tone={item.state === "HIDDEN" ? "warning" : "info"}
+                  >
+                    {label(item.state)}
+                  </StatusBadge>
+                </div>
+                <p>{item.body}</p>
+                {item.state === "VISIBLE" && (
+                  <Button
+                    variant="quiet"
+                    disabled={busy}
+                    onClick={() => void act("hide", item.id)}
+                  >
+                    Hide post
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="muted">No posts yet.</p>
+        ))}
+    </section>
+  );
+}
+function EventOperations({
+  eventId,
+  kind,
+}: {
+  eventId: string;
+  kind: "todo" | "resources";
+}) {
   const [data, setData] = useState<EventOperationsProjection | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [title, setTitle] = useState("");
   const [quantity, setQuantity] = useState("1");
   const [note, setNote] = useState("");
-  const {team}=useTeam(eventId);
+  const { team } = useTeam(eventId);
   const load = useCallback(async () => {
     try {
       const next = await eventOperationsRead(eventId);
       if (next.status !== "ready") throw new Error();
       setData(next);
       setError("");
-    } catch { setError("Unable to load event operations. Please retry."); }
+    } catch {
+      setError("Unable to load event operations. Please retry.");
+    }
   }, [eventId]);
-  useEffect(() => { void load(); }, [load]);
-  const run = async (cmd: string, itemId: string | null, input: Record<string, unknown>) => {
-    setBusy(true); setError("");
+  useEffect(() => {
+    void load();
+  }, [load]);
+  const run = async (
+    cmd: string,
+    itemId: string | null,
+    input: Record<string, unknown>,
+  ) => {
+    setBusy(true);
+    setError("");
     try {
       const result = await eventOperationsCommand(cmd, eventId, itemId, input);
       if (result.status !== "ready") {
-        setError(errorMessages[result.error_code ?? ""] ?? "That update could not be saved.");
+        setError(
+          errorMessages[result.error_code ?? ""] ??
+            "That update could not be saved.",
+        );
         return;
       }
-      setTitle(""); setQuantity("1"); setNote("");
+      setTitle("");
+      setQuantity("1");
+      setNote("");
       await load();
-    } catch { setError("The result is unconfirmed. Refresh before trying again."); }
-    finally { setBusy(false); }
+    } catch {
+      setError("The result is unconfirmed. Refresh before trying again.");
+    } finally {
+      setBusy(false);
+    }
   };
-  const items = kind === "todo" ? data?.todos ?? [] : data?.resources ?? [];
+  const items = kind === "todo" ? (data?.todos ?? []) : (data?.resources ?? []);
   return (
-    <section className="panel event-operations" aria-labelledby={`${kind}-heading`}>
+    <section
+      className="panel event-operations"
+      aria-labelledby={`${kind}-heading`}
+    >
       <div className="section-heading">
         <div>
           <span className="eyebrow">Event-scoped</span>
-          <h2 id={`${kind}-heading`}>{kind === "todo" ? "To Do" : "Resources"}</h2>
-          <p className="muted">{kind === "todo" ? "Keep the immediate event work visible." : "Track only what this event needs and whether it is ready."}</p>
+          <h2 id={`${kind}-heading`}>
+            {kind === "todo" ? "To Do" : "Resources"}
+          </h2>
+          <p className="muted">
+            {kind === "todo"
+              ? "Keep the immediate event work visible."
+              : "Track only what this event needs and whether it is ready."}
+          </p>
         </div>
       </div>
       {error && <Feedback message={error} onRetry={() => void load()} />}
       {!data && !error && <p role="status">Loading…</p>}
-      <form className="operation-add" onSubmit={(e) => {
-        e.preventDefault();
-        void run(kind === "todo" ? "add_todo" : "add_resource", null,
-          kind === "todo" ? { title } : { label: title, quantity: Number(quantity), note });
-      }}>
-        <TextField label={kind === "todo" ? "Task" : "Resource"} value={title} maxLength={120} required onChange={(e) => setTitle(e.target.value)} />
-        {kind === "resources" && <>
-          <TextField label="Quantity" type="number" value={quantity} min="1" max="100000" required onChange={(e) => setQuantity(e.target.value)} />
-          <TextField label="Note" value={note} maxLength={240} onChange={(e) => setNote(e.target.value)} />
-        </>}
-        <Button disabled={busy}>{busy ? "Saving…" : kind === "todo" ? "Add task" : "Add resource"}</Button>
+      <form
+        className="operation-add"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void run(
+            kind === "todo" ? "add_todo" : "add_resource",
+            null,
+            kind === "todo"
+              ? { title }
+              : { label: title, quantity: Number(quantity), note },
+          );
+        }}
+      >
+        <TextField
+          label={kind === "todo" ? "Task" : "Resource"}
+          value={title}
+          maxLength={120}
+          required
+          onChange={(e) => setTitle(e.target.value)}
+        />
+        {kind === "resources" && (
+          <>
+            <TextField
+              label="Quantity"
+              type="number"
+              value={quantity}
+              min="1"
+              max="100000"
+              required
+              onChange={(e) => setQuantity(e.target.value)}
+            />
+            <TextField
+              label="Note"
+              value={note}
+              maxLength={240}
+              onChange={(e) => setNote(e.target.value)}
+            />
+          </>
+        )}
+        <Button disabled={busy}>
+          {busy ? "Saving…" : kind === "todo" ? "Add task" : "Add resource"}
+        </Button>
       </form>
-      {data && items.length === 0 && <div className="operation-empty"><strong>Nothing here yet.</strong><p>Add only what helps this event happen.</p></div>}
+      {data && items.length === 0 && (
+        <div className="operation-empty">
+          <strong>Nothing here yet.</strong>
+          <p>Add only what helps this event happen.</p>
+        </div>
+      )}
       <ul className="operation-list">
-        {kind === "todo" ? data?.todos.map((item) => <li key={item.id}>
-          <div><strong>{item.title}</strong><span>{item.state === "DONE" ? "Completed" : "Open"}</span><select aria-label={`Assign ${item.title}`} value={item.assignee_team_member_id??""} onChange={async e=>{setBusy(true);await assignOperationItem("todo",eventId,item.id,e.target.value||null);await load();setBusy(false);}}><option value="">Unassigned</option>{team?.members.map(m=><option key={m.id} value={m.id}>{m.display_name}</option>)}</select></div>
-          <Button variant="secondary" disabled={busy} onClick={() => void run("set_todo_state", item.id, { state: item.state === "DONE" ? "OPEN" : "DONE" })}>{item.state === "DONE" ? "Reopen" : "Complete"}</Button>
-        </li>) : data?.resources.map((item) => <li key={item.id}>
-          <div><strong>{item.label} · {item.quantity}</strong><span>{item.state === "READY" ? "Ready" : "Needed"}{item.note ? ` · ${item.note}` : ""}</span><select aria-label={`Assign ${item.label}`} value={item.assignee_team_member_id??""} onChange={async e=>{setBusy(true);await assignOperationItem("resource",eventId,item.id,e.target.value||null);await load();setBusy(false);}}><option value="">Unassigned</option>{team?.members.map(m=><option key={m.id} value={m.id}>{m.display_name}</option>)}</select></div>
-          <Button variant="secondary" disabled={busy} onClick={() => void run("set_resource_state", item.id, { state: item.state === "READY" ? "NEEDED" : "READY" })}>{item.state === "READY" ? "Mark needed" : "Mark ready"}</Button>
-        </li>)}
+        {kind === "todo"
+          ? data?.todos.map((item) => (
+              <li key={item.id}>
+                <div>
+                  <strong>{item.title}</strong>
+                  <span>{item.state === "DONE" ? "Completed" : "Open"}</span>
+                  <select
+                    aria-label={`Assign ${item.title}`}
+                    value={item.assignee_team_member_id ?? ""}
+                    onChange={async (e) => {
+                      setBusy(true);
+                      await assignOperationItem(
+                        "todo",
+                        eventId,
+                        item.id,
+                        e.target.value || null,
+                      );
+                      await load();
+                      setBusy(false);
+                    }}
+                  >
+                    <option value="">Unassigned</option>
+                    {team?.members.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.display_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <Button
+                  variant="secondary"
+                  disabled={busy}
+                  onClick={() =>
+                    void run("set_todo_state", item.id, {
+                      state: item.state === "DONE" ? "OPEN" : "DONE",
+                    })
+                  }
+                >
+                  {item.state === "DONE" ? "Reopen" : "Complete"}
+                </Button>
+              </li>
+            ))
+          : data?.resources.map((item) => (
+              <li key={item.id}>
+                <div>
+                  <strong>
+                    {item.label} · {item.quantity}
+                  </strong>
+                  <span>
+                    {item.state === "READY" ? "Ready" : "Needed"}
+                    {item.note ? ` · ${item.note}` : ""}
+                  </span>
+                  <select
+                    aria-label={`Assign ${item.label}`}
+                    value={item.assignee_team_member_id ?? ""}
+                    onChange={async (e) => {
+                      setBusy(true);
+                      await assignOperationItem(
+                        "resource",
+                        eventId,
+                        item.id,
+                        e.target.value || null,
+                      );
+                      await load();
+                      setBusy(false);
+                    }}
+                  >
+                    <option value="">Unassigned</option>
+                    {team?.members.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.display_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <Button
+                  variant="secondary"
+                  disabled={busy}
+                  onClick={() =>
+                    void run("set_resource_state", item.id, {
+                      state: item.state === "READY" ? "NEEDED" : "READY",
+                    })
+                  }
+                >
+                  {item.state === "READY" ? "Mark needed" : "Mark ready"}
+                </Button>
+              </li>
+            ))}
       </ul>
     </section>
   );
+}
+
+export function EventOperationsWorkspace() {
+  const { eventId } = useParams();
+  if (!eventId) return <Navigate to="/events" replace />;
+  return <main className="coordination-page"><div className="coord-actions"><Link className="text-action" to={`/my-events/${eventId}`}>Back to event</Link><Link className="button secondary" to={`/core/events/${eventId}/check-in`}>Check-in</Link></div><EventOperations eventId={eventId} kind="todo" /><EventOperations eventId={eventId} kind="resources" /></main>;
 }
 
 export function ParticipantResponse() {
@@ -1621,7 +3883,13 @@ export function ParticipantResponse() {
   );
 }
 
-export function CoreSignOut({ onBack }: { onBack: () => void }) {
+export function CoreSignOut({
+  onBack,
+  onSignedOut,
+}: {
+  onBack: () => void;
+  onSignedOut: () => void;
+}) {
   const [active, setActive] = useState<boolean | null>(null),
     [error, setError] = useState("");
   useEffect(() => {
@@ -1651,7 +3919,7 @@ export function CoreSignOut({ onBack }: { onBack: () => void }) {
             onClick={async () => {
               const { error } = await supabase.auth.signOut();
               if (error) setError("Unable to sign out. Please retry.");
-              else setActive(false);
+              else onSignedOut();
             }}
           >
             Sign out

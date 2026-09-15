@@ -1,8 +1,14 @@
 # Sontu Implementation Preparation
 
-Status: PRE-IMPLEMENTATION PLANNING
+Status: ACTIVE CONNECTED IMPLEMENTATION
 
-This repository is intentionally still implementation-light. Drive remains the authority for intended product/domain/design behavior. Repository code will become implemented behavior; deployed authenticated surfaces will become observed behavior.
+Drive remains the authority for intended product/domain/design behavior.
+Repository code is implemented behavior; deployed authenticated surfaces are
+observed behavior. The September 12 Core Validation checkpoint is preserved as
+historical evidence. Later founder direction authorizes admissions, private
+commerce-state foundations, real operational analytics and bounded assistance as
+described in `hosting-design-reconciliation.md`; that later direction controls
+any conflict.
 
 ## Current design authority
 

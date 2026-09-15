@@ -1,0 +1,6 @@
+create or replace function sontu_private.event_operations_projection(event_id uuid) returns jsonb language plpgsql security definer set search_path='' as $$
+begin
+ if auth.uid() is null or not (sontu_private.can_manage_event_state(event_id,auth.uid()) or exists(select 1 from sontu_private.event_team_members m where m.event_instance_id=event_id and m.user_id=auth.uid() and m.role='VOLUNTEER')) then return sontu_private.fail('UNAUTHORIZED'); end if;
+ return jsonb_build_object('status','ready','todos',coalesce((select jsonb_agg(jsonb_build_object('id',t.id,'title',t.title,'due_at',t.due_at,'state',t.state,'assignee_team_member_id',t.assignee_team_member_id) order by t.state desc,t.due_at nulls last,t.created_at) from sontu_private.event_todos t where t.event_instance_id=event_id),'[]'::jsonb),'resources',coalesce((select jsonb_agg(jsonb_build_object('id',r.id,'label',r.label,'quantity',r.quantity,'state',r.state,'note',r.note,'assignee_team_member_id',r.assignee_team_member_id) order by r.state desc,r.created_at) from sontu_private.event_resources r where r.event_instance_id=event_id),'[]'::jsonb));
+end $$;
+revoke all on function sontu_private.event_operations_projection(uuid) from public,anon,authenticated;

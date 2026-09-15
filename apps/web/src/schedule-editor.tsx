@@ -129,8 +129,8 @@ export function ScheduleEditor({
               forward to the changed details.
             </p>
             <p>
-              Email delivery is not connected. Contact guests yourself; saving
-              does not send an email or confirm their availability.
+              Event email is queued separately. Saving does not send an email or
+              confirm their availability.
             </p>
           </>
         ) : (

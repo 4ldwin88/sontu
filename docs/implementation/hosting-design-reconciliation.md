@@ -33,3 +33,25 @@ The founder confirmed that the live invitation succeeds after signing out of the
 Implemented reconciliation: compact Event status, Key stats and Next up; a wide event banner; inactive simple-event reconfirmation and simulated message panels hidden; clearer Event Hub hierarchy; neutral sign-out. Real counts only, no generated check-in/page-view metrics or broad operations expansion.
 
 Diagnostics: bounded session-local error category/time/reference records, accessible in Help & Support for deliberate copying. No remote ingestion, session replay, raw error text, request payloads, URLs, identities or invitation tokens. These diagnostics do not let an agent silently observe a user's session.
+
+## Founder-authorized continuation
+
+The Core Validation checkpoint boundaries are historical. Founder direction after
+this reconciliation authorizes the connected continuation, while preserving one
+universal personal account and the simple-event experience:
+
+- RSVP confirmation creates an authoritative admission; check-in requires a
+  valid admission, which is invalidated on withdrawal or event cancellation.
+- Participant and host surfaces expose admission status. Event-day check-in
+  remains online-authoritative; it does not imply offline acceptance.
+- Private order/payment-state foundations may exist without prices, checkout,
+  subscriptions, paywalls, refund UI, or live provider integration. Payment
+  transitions are auditable and control order-sourced admission validity.
+- Host analytics show only counts derived from RSVP, capacity, invitation,
+  delivery, admission and check-in records.
+- Bounded assistance may draft, summarize and flag. It never autonomously
+  publishes, sends messages, charges, refunds, changes access or settles an
+  obligation.
+
+Advanced floorplans, enterprise suites, vendor or venue operations and live
+provider integrations remain outside this continuation.

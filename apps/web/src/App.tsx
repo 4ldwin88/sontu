@@ -6,9 +6,11 @@ import {
 } from "./account";
 import { useAccount } from "./account-state";
 import { DevNotes } from "./dev-notes";
+import { OrganizationSetupPage, OrganizationsPage } from "./organizations";
 import {
   Invitation,
   ConnectedEventHub,
+  PublicEventHub,
   useMyEvents,
   forView,
   SimpleEventCard,
@@ -19,10 +21,11 @@ import {
   CoreEntry,
   CoreHost,
   CheckInWorkspace,
+  EventOperationsWorkspace,
   ParticipantResponse,
   CoreSignOut,
 } from "./coordination";
-import { initialProfile } from "../../../packages/test-fixtures/profile";
+import { rpc } from "../../../packages/data/sontu";
 import { useEffect, useRef, useState } from "react";
 import {
   Link,
@@ -38,53 +41,32 @@ import {
   ChevronLeft,
   ArrowRight,
   CalendarDays,
-  Clock3,
   List,
   MapPin,
   Plus,
   Users,
 } from "lucide-react";
-import type {
-  EventProjection,
-  Module,
-  ViewState,
-} from "../../../packages/application/projections";
+import { eventViews } from "../../../packages/application/projections";
 import {
-  eventViews,
-  eventsForView,
-  hostProjection,
-} from "../../../packages/application/projections";
-import {
-  eventById,
-  events,
-  feed,
-} from "../../../packages/test-fixtures/events";
-import {
-  AttentionItem,
   Button,
   Chip,
   EmptyState,
-  EventCard,
-  EventImage,
-  OperationalItem,
   SearchField,
   StatusBadge,
   SystemState,
   Tabs,
   TextAction,
-  TrustBadge,
 } from "../../../packages/ui-web";
 import {
   AppShell,
-  FocusedWorkspaceShell,
   Modal,
   RouteFocus,
-  WidePortalShell,
   UtilityDrawer,
 } from "./shells";
 import {
   ProfileDrawerContent,
-  ProfilePage,
+  HelpSupportPage,
+  PrivacyRequestsPage,
   ProfileUtilityPage,
 } from "./profile";
 const mainProps = { id: "main", tabIndex: -1 };
@@ -105,12 +87,20 @@ function SectionHeading({
   );
 }
 function Home() {
+  const real = useMyEvents();
+  const featured = real.signed
+    ? real.items.filter((event) => event.lifecycle === "PUBLISHED").slice(0, 3)
+    : [];
+  const upcoming = forView(real.items, "Upcoming").slice(0, 2);
+  const hosted = forView(real.items, "Hosting").find(
+    (event) => event.lifecycle === "PUBLISHED",
+  );
   return (
     <main {...mainProps}>
       <div className="home-layout">
         <div>
           <div className="home-welcome">
-            <EventImage event={events[0]} priority />
+            <img className="event-image" src="images/sunset.jpg" alt="" />
             <div className="welcome-copy">
               <h1>
                 More
@@ -157,28 +147,44 @@ function Home() {
           </nav>
           <section>
             <SectionHeading title="Featured for you" to="/discover" />
-            <div className="editorial-grid">
-              {[events[3], events[2], events[4]].map((e) => (
-                <EventCard key={e.identity.id} event={e} />
-              ))}
-            </div>
+            {real.loading ? (
+              <p role="status">Loading events…</p>
+            ) : featured.length ? (
+              <div className="editorial-grid">
+                {featured.map((event) => (
+                  <SimpleEventCard
+                    key={event.id}
+                    event={event}
+                    view="Upcoming"
+                  />
+                ))}
+              </div>
+            ) : (
+              <p className="muted">No featured events are available yet.</p>
+            )}
           </section>
         </div>
         <aside className="home-aside">
           <section className="panel">
             <SectionHeading title="Your upcoming events" to="/events" />
-            <EventCard event={events[1]} variant="compact-square" />
-            <EventCard event={events[2]} variant="compact-square" />
+            {upcoming.length ? (
+              upcoming.map((event) => (
+                <SimpleEventCard key={event.id} event={event} view="Upcoming" />
+              ))
+            ) : (
+              <p className="muted">No upcoming events yet.</p>
+            )}
           </section>
-          <section className="panel soft">
-            <span className="eyebrow">You’re bringing people together</span>
-            <h2>Tonight’s Sunset Social</h2>
-            <p>24 participants · Your hosted event</p>
-            <AttentionItem {...events[0].attention!} />
-            <TextAction to="/events/sunset-social/host">
-              Open Host Workspace
-            </TextAction>
-          </section>
+          {hosted && (
+            <section className="panel soft">
+              <span className="eyebrow">You’re bringing people together</span>
+              <h2>{hosted.title}</h2>
+              <p>Your hosted event</p>
+              <TextAction to={`/core/events/${hosted.id}/host`}>
+                Open Host Workspace
+              </TextAction>
+            </section>
+          )}
           <div className="quiet-note">
             <Users size={22} />
             <p>The best plans often start with good company.</p>
@@ -191,20 +197,15 @@ function Home() {
 function Discover() {
   const [params, setParams] = useSearchParams();
   const [query, setQuery] = useState("");
-  const [category, setCategory] = useState("All");
+  const real = useMyEvents();
   const nearby = params.get("mode") === "nearby";
-  const categories = ["All", "Music", "Food & Drink", "Outdoors", "Wellness"];
-  const matching = events
-    .filter(
-      (e) =>
-        (category === "All" || e.presentation.category === category) &&
-        `${e.identity.title} ${e.presentation.location}`
-          .toLowerCase()
-          .includes(query.toLowerCase()),
-    )
-    .sort((a, b) =>
-      nearby ? a.presentation.distanceKm - b.presentation.distanceKm : 0,
-    );
+  const matching = real.items.filter(
+    (event) =>
+      event.lifecycle === "PUBLISHED" &&
+      `${event.title} ${event.venue_label}`
+        .toLowerCase()
+        .includes(query.toLowerCase()),
+  );
   return (
     <main {...mainProps}>
       <div className="discover-tools">
@@ -220,46 +221,14 @@ function Discover() {
           </Chip>
         </div>
       </div>
-      <div className="filter-row">
-        {categories.map((c) => (
-          <Chip
-            key={c}
-            selected={c === category}
-            onClick={() => setCategory(c)}
-          >
-            {c}
-          </Chip>
-        ))}
-      </div>
       {nearby ? (
         <div className="nearby-intro panel">
           <MapPin size={25} />
           <div>
             <h1>Good things, close by.</h1>
-            <p>Nha Trang · Sample distances from the city centre</p>
+            <p>Location-aware discovery is not active in this beta yet.</p>
           </div>
-          <span className="tag">Manual area</span>
-        </div>
-      ) : !query && category === "All" ? (
-        <div className="discover-feature">
-          <EventImage event={events[0]} priority />
-          <div>
-            <span className="eyebrow">Stay curious</span>
-            <h1>
-              Unforgettable
-              <br />
-              experiences await.
-            </h1>
-            <p>
-              Explore the coast. Find your people.
-              <br />
-              Make a little space for something new.
-            </p>
-            <Link className="button image-button" to="/events/sunset-social">
-              Explore Sunset Social
-              <ArrowRight size={18} />
-            </Link>
-          </div>
+          <span className="tag">Coming later</span>
         </div>
       ) : null}
       <section>
@@ -268,37 +237,28 @@ function Discover() {
             nearby
               ? "Around you"
               : query
-                ? "Matching experiences"
-                : "Worth getting out for"
+                ? "Matching events"
+                : "Discover events"
           }
         />
-        {matching.length ? (
+        {real.loading && !query ? (
+          <p role="status">Loading events…</p>
+        ) : matching.length ? (
           <div className={nearby ? "nearby-list" : "discover-grid"}>
-            {matching.map((e) => (
-              <div key={e.identity.id}>
-                <EventCard
-                  event={e}
-                  variant={nearby ? "compact-square" : "editorial"}
-                />
-                {nearby && (
-                  <span className="distance">
-                    {e.presentation.distanceKm} km · sample distance
-                  </span>
-                )}
+            {matching.map((event) => (
+              <div key={event.id}>
+                <SimpleEventCard event={event} view="Upcoming" />
               </div>
             ))}
           </div>
         ) : (
           <EmptyState>
-            <Button
-              variant="secondary"
-              onClick={() => {
-                setQuery("");
-                setCategory("All");
-              }}
-            >
-              Clear filters
-            </Button>
+            <p>No real discoverable events are available yet.</p>
+            {query && (
+              <Button variant="secondary" onClick={() => setQuery("")}>
+                Clear search
+              </Button>
+            )}
           </EmptyState>
         )}
       </section>
@@ -306,6 +266,7 @@ function Discover() {
   );
 }
 function Events() {
+  const account = useAccount();
   const real = useMyEvents();
   const [params, setParams] = useSearchParams();
   const current = params.get("view") ?? "Upcoming";
@@ -313,18 +274,58 @@ function Events() {
     ? current
     : "Upcoming";
   const navigate = useNavigate();
-  const collection = eventsForView(events, view);
-  const count = real.signed
-    ? forView(real.items, view).length
-    : collection.length;
+  const location = useLocation();
+  const returnTo = `${location.pathname}${location.search}`;
+  const [authGate, setAuthGate] = useState(false);
+  const createPath = `/create?return=${encodeURIComponent(returnTo)}`;
+  const count = real.signed ? forView(real.items, view).length : 0;
+  const pendingInvites = real.signed
+    ? real.items.filter(
+        (event) =>
+          event.invitation_state === "CREATED" &&
+          event.commitment_state === "NO_COMMITMENT",
+      ).length
+    : 0;
   return (
     <main {...mainProps} className="events-page">
-      <Tabs
-        items={eventViews}
-        value={view}
-        onChange={(v) => setParams({ view: v })}
-        label="Your event relationships"
-      />
+      <div className="events-view-toolbar">
+        <Tabs
+          items={eventViews}
+          value={view}
+          onChange={(v) => setParams({ view: v })}
+          label="Your event relationships"
+          renderItem={(item) =>
+            item === "Invited" && pendingInvites > 0 ? (
+              <span className="event-tab-label">
+                Invited
+                <span
+                  className="event-tab-badge"
+                  aria-label={`${pendingInvites} pending invitations`}
+                >
+                  {pendingInvites > 99 ? "99+" : pendingInvites}
+                </span>
+              </span>
+            ) : (
+              item
+            )
+          }
+        />
+        <button
+          type="button"
+          className="events-create-action"
+          aria-label="Create Event"
+          onClick={() =>
+            account.session ? navigate(createPath) : setAuthGate(true)
+          }
+        >
+          <Plus size={17} />
+          <span>
+            Create
+            <br />
+            Event
+          </span>
+        </button>
+      </div>
       <div className="section-heading">
         <div>
           <h1>
@@ -351,7 +352,9 @@ function Events() {
         </span>
       </div>
       <div className="events-layout">
-        <div className="events-list">
+        <div
+          className={`events-list ${view === "Hosting" ? "hosting-events" : "event-card-grid"}`}
+        >
           {real.signed ? (
             real.loading ? (
               <p role="status">Loading your events…</p>
@@ -371,19 +374,8 @@ function Events() {
             ) : (
               <p>No {view.toLowerCase()} events yet.</p>
             )
-          ) : collection.length ? (
-            collection.map((e) => (
-              <div className="event-list-row" key={e.identity.id}>
-                <EventCard event={e} variant="compact-square" />
-                {view === "Hosting" && (
-                  <TextAction to={`/events/${e.identity.id}/host`}>
-                    Manage event
-                  </TextAction>
-                )}
-              </div>
-            ))
           ) : (
-            <EmptyState />
+            <p>Sign in to see events connected to your account.</p>
           )}
         </div>
         <aside className="panel events-aside">
@@ -397,10 +389,6 @@ function Events() {
               <p>
                 A few people. A shared idea. One place to bring it together.
               </p>
-              <Button onClick={() => navigate("/create")}>
-                <Plus size={18} />
-                Create Event
-              </Button>
               <p className="small muted">
                 Create a personal event or resume a saved draft.
               </p>
@@ -418,397 +406,69 @@ function Events() {
           )}
         </aside>
       </div>
-    </main>
-  );
-}
-function Feed() {
-  return (
-    <main {...mainProps} className="feed-layout">
-      <div>
-        <div className="intro-line">
-          <div>
-            <span className="eyebrow">From the events around you</span>
-            <h1>A little closer to what’s happening.</h1>
-          </div>
-        </div>
-        {feed.map((item) => {
-          const event = eventById(item.eventId)!;
-          return (
-            <article className="feed-item" key={item.id}>
-              <Link className="feed-event" to={`/events/${event.identity.id}`}>
-                <EventImage event={event} />
-                <div>
-                  <strong>{event.identity.title}</strong>
-                  <span>
-                    {item.kind} · {item.time}
-                  </span>
-                </div>
-                <ArrowRight size={18} />
-              </Link>
-              {item.image && (
-                <Link
-                  to={`/events/${event.identity.id}`}
-                  tabIndex={-1}
-                  aria-hidden="true"
-                >
-                  <EventImage event={event} className="feed-media" />
-                </Link>
-              )}
-              <div className="feed-copy">
-                <h2>{item.title}</h2>
-                <p>{item.body}</p>
-                <TextAction to={`/events/${event.identity.id}`}>
-                  View event
-                </TextAction>
-              </div>
-            </article>
-          );
-        })}
-      </div>
-      <aside className="panel feed-aside">
-        <span className="eyebrow">Keep exploring</span>
-        <h2>Make it a shared experience.</h2>
-        <EventCard event={events[3]} />
-        <p>Updates and stories here always belong to an event.</p>
-      </aside>
-    </main>
-  );
-}
-function EventHub() {
-  const { eventId } = useParams();
-  const event = eventById(eventId);
-  const [notice, setNotice] = useState(false);
-  if (!event || !event.access.canView)
-    return (
-      <main {...mainProps}>
-        <SystemState state={{ status: event ? "denied" : "unavailable" }}>
-          <Link
-            to="/events"
-            className="icon-button back-chevron"
-            aria-label="Back to Events"
-          >
-            <ChevronLeft size={26} strokeWidth={2.5} />
-          </Link>
-        </SystemState>
-      </main>
-    );
-  const p = event.presentation;
-  return (
-    <main {...mainProps} className="hub">
-      <Link
-        to="/events"
-        className="icon-button back-chevron"
-        aria-label="Back to Events"
-      >
-        <ChevronLeft size={26} strokeWidth={2.5} />
-      </Link>
-      <div className="hub-image">
-        <EventImage event={event} priority />
-        <span className="image-label">{p.category}</span>
-      </div>
-      <div className="hub-layout">
-        <div>
-          <div className="tags">
-            <StatusBadge tone="info">
-              {event.context.relationship === "host"
-                ? "You’re hosting"
-                : event.context.relationship === "going"
-                  ? "You’re going"
-                  : event.context.relationship === "invited"
-                    ? "You’re invited"
-                    : "Explore this event"}
-            </StatusBadge>
-            <StatusBadge>
-              {event.identity.lifecycle === "cancelled"
-                ? "Cancelled"
-                : "Published"}
-            </StatusBadge>
-          </div>
-          <h1>{event.identity.title}</h1>
-          <div className="host-byline">
-            <span className="avatar small-avatar">C</span>
-            <div>
-              <span className="muted">Hosted by</span>
-              <strong>{p.hostName}</strong>
-            </div>
-            <TrustBadge verified={p.hostVerified} />
-          </div>
-          {event.attention && event.context.relationship === "host" && (
-            <AttentionItem {...event.attention} />
-          )}
-          <section>
-            <h2>A good time, together.</h2>
-            <p className="description">{p.description}</p>
-          </section>
-          <section className="panel">
-            <h2>What to expect</h2>
-            <p>
-              Easy conversation, a relaxed pace, and a shared experience. These
-              are sample event details for reviewing Sontu’s design.
-            </p>
-            <div className="tags">
-              {p.tags.map((t) => (
-                <Chip key={t}>{t}</Chip>
-              ))}
-            </div>
-          </section>
-        </div>
-        <aside className="panel event-details">
-          <div className="detail">
-            <CalendarDays />
-            <div>
-              <strong>{p.date}, 2026</strong>
-              <p>{p.time} (GMT+7)</p>
-            </div>
-          </div>
-          <div className="detail">
-            <MapPin />
-            <div>
-              <strong>{p.location}</strong>
-              <p>Vietnam</p>
-            </div>
-          </div>
-          <div className="detail">
-            <Users />
-            <div>
-              <strong>
-                {event.operations?.participants ??
-                  event.participation?.people ??
-                  "Small group"}
-                {event.operations || event.participation ? " people" : ""}
-              </strong>
-              <p>
-                {event.context.relationship === "invited"
-                  ? "Invitation received"
-                  : "A shared experience"}
-              </p>
-            </div>
-          </div>
-          {event.access.canManage ? (
-            <Link
-              className="button primary"
-              to={`/events/${event.identity.id}/host`}
-            >
-              Open Host Workspace
-              <ArrowRight size={18} />
-            </Link>
-          ) : event.context.relationship === "going" ? (
-            <StatusBadge tone="info">
-              Your place is confirmed in this sample
-            </StatusBadge>
-          ) : (
-            <Button onClick={() => setNotice(true)}>
-              {event.context.relationship === "invited"
-                ? "Review invitation"
-                : "View participation options"}
+      {authGate && (
+        <Modal
+          title="Sign in to create your event"
+          onClose={() => setAuthGate(false)}
+        >
+          <p>Create and manage your event with a Sontu account.</p>
+          <div className="creation-auth-options">
+            <Button variant="secondary" disabled>
+              Continue with Google
             </Button>
-          )}
-          <p className="small muted">
-            Sample event · no real booking or admission
+            <Button variant="secondary" disabled>
+              Continue with Apple
+            </Button>
+            <Button
+              onClick={() =>
+                navigate(`/sign-up?next=${encodeURIComponent(createPath)}`)
+              }
+            >
+              Continue with email
+            </Button>
+          </div>
+          <p className="account-switch">
+            Already have an account?{" "}
+            <Link to={`/sign-in?next=${encodeURIComponent(createPath)}`}>
+              Sign in
+            </Link>
           </p>
-        </aside>
-      </div>
-      {notice && (
-        <Modal title="Participation preview" onClose={() => setNotice(false)}>
-          <SystemState
-            state={{
-              status: "pending_unknown",
-              message:
-                "Participation is not activated in this design checkpoint. No reservation or commitment has been made.",
-            }}
-          />
+          <Button variant="quiet" onClick={() => setAuthGate(false)}>
+            Cancel
+          </Button>
         </Modal>
       )}
     </main>
   );
 }
-const moduleLabels: Record<Module, string> = {
-  overview: "Overview",
-  team: "Team & Roles",
-  todo: "To Do",
-  resources: "Resources",
-};
-function HostWorkspace() {
-  const { eventId, module } = useParams();
-  const state = hostProjection(eventById(eventId));
-  const [params, setParams] = useSearchParams();
-  const active = (module ?? params.get("module") ?? "overview") as Module;
-  const event = state.status === "ready" ? state.data : null;
-  const nav = event ? (
-    <nav className="workspace-nav" aria-label="Event workspace modules">
-      {event.access.modules.map((m) => (
-        <button
-          key={m}
-          aria-current={active === m ? "page" : undefined}
-          onClick={() => setParams({ module: m })}
-        >
-          {moduleLabels[m]}
-        </button>
-      ))}
-    </nav>
-  ) : null;
-  const body = (
-    <>
-      <header className="workspace-event">
-        <EventImage event={event!} />
-        <div>
-          <span className="eyebrow">Your event workspace</span>
-          <h1>{event?.identity.title}</h1>
-          <p>
-            {event?.presentation.date} · {event?.presentation.time} · Nha Trang
-          </p>
-          <StatusBadge>Published · sample event</StatusBadge>
-        </div>
-        <Link className="button secondary" to={`/events/${eventId}`}>
-          View event page
-          <ArrowRight size={16} />
-        </Link>
-      </header>
-      <div className="compact-workspace-nav">{nav}</div>
-      {event && !event.access.modules.includes(active) ? (
-        <SystemState state={{ status: "denied" }} />
-      ) : event ? (
-        <HostModule event={event} active={active} />
-      ) : null}
-    </>
-  );
-  if (!event)
-    return (
-      <FocusedWorkspaceShell title="Host Workspace" back={`/events/${eventId}`}>
-        <main {...mainProps}>
-          <SystemState
-            state={state as Exclude<ViewState<never>, { status: "ready" }>}
-          />
-        </main>
-      </FocusedWorkspaceShell>
-    );
+function Feed() {
   return (
-    <FocusedWorkspaceShell title="Host Workspace" back={`/events/${eventId}`}>
-      <main {...mainProps} className="host-main">
-        <WidePortalShell nav={nav}>{body}</WidePortalShell>
-      </main>
-    </FocusedWorkspaceShell>
+    <main {...mainProps}>
+      <div className="intro-line">
+        <div>
+          <span className="eyebrow">From your events</span>
+          <h1>A little closer to what’s happening.</h1>
+        </div>
+      </div>
+      <EmptyState>
+        <p>Real event updates will appear here when hosts publish them.</p>
+      </EmptyState>
+    </main>
   );
 }
-function HostModule({
-  event,
-  active,
-}: {
-  event: EventProjection;
-  active: Module;
-}) {
-  const o = event.operations!;
+function EventRouteRedirect({ host = false }: { host?: boolean }) {
+  const { eventId } = useParams();
   return (
-    <div className="module-content">
-      <SectionHeading title={moduleLabels[active]} />
-      {active === "overview" ? (
-        <>
-          <AttentionItem {...event.attention!} />
-          <div className="metrics">
-            <div>
-              <Users />
-              <strong>{o.participants}</strong>
-              <span>Participants</span>
-            </div>
-            <div>
-              <Users />
-              <strong>{o.team.length}</strong>
-              <span>Team members</span>
-            </div>
-            <div>
-              <Clock3 />
-              <strong>
-                {o.todo.filter((i) => i.tone === "warning").length}
-              </strong>
-              <span>Needs confirmation</span>
-            </div>
-          </div>
-          <div className="operations-grid">
-            <section className="panel">
-              <h2>Next up</h2>
-              {o.todo.map((i) => (
-                <OperationalItem key={i.id} item={i} />
-              ))}
-            </section>
-            <section className="panel">
-              <h2>Resources</h2>
-              {o.resources.map((i) => (
-                <OperationalItem key={i.id} item={i} />
-              ))}
-            </section>
-          </div>
-          <div className="workspace-note">
-            <StatusBadge tone="info">Presentation only</StatusBadge>
-            <p>
-              Participant counts, team assignments, and resource statuses are
-              deterministic samples. Admission and consequential actions are not
-              activated.
-            </p>
-          </div>
-        </>
-      ) : active === "team" ? (
-        <>
-          <p className="muted">The people helping bring this event together.</p>
-          <div className="team-table">
-            <table>
-              <caption className="sr-only">
-                Event team and assignment status
-              </caption>
-              <thead>
-                <tr>
-                  <th>Team member</th>
-                  <th>Event role</th>
-                  <th>Assignment status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {o.team.map((p) => (
-                  <tr key={p.name}>
-                    <td>
-                      <span className="avatar small-avatar">{p.name[0]}</span>
-                      {p.name}
-                    </td>
-                    <td>{p.role}</td>
-                    <td>
-                      <StatusBadge
-                        tone={p.status === "Pending" ? "warning" : "success"}
-                      >
-                        {p.status}
-                      </StatusBadge>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="team-cards">
-            {o.team.map((p) => (
-              <OperationalItem
-                key={p.name}
-                item={{
-                  id: p.name,
-                  title: p.name,
-                  detail: p.role,
-                  status: p.status,
-                  tone: p.status === "Pending" ? "warning" : "success",
-                }}
-              />
-            ))}
-          </div>
-        </>
-      ) : (
-        <section className="panel">
-          <p className="muted">
-            {active === "todo"
-              ? "Lightweight coordination for this event."
-              : "Equipment and materials needed for this event."}
-          </p>
-          {o[active].map((i) => (
-            <OperationalItem key={i.id} item={i} />
-          ))}
-        </section>
-      )}
-    </div>
+    <Navigate
+      to={
+        eventId
+          ? host
+            ? `/core/events/${eventId}/host`
+            : `/my-events/${eventId}`
+          : "/events"
+      }
+      replace
+    />
   );
 }
 function Settings({
@@ -826,6 +486,32 @@ function Settings({
   accent: string;
   setAccent: (s: string) => void;
 }) {
+  const account = useAccount();
+  const [emailBusy, setEmailBusy] = useState(false);
+  const [emailError, setEmailError] = useState("");
+  const setEventEmail = async (enabled: boolean) => {
+    if (!account.profile || emailBusy) return;
+    setEmailBusy(true);
+    setEmailError("");
+    try {
+      const result = await rpc<{ status: string }>("sontu_account_profile", {
+        action: "update",
+        input: {
+          first_name: account.profile.first_name,
+          display_name: account.profile.display_name,
+          handle: account.profile.handle,
+          revision: account.profile.revision,
+          event_email_enabled: enabled,
+        },
+      });
+      if (result.status !== "ready") throw new Error();
+      account.reload();
+    } catch {
+      setEmailError("Your email preference could not be confirmed. Try again.");
+    } finally {
+      setEmailBusy(false);
+    }
+  };
   const Container = embedded ? "section" : "main";
   return (
     <Container {...(embedded ? {} : mainProps)} className="settings-page">
@@ -862,10 +548,31 @@ function Settings({
       <section className="panel">
         <h2>Personalize your experience</h2>
         <p>
-          Behavioral presentation preferences, interests, location and
-          notification preferences belong here. Account-level editing is not
-          activated in this fixture preview.
+          Choose whether Sontu sends event email to this account. Security and
+          mandatory accountless-guest messages are not affected.
         </p>
+        {account.profile ? (
+          <label className="field">
+            <span>Event email</span>
+            <select
+              value={
+                account.profile.event_email_enabled ? "enabled" : "disabled"
+              }
+              disabled={emailBusy}
+              onChange={(e) => void setEventEmail(e.target.value === "enabled")}
+            >
+              <option value="enabled">Send event email</option>
+              <option value="disabled">Don’t send event email</option>
+            </select>
+          </label>
+        ) : (
+          <p className="muted">Sign in to manage account email.</p>
+        )}
+        {emailError && (
+          <p className="coord-feedback" role="status">
+            {emailError}
+          </p>
+        )}
       </section>
       <section className="panel">
         <h2>Accessibility &amp; Language</h2>
@@ -874,93 +581,227 @@ function Settings({
           browser text scaling. Account language preferences are not activated.
         </p>
       </section>
-      <section className="panel">
-        <h2>Review the design foundation</h2>
-        <p>
-          Explore representative loading, empty, error, denied, unavailable and
-          unresolved states.
-        </p>
-        <TextAction to="/preview/states">Open state gallery</TextAction>
-      </section>
     </Container>
-  );
-}
-function StateGallery() {
-  const [state, setState] = useState("loading");
-  const states = [
-    "loading",
-    "ready",
-    "empty",
-    "error",
-    "denied",
-    "unavailable",
-    "pending_unknown",
-  ];
-  return (
-    <main {...mainProps}>
-      <Link
-        to="/settings"
-        className="icon-button back-chevron"
-        aria-label="Back to appearance"
-      >
-        <ChevronLeft size={26} strokeWidth={2.5} />
-      </Link>
-      <h1>System state gallery</h1>
-      <p className="muted">
-        Deterministic presentation samples. No real operation is performed.
-      </p>
-      <label className="field">
-        Preview state
-        <select value={state} onChange={(e) => setState(e.target.value)}>
-          {states.map((s) => (
-            <option key={s}>{s}</option>
-          ))}
-        </select>
-      </label>
-      {state === "ready" ? (
-        <div className="panel">
-          <StatusBadge tone="info">Sample data loaded</StatusBadge>
-          <EventCard event={events[0]} variant="compact-square" />
-        </div>
-      ) : (
-        <SystemState
-          state={{
-            status: state as Exclude<ViewState<never>["status"], "ready">,
-          }}
-          onRetry={
-            state === "loading" || state === "error"
-              ? () => setState("ready")
-              : undefined
-          }
-        >
-          <Link
-            to="/events"
-            className="icon-button back-chevron"
-            aria-label="Back to Events"
-          >
-            <ChevronLeft size={26} strokeWidth={2.5} />
-          </Link>
-        </SystemState>
-      )}
-    </main>
   );
 }
 function Notifications({ embedded = false }: { embedded?: boolean }) {
   const Container = embedded ? "section" : "main";
+  const real = useMyEvents();
+  const [responding, setResponding] = useState<string | null>(null);
+  const [responseError, setResponseError] = useState("");
+  const [replies, setReplies] = useState<
+    {
+      id: string;
+      event_id: string;
+      event_title: string;
+      response: string;
+      answered_at: string;
+    }[]
+  >([]);
+  const loadReplies = async () => {
+    try {
+      const result = await rpc<{ status: string; items?: typeof replies }>(
+        "sontu_event_question_notifications",
+        { action: "read", question_id: null },
+      );
+      if (result.status === "ready") setReplies(result.items ?? []);
+    } catch {
+      /* Optional notification source. */
+    }
+  };
+  useEffect(() => {
+    if (!real.signed) return;
+    void rpc<{ status: string; items?: typeof replies }>(
+      "sontu_event_question_notifications",
+      { action: "read", question_id: null },
+    )
+      .then((result) => {
+        if (result.status === "ready") setReplies(result.items ?? []);
+      })
+      .catch(() => {
+        /* Optional notification source. */
+      });
+  }, [real.signed]);
+  const markReplySeen = async (id: string) => {
+    try {
+      await rpc("sontu_event_question_notifications", {
+        action: "mark_seen",
+        question_id: id,
+      });
+      await loadReplies();
+    } catch {
+      setResponseError("That reply could not be marked read.");
+    }
+  };
+  async function respond(
+    eventId: string,
+    decision: "ACCEPT_INVITE" | "DECLINE_INVITE",
+  ) {
+    if (responding) return;
+    setResponding(`${eventId}:${decision}`);
+    setResponseError("");
+    try {
+      const hub = await rpc<{
+        status: string;
+        event?: { current_version: number };
+      }>("sontu_event_hub", { event_id: eventId });
+      if (hub.status !== "ready" || !hub.event)
+        throw new Error("The invitation is no longer available.");
+      const result = await rpc<{ status: string; error_code?: string }>(
+        "sontu_simple_access",
+        {
+          event_id: eventId,
+          decision,
+          expected_version: hub.event.current_version,
+          operation_id: crypto.randomUUID(),
+        },
+      );
+      if (result.status !== "ready")
+        throw new Error(
+          "This invitation changed. Open it to review the latest details.",
+        );
+      real.reload();
+    } catch (error) {
+      setResponseError(
+        error instanceof Error
+          ? error.message
+          : "Your response could not be confirmed. Try again.",
+      );
+    } finally {
+      setResponding(null);
+    }
+  }
+  const invitations = real.items.filter(
+    (event) =>
+      event.invitation_state === "CREATED" &&
+      event.commitment_state === "NO_COMMITMENT",
+  );
+  const updates = real.items.filter(
+    (event) =>
+      !event.hosting &&
+      event.commitment_state === "CONFIRMED" &&
+      (event.reconfirmation_required ||
+        event.lifecycle === "CANCELLED" ||
+        event.lifecycle === "COMPLETED"),
+  );
   return (
     <Container {...(embedded ? {} : mainProps)} className="settings-page">
       <h1>Event updates</h1>
       <p className="muted">From your events and invitations.</p>
-      <Link className="notification-card" to="/events/sunset-social">
-        <AttentionItem {...events[0].attention!} />
-      </Link>
-      <Link className="notification-card" to="/events/shared-table">
-        <div className="panel">
-          <StatusBadge tone="info">Invitation</StatusBadge>
-          <h2>You’re invited to The shared table</h2>
-          <p>Open the event to see the sample invitation.</p>
+      {!real.signed ? (
+        <div className="empty-state panel">
+          <h2>Sign in to see updates</h2>
+          <p>
+            Your invitations and event updates are attached to your Sontu
+            account.
+          </p>
+          <Link className="button primary" to="/sign-in">
+            Sign in
+          </Link>
         </div>
-      </Link>
+      ) : invitations.length || updates.length || replies.length ? (
+        <>
+          {replies.map((reply) => (
+            <div className="notification-card" key={`reply-${reply.id}`}>
+              <div className="panel">
+                <StatusBadge tone="info">Host reply</StatusBadge>
+                <h2>{reply.event_title}</h2>
+                <p>{reply.response}</p>
+                <div className="coord-actions">
+                  <Link
+                    className="text-action"
+                    to={`/events/${reply.event_id}`}
+                  >
+                    Open event
+                  </Link>
+                  <Button
+                    variant="quiet"
+                    onClick={() => void markReplySeen(reply.id)}
+                  >
+                    Mark read
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ))}
+          {updates.map((event) => (
+            <Link
+              className="notification-card"
+              to={`/events/${event.id}`}
+              key={`update-${event.id}`}
+            >
+              <div className="panel">
+                <StatusBadge
+                  tone={
+                    event.lifecycle === "CANCELLED"
+                      ? "error"
+                      : event.lifecycle === "COMPLETED"
+                        ? "success"
+                        : "warning"
+                  }
+                >
+                  {event.lifecycle === "CANCELLED"
+                    ? "Cancelled"
+                    : event.lifecycle === "COMPLETED"
+                      ? "Completed"
+                      : "Action needed"}
+                </StatusBadge>
+                <h2>
+                  {event.lifecycle === "CANCELLED"
+                    ? `${event.title} was cancelled`
+                    : event.lifecycle === "COMPLETED"
+                      ? `${event.title} has ended`
+                      : `${event.title} has changed`}
+                </h2>
+                <p>
+                  {event.lifecycle === "CANCELLED"
+                    ? "Open the event for the latest information."
+                    : event.lifecycle === "COMPLETED"
+                      ? "Open the event to revisit its details and outcomes."
+                      : "Review the new details and reconfirm if you can still attend."}
+                </p>
+              </div>
+            </Link>
+          ))}
+          {invitations.map((event) => (
+            <div className="notification-card" key={event.id}>
+              <div className="panel">
+                <StatusBadge tone="info">Invitation</StatusBadge>
+                <h2>You’re invited to {event.title}</h2>
+                <p>Respond now, or review the event details first.</p>
+                <div className="coord-actions">
+                  <Button
+                    disabled={!!responding}
+                    onClick={() => void respond(event.id, "ACCEPT_INVITE")}
+                  >
+                    {responding === `${event.id}:ACCEPT_INVITE`
+                      ? "Saving…"
+                      : "Going"}
+                  </Button>
+                  <Button
+                    disabled={!!responding}
+                    variant="secondary"
+                    onClick={() => void respond(event.id, "DECLINE_INVITE")}
+                  >
+                    {responding === `${event.id}:DECLINE_INVITE`
+                      ? "Saving…"
+                      : "Can’t go"}
+                  </Button>
+                  <Link className="text-action" to={`/events/${event.id}`}>
+                    View details
+                  </Link>
+                </div>
+              </div>
+            </div>
+          ))}
+          {responseError && <p role="alert">{responseError}</p>}
+        </>
+      ) : (
+        <div className="empty-state panel">
+          <h2>You’re all caught up</h2>
+          <p>New invitations will appear here.</p>
+        </div>
+      )}
     </Container>
   );
 }
@@ -982,7 +823,12 @@ export default function App() {
     navigate(profileOrigin.current);
     setDrawer("profile");
   };
-  const [profile, setProfile] = useState(initialProfile);
+  const profile = account.profile
+    ? {
+        displayName: account.profile.display_name || account.profile.first_name,
+        username: account.profile.handle,
+      }
+    : { displayName: "Sontu member", username: "member" };
   const [drawer, setDrawer] = useState<"profile" | "notifications" | null>(
     null,
   );
@@ -1035,7 +881,10 @@ export default function App() {
           <Route path="/discover" element={<Discover />} />
           <Route path="/events" element={<Events />} />
           <Route path="/feed" element={<Feed />} />
-          <Route path="/events/:eventId" element={<EventHub />} />
+          <Route
+            path="/events/:eventId"
+            element={<EventRouteRedirect />}
+          />
           <Route
             path="/settings"
             element={
@@ -1054,14 +903,12 @@ export default function App() {
               account.session ? (
                 <RealProfile onBack={backToProfile} />
               ) : (
-                <ProfilePage
-                  key={location.key}
-                  onBack={backToProfile}
-                  profile={profile}
-                  onChange={setProfile}
-                  editInitially={
-                    new URLSearchParams(location.search).get("edit") === "1"
+                <Navigate
+                  to={
+                    "/sign-in?next=" +
+                    encodeURIComponent(location.pathname + location.search)
                   }
+                  replace
                 />
               )
             }
@@ -1073,7 +920,17 @@ export default function App() {
                 path={`/${kind}`}
                 element={
                   kind === "sign-out" ? (
-                    <CoreSignOut onBack={backToProfile} />
+                    <CoreSignOut
+                      onBack={backToProfile}
+                      onSignedOut={() => {
+                        setDrawer(null);
+                        navigate("/home", { replace: true });
+                      }}
+                    />
+                  ) : kind === "privacy" && account.session ? (
+                    <PrivacyRequestsPage onBack={backToProfile} />
+                  ) : kind === "help" && account.session ? (
+                    <HelpSupportPage onBack={backToProfile} />
                   ) : (
                     <ProfileUtilityPage kind={kind} onBack={backToProfile} />
                   )
@@ -1082,7 +939,14 @@ export default function App() {
             ),
           )}
           <Route path="/notifications" element={<Notifications />} />
-          <Route path="/preview/states" element={<StateGallery />} />
+          <Route
+            path="/organizations"
+            element={<OrganizationsPage onBack={backToProfile} />}
+          />
+          <Route
+            path="/organizations/new"
+            element={<OrganizationSetupPage />}
+          />
           <Route
             path="*"
             element={
@@ -1101,15 +965,29 @@ export default function App() {
           />
         </Route>
         <Route path="/invite/:token" element={<Invitation />} />
+        <Route path="/event/:eventId" element={<PublicEventHub />} />
         <Route path="/my-events/:eventId" element={<ConnectedEventHub />} />
         <Route path="/create" element={<Creation />} />
         <Route path="/create/:eventId" element={<Creation />} />
         <Route path="/core" element={<CoreEntry />} />
         <Route path="/core/events/:eventId/host" element={<CoreHost />} />
-        <Route path="/core/events/:eventId/check-in" element={<CheckInWorkspace />} />
+        <Route
+          path="/core/events/:eventId/check-in"
+          element={<CheckInWorkspace />}
+        />
+        <Route
+          path="/core/events/:eventId/operations"
+          element={<EventOperationsWorkspace />}
+        />
         <Route path="/respond/:token" element={<ParticipantResponse />} />
-        <Route path="/events/:eventId/host" element={<HostWorkspace />} />
-        <Route path="/host/events/:eventId" element={<HostWorkspace />} />
+        <Route
+          path="/events/:eventId/host"
+          element={<EventRouteRedirect host />}
+        />
+        <Route
+          path="/host/events/:eventId"
+          element={<EventRouteRedirect host />}
+        />
       </Routes>
       {drawer && (
         <UtilityDrawer

@@ -16,6 +16,7 @@ export type AccountProfile = {
   handle: string;
   handle_provisional: boolean;
   handle_changed_at: string | null;
+  event_email_enabled: boolean;
   revision: number;
 };
 export type ProfileResult = {

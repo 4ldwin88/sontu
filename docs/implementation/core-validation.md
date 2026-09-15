@@ -31,7 +31,13 @@ The hosted frontend uses a publishable key only. `VITE_SUPABASE_URL` and `VITE_S
 Events → Hosting → Open working host events → sign in → Create test event → Publish test event.
 Change start time and confirm. Require reconfirmation. Open Participants, generate a scoped response link, and respond in a separate tab. Return to Overview and refresh. Simulated delivery cannot settle the case. Review participant counts, provider uncertainty, prior versions, waiver/exception distinction, and cancellation with unresolved obligations.
 
-Stop after this human review. No public launch, real participant delivery, payments, ticketing/admission, broad social graph, enterprise operations, native mobile, or AI authority is included.
+Historical checkpoint boundary: stop after this human review. This statement
+applied to the September 12 Core Validation cut only. Later founder-authorized
+continuation, recorded in `hosting-design-reconciliation.md`, activates
+admissions, private order/payment-state foundations, real host analytics and
+bounded assistance. It continues to exclude public launch, checkout, prices,
+subscriptions, paywalls, enterprise operations, native mobile, live provider
+integrations and autonomous AI authority.
 
 ## Verification evidence — September 12
 

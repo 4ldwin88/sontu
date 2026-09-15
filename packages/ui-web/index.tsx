@@ -84,11 +84,13 @@ export function Tabs({
   value,
   onChange,
   label,
+  renderItem,
 }: {
   items: readonly string[];
   value: string;
   onChange: (v: string) => void;
   label: string;
+  renderItem?: (item: string) => ReactNode;
 }) {
   const id = useId();
   return (
@@ -119,7 +121,7 @@ export function Tabs({
             }
           }}
         >
-          {item}
+          {renderItem ? renderItem(item) : item}
         </button>
       ))}
     </div>

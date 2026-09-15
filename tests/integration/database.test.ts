@@ -55,7 +55,10 @@ beforeAll(async () => {
   await db.exec(
     "create role anon; create role authenticated; create schema auth; create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz,is_anonymous boolean default false); create function auth.uid() returns uuid language sql as $$ select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$; grant usage on schema auth to anon,authenticated;",
   );
-  await sql("insert into auth.users(id) values($1),($2)", [host, stranger]);
+  await sql(
+    "insert into auth.users(id,email) values($1,'host@example.com'),($2,'member@example.com')",
+    [host, stranger],
+  );
   const rootDir = existsSync(resolve(process.cwd(), "supabase/migrations"))
     ? process.cwd()
     : resolve(process.cwd(), "../..");
@@ -300,6 +303,59 @@ describe("frozen Core Validation persistence contract", () => {
     ).toBe(true);
     expect(p.audit.some((x: any) => x.audit_kind === "cancel")).toBe(true);
   });
+
+  it("keeps host admission metrics event-scoped for managers, not door staff", async () => {
+    await sql(
+      "insert into sontu_private.event_team_members(event_instance_id,user_id,role) values($1,$2,'EVENT_MANAGER') on conflict(event_instance_id,user_id) do update set role=excluded.role",
+      [event, stranger],
+    );
+    await asHost(stranger);
+    expect(
+      (
+        await sql<{ r: any }>(
+          "select public.sontu_host_operational_analytics($1) r",
+          [event],
+        )
+      )[0].r.status,
+    ).toBe("ready");
+    expect(
+      (
+        await sql<{ r: any }>(
+          "select public.sontu_host_credential_lifecycle_projection($1) r",
+          [event],
+        )
+      )[0].r.status,
+    ).toBe("ready");
+    expect(
+      (
+        await sql<{ r: any }>(
+          "select public.sontu_event_team_hub_action($1) r",
+          [event],
+        )
+      )[0].r,
+    ).toMatchObject({ status: "ready", action: "OPERATIONS", role: "EVENT_MANAGER" });
+    await sql(
+      "update sontu_private.event_team_members set role='CHECK_IN_STAFF' where event_instance_id=$1 and user_id=$2",
+      [event, stranger],
+    );
+    expect(
+      (
+        await sql<{ r: any }>(
+          "select public.sontu_host_operational_analytics($1) r",
+          [event],
+        )
+      )[0].r.error_code,
+    ).toBe("UNAUTHORIZED");
+    expect(
+      (
+        await sql<{ r: any }>(
+          "select public.sontu_host_credential_lifecycle_projection($1) r",
+          [event],
+        )
+      )[0].r.error_code,
+    ).toBe("UNAUTHORIZED");
+    await asHost();
+  });
 });
 
 it("keeps dismissal, exception and expired participant authority distinct", async () => {
@@ -354,6 +410,201 @@ it("creates empty personal drafts, validates publication and preserves versioned
   expect(created.status).toBe("ready");
   event = created.event_id;
   version = created.current_version;
+  expect(
+    await sql(
+      "select owner_kind,personal_user_id from sontu_private.event_owner_contexts where event_instance_id=$1",
+      [event],
+    ),
+  ).toEqual([{ owner_kind: "PERSONAL", personal_user_id: host }]);
+  const organizationOperation = randomUUID();
+  await sql("update auth.users set email_confirmed_at=now() where id=$1", [
+    stranger,
+  ]);
+  const organizationInput = {
+    display_name: "Test Community",
+    organization_type: "COMMUNITY",
+    description: "Local gatherings",
+    visibility: "PUBLIC",
+    successor_email: "member@example.com",
+  };
+  const organization = (
+    await sql<{ r: any }>("select public.sontu_organization_setup($1,$2) r", [
+      JSON.stringify(organizationInput),
+      organizationOperation,
+    ])
+  )[0].r;
+  expect(organization.status).toBe("ready");
+  expect(
+    (
+      await sql<{ r: any }>("select public.sontu_organization_setup($1,$2) r", [
+        JSON.stringify(organizationInput),
+        organizationOperation,
+      ])
+    )[0].r,
+  ).toEqual(organization);
+  expect(organization.organization).toMatchObject({
+    organization_type: "COMMUNITY",
+    description: "Local gatherings",
+    visibility: "PUBLIC",
+    lifecycle: "SETUP_INCOMPLETE",
+    successor_status: "PENDING",
+  });
+  expect(
+    (
+      await sql<{ r: any }>(
+        "select public.sontu_event_owner($1,'ORGANIZATION',$2) r",
+        [event, organization.organization.id],
+      )
+    )[0].r.error_code,
+  ).toBe("ORGANIZATION_NOT_ACTIVE");
+  await asHost(stranger);
+  expect(
+    (
+      await sql<{ r: any }>(
+        "select public.sontu_organization_governance('respond_successor',$1,$2,$3) r",
+        [
+          organization.organization.id,
+          JSON.stringify({ decision: "ACCEPT" }),
+          randomUUID(),
+        ],
+      )
+    )[0].r.status,
+  ).toBe("ready");
+  await asHost();
+  expect(
+    (
+      await sql<{ r: any }>(
+        "select public.sontu_event_owner($1,'ORGANIZATION',$2) r",
+        [event, organization.organization.id],
+      )
+    )[0].r.owner_name,
+  ).toBe("Test Community");
+  const organizationId = organization.organization.id;
+  expect(
+    (
+      await sql<{ r: any }>(
+        "select public.sontu_organization_governance('update',$1,$2,$3) r",
+        [
+          organizationId,
+          JSON.stringify({
+            ...organizationInput,
+            display_name: "Test Community Society",
+          }),
+          randomUUID(),
+        ],
+      )
+    )[0].r.status,
+  ).toBe("ready");
+  expect(
+    (
+      await sql<{ r: any }>(
+        "select public.sontu_organization_context('add_member',$1,$2,$3) r",
+        [
+          JSON.stringify({ email: "member@example.com", role: "MEMBER" }),
+          organizationId,
+          randomUUID(),
+        ],
+      )
+    )[0].r.status,
+  ).toBe("ready");
+  const detail = (
+    await sql<{ r: any }>(
+      "select public.sontu_organization_context('detail','{}',$1,null) r",
+      [organizationId],
+    )
+  )[0].r;
+  expect(detail.members.map((member: any) => member.role)).toEqual([
+    "OWNER",
+    "MEMBER",
+  ]);
+  expect(
+    (
+      await sql<{ r: any }>(
+        "select public.sontu_organization_context('add_member',$1,$2,$3) r",
+        [
+          JSON.stringify({ email: "host@example.com", role: "MEMBER" }),
+          organizationId,
+          randomUUID(),
+        ],
+      )
+    )[0].r.error_code,
+  ).toBe("UNAUTHORIZED");
+  expect(
+    (
+      await sql<{ r: any }>(
+        "select public.sontu_team_command('add_member',$1,null,$2,$3) r",
+        [
+          event,
+          randomUUID(),
+          JSON.stringify({
+            email: "member@example.com",
+            role: "EVENT_MANAGER",
+          }),
+        ],
+      )
+    )[0].r.status,
+  ).toBe("ready");
+  expect(
+    (
+      await sql<{ count: number }>(
+        "select count(*)::int count from sontu_private.event_team_members where event_instance_id=$1",
+        [event],
+      )
+    )[0].count,
+  ).toBe(1);
+  expect(
+    (
+      await sql<{ r: any }>(
+        "select public.sontu_organization_context('remove_member',$1,$2,$3) r",
+        [JSON.stringify({ user_id: stranger }), organizationId, randomUUID()],
+      )
+    )[0].r.status,
+  ).toBe("ready");
+  expect(
+    (
+      await sql<{ count: number }>(
+        "select count(*)::int count from sontu_private.event_team_members where event_instance_id=$1",
+        [event],
+      )
+    )[0].count,
+  ).toBe(0);
+  expect(
+    (
+      await sql<{ r: any }>(
+        "select public.sontu_team_command('add_member',$1,null,$2,$3) r",
+        [
+          event,
+          randomUUID(),
+          JSON.stringify({
+            email: "member@example.com",
+            role: "EVENT_MANAGER",
+          }),
+        ],
+      )
+    )[0].r.error_code,
+  ).toBe("INVALID_INPUT");
+  await asHost(stranger);
+  expect(
+    (
+      await sql<{ r: any }>(
+        "select public.sontu_organization_context('remove_member',$1,$2,$3) r",
+        [JSON.stringify({ user_id: host }), organizationId, randomUUID()],
+      )
+    )[0].r.error_code,
+  ).toBe("UNAUTHORIZED");
+  await asHost();
+  expect(
+    (
+      await sql<{ r: any }>(
+        "select public.sontu_organization_governance('retire',$1,$2,$3) r",
+        [
+          organizationId,
+          JSON.stringify({ confirmation: "Test Community Society" }),
+          randomUUID(),
+        ],
+      )
+    )[0].r.error_code,
+  ).toBe("ORGANIZATION_HAS_ACTIVE_EVENTS");
   let p = await projection();
   expect(p.event.event_kind).toBe("SIMPLE");
   expect(p.participants).toEqual([]);
@@ -373,6 +624,9 @@ it("creates empty personal drafts, validates publication and preserves versioned
   expect(
     (await command("save_draft", { ...input, capacity: "0" })).error_code,
   ).toBe("INVALID_INPUT");
+  expect(
+    (await command("save_draft", { ...input, capacity: "25000" })).status,
+  ).toBe("ready");
   expect(
     (await command("save_draft", { ...input, timezone: "Invented/Zone" }))
       .error_code,
@@ -530,6 +784,10 @@ it("requires recipient email verification, enforces capacity and keeps invitatio
   ]);
   await asHost(stranger);
   expect(
+    (await sql<{ r: any }>("select public.sontu_my_events() r"))[0].r.events[0]
+      .reconfirmation_required,
+  ).toBe(true);
+  expect(
     (await access(token, "RECONFIRMED", randomUUID(), version - 1)).error_code,
   ).toBe("STALE_CONFLICT");
   expect((await access(token, "WITHDRAW")).status).toBe("ready");
@@ -555,6 +813,313 @@ it("requires recipient email verification, enforces capacity and keeps invitatio
   ).toBe("CONFIRMED");
 });
 
+it("joins and withdraws from a public event atomically with safe retries", async () => {
+  const attendee = randomUUID(),
+    waiting = randomUUID();
+  await sql(
+    "insert into auth.users(id,email,email_confirmed_at) values($1,'public-one@example.com',now()),($2,'public-two@example.com',now())",
+    [attendee, waiting],
+  );
+  await asHost();
+  const created = await command(
+    "create_draft",
+    { timezone: "America/Toronto" },
+    1,
+  );
+  event = created.event_id;
+  version = created.current_version;
+  await command("save_draft", {
+    title: "Open garden gathering",
+    description: "A public event",
+    starts_at: "2031-06-20T22:00:00Z",
+    ends_at: "2031-06-21T00:00:00Z",
+    timezone: "America/Toronto",
+    venue_label: "Community garden",
+    cover_key: "market",
+    capacity: "1",
+  });
+  expect(
+    (
+      await sql<{ r: any }>(
+        "select public.sontu_event_visibility('write',$1,'PUBLIC') r",
+        [event],
+      )
+    )[0].r.status,
+  ).toBe("ready");
+  await command("publish", { confirmed: true });
+  const participate = async (
+    action: string,
+    op: string | null = action === "READ" ? null : randomUUID(),
+    expected = version,
+  ) =>
+    (
+      await sql<{ r: any }>(
+        "select public.sontu_public_event_participation($1,$2,$3,$4) r",
+        [event, action, expected, op],
+      )
+    )[0].r;
+
+  await asHost(attendee);
+  let read = await participate("READ");
+  expect(read.commitment_state).toBeNull();
+  const joinOperation = randomUUID();
+  const joined = await participate("JOIN", joinOperation);
+  expect(joined.status).toBe("ready");
+  expect(await participate("JOIN", joinOperation)).toEqual(joined);
+  read = await participate("READ");
+  expect(read.commitment_state).toBe("CONFIRMED");
+  expect(read.full).toBe(true);
+  expect(
+    (await sql<{ r: any }>("select public.sontu_my_events() r"))[0].r.events[0]
+      .commitment_state,
+  ).toBe("CONFIRMED");
+  expect(
+    (
+      await sql<{ r: any }>("select public.sontu_event_hub($1) r", [event])
+    )[0].r.going.some((person: any) => person.display_name === "public-one"),
+  ).toBe(true);
+
+  await asHost(waiting);
+  expect((await participate("JOIN")).error_code).toBe("CAPACITY_FULL");
+  await asHost(attendee);
+  expect((await participate("WITHDRAW")).status).toBe("ready");
+  await asHost(waiting);
+  expect((await participate("JOIN")).status).toBe("ready");
+});
+
+it("keeps public visibility separate from guest RSVP eligibility", async () => {
+  await asHost();
+  const created = await command(
+    "create_draft",
+    { timezone: "America/Toronto" },
+    1,
+  );
+  event = created.event_id;
+  version = created.current_version;
+  await command("save_draft", {
+    title: "Guest-friendly gathering",
+    description: "A public event with guest RSVP",
+    starts_at: "2032-06-20T22:00:00Z",
+    ends_at: "2032-06-21T00:00:00Z",
+    timezone: "America/Toronto",
+    venue_label: "Public square",
+    cover_key: "sunset",
+    capacity: "1",
+  });
+  await sql("select public.sontu_event_visibility('write',$1,'PUBLIC')", [
+    event,
+  ]);
+  await sql(
+    "select public.sontu_event_participation_access('write',$1,'SONTU_USERS_ONLY')",
+    [event],
+  );
+  await command("publish", { confirmed: true });
+  let token = randomUUID();
+  const operation = randomUUID();
+  const guest = async (action: string, op: string | null = null) =>
+    (
+      await sql<{ r: any }>(
+        "select public.sontu_guest_event_participation($1,$2,$3,$4,$5,$6,$7) r",
+        [
+          event,
+          action,
+          action === "JOIN" ? "Guest One" : null,
+          action === "JOIN" ? "guest@example.com" : null,
+          action === "READ" ? null : version,
+          op,
+          token,
+        ],
+      )
+    )[0].r;
+  await sql("select set_config('request.jwt.claim.sub','',false)");
+  expect((await guest("JOIN", operation)).error_code).toBe(
+    "INVITATION_UNAVAILABLE",
+  );
+  await asHost();
+  expect(
+    (
+      await sql<{ r: any }>(
+        "select public.sontu_event_participation_access('write',$1,'ANYONE') r",
+        [event],
+      )
+    )[0].r.status,
+  ).toBe("ready");
+  await sql("select set_config('request.jwt.claim.sub','',false)");
+  expect((await guest("JOIN", operation)).commitment_state).toBe("CONFIRMED");
+  expect(
+    await sql<{ audit_kind: string }>(
+      "select audit_kind from sontu_private.audit_entries where event_instance_id=$1 and audit_kind='PARTICIPATION_ACCESS_CHANGED' and metadata->>'lifecycle'='PUBLISHED'",
+      [event],
+    ),
+  ).toHaveLength(1);
+
+  await asHost();
+  token = randomUUID();
+  const openCreated = await command(
+    "create_draft",
+    { timezone: "America/Toronto" },
+    1,
+  );
+  event = openCreated.event_id;
+  version = openCreated.current_version;
+  await command("save_draft", {
+    title: "Open guest gathering",
+    description: "Guests welcome",
+    starts_at: "2032-07-20T22:00:00Z",
+    ends_at: "2032-07-21T00:00:00Z",
+    timezone: "America/Toronto",
+    venue_label: "Public square",
+    cover_key: "sunset",
+    capacity: "1",
+  });
+  await sql("select public.sontu_event_visibility('write',$1,'PUBLIC')", [
+    event,
+  ]);
+  expect(
+    (
+      await sql<{ r: any }>(
+        "select public.sontu_event_participation_access('write',$1,'ANYONE') r",
+        [event],
+      )
+    )[0].r.status,
+  ).toBe("ready");
+  await command("publish", { confirmed: true });
+  await sql("select set_config('request.jwt.claim.sub','',false)");
+  const secondOperation = randomUUID();
+  const joined = await guest("JOIN", secondOperation);
+  expect(joined).toMatchObject({
+    status: "ready",
+    commitment_state: "CONFIRMED",
+    display_name: "Guest One",
+  });
+  expect(
+    await sql<{ kind: string; state: string; is_simulated: boolean }>(
+      "select c.kind,o.state,c.is_simulated from sontu_private.communication_records c join sontu_private.outbox_entries o on o.communication_id=c.id where c.event_instance_id=$1",
+      [event],
+    ),
+  ).toEqual([
+    {
+      kind: "GUEST_RSVP_CONFIRMATION",
+      state: "PENDING",
+      is_simulated: false,
+    },
+  ]);
+  expect(
+    (
+      await sql<{ r: any }>(
+        "select public.sontu_participant_communication_history($1,$2) r",
+        [event, token],
+      )
+    )[0].r,
+  ).toMatchObject({
+    status: "ready",
+    notices: [{ kind: "GUEST_RSVP_CONFIRMATION", state: "PENDING" }],
+  });
+  expect(
+    (
+      await sql<{ r: any }>(
+        "select public.sontu_participant_communication_history($1,$2) r",
+        [event, randomUUID()],
+      )
+    )[0].r.error_code,
+  ).toBe("INVITATION_UNAVAILABLE");
+  expect(
+    (
+      await sql<{ r: any }>(
+        "select public.sontu_participant_admission_projection($1,$2) r",
+        [event, token],
+      )
+    )[0].r.admission,
+  ).toMatchObject({ status: "VALID", credential_status: "ACTIVE" });
+  const recoveredToken = randomUUID();
+  await sql(
+    "update sontu_private.event_participants set guest_recovery_token_hash=sha256(convert_to($1::text,'UTF8')),guest_recovery_token_expires_at=now()+interval '1 hour' where event_instance_id=$2 and token_hash=sha256(convert_to($3::text,'UTF8'))",
+    [recoveredToken, event, token],
+  );
+  expect(
+    (
+      await sql<{ r: any }>(
+        "select public.sontu_participant_admission_projection($1,$2) r",
+        [event, recoveredToken],
+      )
+    )[0].r.admission,
+  ).toMatchObject({ status: "VALID", credential_status: "ACTIVE" });
+  expect(
+    await sql<{ recipient_email: string; event_title: string }>(
+      "select recipient_email,event_title from sontu_private.claim_guest_rsvp_email($1,$2)",
+      [event, token],
+    ),
+  ).toEqual([
+    {
+      recipient_email: "guest@example.com",
+      event_title: "Open guest gathering",
+    },
+  ]);
+  expect(
+    (
+      await sql<{ r: any }>("select public.sontu_guest_hub_access($1,$2) r", [
+        event,
+        token,
+      ])
+    )[0].r,
+  ).toMatchObject({ status: "ready", commitment_state: "CONFIRMED" });
+  expect(await guest("JOIN", secondOperation)).toEqual(joined);
+  expect((await guest("READ")).commitment_state).toBe("CONFIRMED");
+  expect((await guest("WITHDRAW", randomUUID())).commitment_state).toBe(
+    "RELEASED_DECLINED",
+  );
+});
+
+it("keeps unlisted events out of discovery while allowing direct-link guest RSVP", async () => {
+  await asHost();
+  const created = await command(
+    "create_draft",
+    { timezone: "America/Toronto" },
+    1,
+  );
+  event = created.event_id;
+  version = created.current_version;
+  await command("save_draft", {
+    title: "Unlisted supper",
+    description: "Direct-link only",
+    starts_at: "2032-09-20T22:00:00Z",
+    ends_at: "2032-09-21T00:00:00Z",
+    timezone: "America/Toronto",
+    venue_label: "Shared table",
+    cover_key: "food",
+    capacity: "8",
+  });
+  expect(
+    (
+      await sql<{ r: any }>(
+        "select public.sontu_event_visibility('write',$1,'UNLISTED') r",
+        [event],
+      )
+    )[0].r.visibility,
+  ).toBe("UNLISTED");
+  await command("publish", { confirmed: true });
+  await sql("select set_config('request.jwt.claim.sub','',false)");
+  expect(
+    (
+      await sql<{ r: any }>("select public.sontu_public_events() r")
+    )[0].r.events.some((item: any) => item.id === event),
+  ).toBe(false);
+  expect(
+    (
+      await sql<{ r: any }>("select public.sontu_public_events($1) r", [event])
+    )[0].r.events[0],
+  ).toMatchObject({ id: event, visibility: "UNLISTED" });
+  const token = randomUUID();
+  expect(
+    (
+      await sql<{ r: any }>(
+        "select public.sontu_guest_event_participation($1,'JOIN','Link Guest','link@example.com',$2,$3,$4) r",
+        [event, version, randomUUID(), token],
+      )
+    )[0].r.commitment_state,
+  ).toBe("CONFIRMED");
+});
+
 describe("minimum profile and immutable account identity", () => {
   it("resumes creation, isolates profiles, and enforces handles and cooldown in the database", async () => {
     await asHost(host);
@@ -568,6 +1133,7 @@ describe("minimum profile and immutable account identity", () => {
     expect((await call("read")).status).toBe("empty");
     const first = await call("create", { first_name: "Thịnh" });
     expect(first.profile.handle).toMatch(/^[a-z0-9][a-z0-9_.]{2,29}$/);
+    expect(first.profile.event_email_enabled).toBe(true);
     expect((await call("create", { first_name: "Different" })).profile).toEqual(
       first.profile,
     );
@@ -575,10 +1141,12 @@ describe("minimum profile and immutable account identity", () => {
       first_name: "Thịnh",
       display_name: "Jay",
       handle: "captain_j",
+      event_email_enabled: false,
       revision: 1,
     });
     expect(selected.profile.user_id).toBe(host);
     expect(selected.profile.handle_provisional).toBe(false);
+    expect(selected.profile.event_email_enabled).toBe(false);
     expect(
       (
         await call("update", {
@@ -611,6 +1179,41 @@ describe("minimum profile and immutable account identity", () => {
     ).toBe("INVALID_HANDLE");
     await asHost("");
     expect((await call("read")).status).toBe("denied");
+  });
+});
+
+describe("account privacy-request intake", () => {
+  it("records only the signed-in person's valid requests and deduplicates open work", async () => {
+    const call = async (action: string, requestedKind: string | null = null) =>
+      (
+        await sql<{ r: any }>("select public.sontu_privacy_request($1,$2) r", [
+          action,
+          requestedKind,
+        ])
+      )[0].r;
+    await asHost(host);
+    expect((await call("read")).requests).toEqual([]);
+    expect((await call("request")).error_code).toBe("INVALID_ACTION");
+    const exportRequest = await call("request", "ACCESS_EXPORT");
+    expect(exportRequest.status).toBe("ready");
+    expect(exportRequest.request.status).toBe("RECEIVED");
+    expect((await call("request", "ACCESS_EXPORT")).already_open).toBe(true);
+    expect((await call("request", "DELETE_OR_CLOSE")).already_open).toBe(false);
+    expect((await call("read")).requests).toHaveLength(2);
+    await asHost(stranger);
+    expect((await call("read")).requests).toEqual([]);
+  });
+});
+
+describe("private support-report intake", () => {
+  it("accepts bounded reports and isolates them to the reporter", async () => {
+    const call = async (action: string, input: object = {}) => (await sql<{ r: any }>("select public.sontu_support_report($1,$2) r", [action, JSON.stringify(input)]))[0].r;
+    await asHost(host);
+    expect((await call("create", { report_kind: "PRODUCT_DEFECT", body: "The event hub did not reload." })).status).toBe("ready");
+    expect((await call("create", { report_kind: "NOPE", body: "x" })).error_code).toBe("INVALID_INPUT");
+    expect((await call("read")).reports).toHaveLength(1);
+    await asHost(stranger);
+    expect((await call("read")).reports).toEqual([]);
   });
 });
 
@@ -743,21 +1346,110 @@ describe("reviewed published schedule and location", () => {
 describe("event-scoped team and role privacy", () => {
   it("separates operational role, attendance and public badge visibility", async () => {
     await asHost();
-    await sql("update auth.users set email='owner@sontu.test' where id=$1",[host]);
-    await sql("update auth.users set email='teammate@sontu.test',email_confirmed_at=now() where id=$1",[stranger]);
-    const added=(await sql<{r:any}>("select public.sontu_team_command('add_member',$1,null,$2,$3) r",[event,randomUUID(),JSON.stringify({email:"teammate@sontu.test",role:"VOLUNTEER",attends_event:true,public_visibility:"EVENT_TEAM"})]))[0].r;
+    await sql("update auth.users set email='owner@sontu.test' where id=$1", [
+      host,
+    ]);
+    await sql(
+      "update auth.users set email='teammate@sontu.test',email_confirmed_at=now() where id=$1",
+      [stranger],
+    );
+    const added = (
+      await sql<{ r: any }>(
+        "select public.sontu_team_command('add_member',$1,null,$2,$3) r",
+        [
+          event,
+          randomUUID(),
+          JSON.stringify({
+            email: "teammate@sontu.test",
+            role: "VOLUNTEER",
+            attends_event: true,
+            public_visibility: "EVENT_TEAM",
+          }),
+        ],
+      )
+    )[0].r;
     expect(added.status).toBe("ready");
-    let team=(await sql<{r:any}>("select public.sontu_team_projection($1) r",[event]))[0].r;
-    expect(team.members[0]).toMatchObject({role:"VOLUNTEER",attends_event:true,public_visibility:"EVENT_TEAM"});
-    await sql("select public.sontu_team_command('update_member',$1,$2,$3,$4)",[event,added.item_id,randomUUID(),JSON.stringify({attends_event:false,public_visibility:"HIDDEN"})]);
-    team=(await sql<{r:any}>("select public.sontu_team_projection($1) r",[event]))[0].r;
-    expect(team.members[0]).toMatchObject({role:"VOLUNTEER",attends_event:false,public_visibility:"HIDDEN"});
-    const todo=(await sql<{r:any}>("select public.sontu_event_operations_command('add_todo',$1,null,$2,$3) r",[event,randomUUID(),JSON.stringify({title:"Set signs"})]))[0].r;
-    expect((await sql<{r:any}>("select public.sontu_assign_operation_item('todo',$1,$2,$3,$4) r",[event,todo.item_id,added.item_id,randomUUID()]))[0].r.status).toBe("ready");
-    expect((await sql<{r:any}>("select public.sontu_event_operations_projection($1) r",[event]))[0].r.todos.find((x:any)=>x.id===todo.item_id).assignee_team_member_id).toBe(added.item_id);
+    let team = (
+      await sql<{ r: any }>("select public.sontu_team_projection($1) r", [
+        event,
+      ])
+    )[0].r;
+    expect(team.members[0]).toMatchObject({
+      role: "VOLUNTEER",
+      attends_event: true,
+      public_visibility: "EVENT_TEAM",
+    });
+    await sql("select public.sontu_team_command('update_member',$1,$2,$3,$4)", [
+      event,
+      added.item_id,
+      randomUUID(),
+      JSON.stringify({ attends_event: false, public_visibility: "HIDDEN" }),
+    ]);
+    team = (
+      await sql<{ r: any }>("select public.sontu_team_projection($1) r", [
+        event,
+      ])
+    )[0].r;
+    expect(team.members[0]).toMatchObject({
+      role: "VOLUNTEER",
+      attends_event: false,
+      public_visibility: "HIDDEN",
+    });
+    const todo = (
+      await sql<{ r: any }>(
+        "select public.sontu_event_operations_command('add_todo',$1,null,$2,$3) r",
+        [event, randomUUID(), JSON.stringify({ title: "Set signs" })],
+      )
+    )[0].r;
+    expect(
+      (
+        await sql<{ r: any }>(
+          "select public.sontu_assign_operation_item('todo',$1,$2,$3,$4) r",
+          [event, todo.item_id, added.item_id, randomUUID()],
+        )
+      )[0].r.status,
+    ).toBe("ready");
+    expect(
+      (
+        await sql<{ r: any }>(
+          "select public.sontu_event_operations_projection($1) r",
+          [event],
+        )
+      )[0].r.todos.find((x: any) => x.id === todo.item_id)
+        .assignee_team_member_id,
+    ).toBe(added.item_id);
     await asHost(stranger);
-    expect((await sql<{r:any}>("select public.sontu_team_projection($1) r",[event]))[0].r.error_code).toBe("UNAUTHORIZED");
-    expect((await sql<{r:any}>("select public.sontu_event_operations_projection($1) r",[event]))[0].r.status).toBe("ready");
+    expect(
+      (
+        await sql<{ r: any }>("select public.sontu_team_projection($1) r", [
+          event,
+        ])
+      )[0].r.error_code,
+    ).toBe("UNAUTHORIZED");
+    expect(
+      (
+        await sql<{ r: any }>(
+          "select public.sontu_event_operations_projection($1) r",
+          [event],
+        )
+      )[0].r.status,
+    ).toBe("ready");
+    expect(
+      (
+        await sql<{ r: any }>(
+          "select public.sontu_event_operations_command('add_todo',$1,null,$2,$3) r",
+          [event, randomUUID(), JSON.stringify({ title: "No volunteer edits" })],
+        )
+      )[0].r.error_code,
+    ).toBe("UNAUTHORIZED");
+    expect(
+      (
+        await sql<{ r: any }>(
+          "select public.sontu_event_host_questions('answer',$1,$2,$3) r",
+          [event, randomUUID(), "No volunteer replies"],
+        )
+      )[0].r.error_code,
+    ).toBe("UNAUTHORIZED");
     await asHost();
   });
 });
@@ -765,35 +1457,282 @@ describe("event-scoped team and role privacy", () => {
 describe("auditable event check-in", () => {
   it("admits once, reports duplicates, rejects wrong-event use and permits check-in staff", async () => {
     await asHost();
-    const created=await command("create_draft",{timezone:"America/Toronto"}); event=created.event_id; version=created.current_version;
-    await command("save_draft",{title:"Check-in test",description:"Admission test",starts_at:"2030-10-01T22:00:00Z",ends_at:"2030-10-02T00:00:00Z",timezone:"America/Toronto",venue_label:"Door A",cover_key:"sunset",capacity:"20"});
-    await command("publish",{confirmed:true});
-    const guest=randomUUID(); await sql("insert into sontu_private.event_participants(id,event_instance_id,display_name,commitment_state) values($1,$2,'Taylor Guest','CONFIRMED')",[guest,event]);
-    await sql("update auth.users set email='teammate@sontu.test' where id=$1",[stranger]);
-    await sql("select public.sontu_team_command('add_member',$1,null,$2,$3)",[event,randomUUID(),JSON.stringify({email:"teammate@sontu.test",role:"CHECK_IN_STAFF",attends_event:false,public_visibility:"HIDDEN"})]);
+    const created = await command("create_draft", {
+      timezone: "America/Toronto",
+    });
+    event = created.event_id;
+    version = created.current_version;
+    await command("save_draft", {
+      title: "Check-in test",
+      description: "Admission test",
+      starts_at: "2030-10-01T22:00:00Z",
+      ends_at: "2030-10-02T00:00:00Z",
+      timezone: "America/Toronto",
+      venue_label: "Door A",
+      cover_key: "sunset",
+      capacity: "20",
+    });
+    await command("publish", { confirmed: true });
+    const guest = randomUUID();
+    await sql(
+      "insert into sontu_private.event_participants(id,event_instance_id,display_name,commitment_state) values($1,$2,'Taylor Guest','CONFIRMED')",
+      [guest, event],
+    );
+    await sql("update auth.users set email='teammate@sontu.test' where id=$1", [
+      stranger,
+    ]);
+    await sql("select public.sontu_team_command('add_member',$1,null,$2,$3)", [
+      event,
+      randomUUID(),
+      JSON.stringify({
+        email: "teammate@sontu.test",
+        role: "CHECK_IN_STAFF",
+        attends_event: false,
+        public_visibility: "HIDDEN",
+      }),
+    ]);
     await asHost(stranger);
-    expect((await sql<{r:any}>("select public.sontu_check_in_projection($1) r",[event]))[0].r.counts).toEqual({eligible:1,admitted:0});
-    const first=(await sql<{r:any}>("select public.sontu_check_in_command($1,$2,$3) r",[event,guest,randomUUID()]))[0].r;
+    expect(
+      (
+        await sql<{ r: any }>("select public.sontu_check_in_projection($1) r", [
+          event,
+        ])
+      )[0].r.counts,
+    ).toEqual({ eligible: 1, admitted: 0 });
+    expect(
+      (
+        await sql<{ r: any }>(
+          "select public.sontu_check_in_command($1,$2,$3) r",
+          [event, guest, randomUUID()],
+        )
+      )[0].r.error_code,
+    ).toBe("NOT_ELIGIBLE");
+    await asHost();
+    const startOp = randomUUID();
+    const started = (
+      await sql<{ r: any }>("select public.sontu_start_event($1,$2) r", [
+        event,
+        startOp,
+      ])
+    )[0].r;
+    expect(started).toMatchObject({
+      status: "ready",
+      lifecycle: "IN_PROGRESS",
+    });
+    expect(
+      (
+        await sql<{ r: any }>("select public.sontu_start_event($1,$2) r", [
+          event,
+          startOp,
+        ])
+      )[0].r,
+    ).toEqual(started);
+    await asHost(stranger);
+    const first = (
+      await sql<{ r: any }>(
+        "select public.sontu_check_in_command($1,$2,$3) r",
+        [event, guest, randomUUID()],
+      )
+    )[0].r;
     expect(first.result).toBe("ADMITTED");
-    const duplicate=(await sql<{r:any}>("select public.sontu_check_in_command($1,$2,$3) r",[event,guest,randomUUID()]))[0].r;
+    const duplicate = (
+      await sql<{ r: any }>(
+        "select public.sontu_check_in_command($1,$2,$3) r",
+        [event, guest, randomUUID()],
+      )
+    )[0].r;
     expect(duplicate.result).toBe("ALREADY_USED");
-    expect((await sql<{r:any}>("select public.sontu_check_in_command($1,$2,$3) r",[event,randomUUID(),randomUUID()]))[0].r.result).toBe("INVALID");
-    expect((await sql<{count:number}>("select count(*)::int count from sontu_private.audit_entries where event_instance_id=$1 and audit_kind='CHECK_IN_ATTEMPT'",[event]))[0].count).toBe(3);
+    expect(
+      (
+        await sql<{ r: any }>(
+          "select public.sontu_check_in_command($1,$2,$3) r",
+          [event, randomUUID(), randomUUID()],
+        )
+      )[0].r.result,
+    ).toBe("INVALID");
+    expect(
+      (
+        await sql<{ count: number }>(
+          "select count(*)::int count from sontu_private.audit_entries where event_instance_id=$1 and audit_kind='CHECK_IN_ATTEMPT'",
+          [event],
+        )
+      )[0].count,
+    ).toBe(4);
     await asHost();
   });
   it("blocks premature closeout and preserves an honest attendance snapshot", async () => {
     await asHost();
-    const todo=(await sql<{r:any}>("select public.sontu_event_operations_command('add_todo',$1,null,$2,$3) r",[event,randomUUID(),JSON.stringify({title:"Final sweep"})]))[0].r;
-    expect((await sql<{r:any}>("select public.sontu_close_event($1,$2,true) r",[event,randomUUID()]))[0].r.error_code).toBe("OPEN_TODOS");
-    await sql("select public.sontu_event_operations_command('set_todo_state',$1,$2,$3,$4)",[event,todo.item_id,randomUUID(),JSON.stringify({state:"DONE"})]);
-    const op=randomUUID();
-    const closed=(await sql<{r:any}>("select public.sontu_close_event($1,$2,true) r",[event,op]))[0].r;
-    expect(closed).toMatchObject({status:"ready",lifecycle:"CLOSED"});
-    expect((await sql<{r:any}>("select public.sontu_close_event($1,$2,true) r",[event,op]))[0].r).toEqual(closed);
-    const results=(await sql<{r:any}>("select public.sontu_results_projection($1) r",[event]))[0].r;
-    expect(results.lifecycle).toBe("CLOSED");
-    expect(results.closeout).toMatchObject({confirmed:1,admitted:1,attendance_unknown:0});
-    expect((await projection()).event.lifecycle).toBe("CLOSED");
+    const todo = (
+      await sql<{ r: any }>(
+        "select public.sontu_event_operations_command('add_todo',$1,null,$2,$3) r",
+        [event, randomUUID(), JSON.stringify({ title: "Final sweep" })],
+      )
+    )[0].r;
+    expect(
+      (
+        await sql<{ r: any }>("select public.sontu_close_event($1,$2,true) r", [
+          event,
+          randomUUID(),
+        ])
+      )[0].r.error_code,
+    ).toBe("OPEN_TODOS");
+    await sql(
+      "select public.sontu_event_operations_command('set_todo_state',$1,$2,$3,$4)",
+      [event, todo.item_id, randomUUID(), JSON.stringify({ state: "DONE" })],
+    );
+    const op = randomUUID();
+    const closed = (
+      await sql<{ r: any }>("select public.sontu_close_event($1,$2,true) r", [
+        event,
+        op,
+      ])
+    )[0].r;
+    expect(closed).toMatchObject({ status: "ready", lifecycle: "COMPLETED" });
+    expect(
+      (
+        await sql<{ r: any }>("select public.sontu_close_event($1,$2,true) r", [
+          event,
+          op,
+        ])
+      )[0].r,
+    ).toEqual(closed);
+    const results = (
+      await sql<{ r: any }>("select public.sontu_results_projection($1) r", [
+        event,
+      ])
+    )[0].r;
+    expect(results.lifecycle).toBe("COMPLETED");
+    expect(results.closeout).toMatchObject({
+      confirmed: 1,
+      admitted: 1,
+      attendance_unknown: 0,
+    });
+    expect((await projection()).event.lifecycle).toBe("COMPLETED");
+  });
+});
+
+describe("private ask-host inbox", () => {
+  it("allows confirmed account participants to ask and hosts to answer without exposing questions to others", async () => {
+    await asHost();
+    const created = await command("create_draft", {
+      timezone: "America/Toronto",
+    });
+    event = created.event_id;
+    version = created.current_version;
+    await command("save_draft", {
+      title: "Ask host test",
+      description: "Private questions",
+      starts_at: "2031-01-01T18:00:00Z",
+      ends_at: "2031-01-01T20:00:00Z",
+      timezone: "America/Toronto",
+      venue_label: "Sontu Hall",
+      cover_key: "sunset",
+    });
+    await command("publish", { confirmed: true });
+    await sql(
+      "insert into sontu_private.event_participants(event_instance_id,participant_user_id,display_name,commitment_state) values($1,$2,'Member','CONFIRMED')",
+      [event, stranger],
+    );
+    await asHost(stranger);
+    const asked = (
+      await sql<{ r: any }>(
+        "select public.sontu_event_host_questions('ask',$1,null,$2) r",
+        [event, "Is parking available?"],
+      )
+    )[0].r;
+    expect(asked.status).toBe("ready");
+    const ownQuestions = (
+      await sql<{ r: any }>(
+        "select public.sontu_event_host_questions('read',$1,null,null) r",
+        [event],
+      )
+    )[0].r;
+    expect(ownQuestions.items).toHaveLength(1);
+    await asHost();
+    const hostQuestions = (
+      await sql<{ r: any }>(
+        "select public.sontu_event_host_questions('read',$1,null,null) r",
+        [event],
+      )
+    )[0].r;
+    expect(hostQuestions.items[0].question).toBe("Is parking available?");
+    expect(
+      (
+        await sql<{ r: any }>(
+          "select public.sontu_event_host_questions('answer',$1,$2,$3) r",
+          [event, asked.id, "Yes, use the south lot."],
+        )
+      )[0].r.status,
+    ).toBe("ready");
+    await asHost(stranger);
+    expect(
+      (
+        await sql<{ r: any }>(
+          "select public.sontu_event_host_questions('close',$1,$2,null) r",
+          [event, asked.id],
+        )
+      )[0].r.error_code,
+    ).toBe("UNAUTHORIZED");
+  });
+});
+
+describe("event-scoped discussion", () => {
+  it("keeps discussion participant-only and lets the host hide a post", async () => {
+    await asHost();
+    const created = await command("create_draft", {
+      timezone: "America/Toronto",
+    });
+    event = created.event_id;
+    version = created.current_version;
+    await command("save_draft", {
+      title: "Discussion test",
+      description: "Bounded board",
+      starts_at: "2033-06-01T22:00:00Z",
+      ends_at: "2033-06-02T00:00:00Z",
+      timezone: "America/Toronto",
+      venue_label: "Room A",
+      cover_key: "market",
+      capacity: "12",
+    });
+    await command("publish", { confirmed: true });
+    await sql(
+      "insert into sontu_private.event_participants(event_instance_id,participant_user_id,display_name,commitment_state) values($1,$2,'Member','CONFIRMED')",
+      [event, stranger],
+    );
+    expect(
+      (
+        await sql<{ r: any }>(
+          "select public.sontu_event_discussion('configure',$1,null,null,true) r",
+          [event],
+        )
+      )[0].r.enabled,
+    ).toBe(true);
+    await asHost(stranger);
+    const post = (
+      await sql<{ r: any }>(
+        "select public.sontu_event_discussion('post',$1,null,'Looking forward to it',null) r",
+        [event],
+      )
+    )[0].r;
+    expect(post.status).toBe("ready");
+    await asHost();
+    expect(
+      (
+        await sql<{ r: any }>(
+          "select public.sontu_event_discussion('hide',$1,$2,null,null) r",
+          [event, post.id],
+        )
+      )[0].r.status,
+    ).toBe("ready");
+    await asHost(stranger);
+    expect(
+      (
+        await sql<{ r: any }>(
+          "select public.sontu_event_discussion('read',$1,null,null,null) r",
+          [event],
+        )
+      )[0].r.items,
+    ).toEqual([]);
   });
 });
 
@@ -837,5 +1776,170 @@ describe("explicit beta dev notes", () => {
       await db.exec("reset role");
       await asHost();
     }
+  });
+});
+
+describe("commerce-ready admission authority", () => {
+  it("keeps orders private and derives admission validity from payment state", async () => {
+    await asHost();
+    const created = await command("create_draft", {
+      timezone: "America/Toronto",
+    });
+    event = created.event_id;
+    version = created.current_version;
+    await command("save_draft", {
+      title: "Admission authority test",
+      description: "Private order-state plumbing only.",
+      starts_at: "2034-06-01T22:00:00Z",
+      ends_at: "2034-06-02T00:00:00Z",
+      timezone: "America/Toronto",
+      venue_label: "Room A",
+      cover_key: "market",
+      capacity: "12",
+    });
+    await command("publish", { confirmed: true });
+    const participant = randomUUID();
+    await sql(
+      "insert into sontu_private.event_participants(id,event_instance_id,display_name,commitment_state) values($1,$2,'Order guest','NO_COMMITMENT')",
+      [participant, event],
+    );
+    const order = randomUUID();
+    await sql(
+      "insert into sontu_private.event_orders(id,event_instance_id,event_participant_id,state) values($1,$2,$3,'PENDING')",
+      [order, event, participant],
+    );
+    const unrelatedParticipant = randomUUID();
+    const unrelatedEvent = randomUUID();
+    await sql(
+      "insert into sontu_private.event_instances(id,host_owner_user_id,event_kind,lifecycle,current_version_number) values($1,$2,'SIMPLE','DRAFT',1)",
+      [unrelatedEvent, host],
+    );
+    await sql(
+      "insert into sontu_private.event_participants(id,event_instance_id,display_name,commitment_state) values($1,$2,'Wrong event','NO_COMMITMENT')",
+      [unrelatedParticipant, unrelatedEvent],
+    );
+    await expect(
+      sql(
+        "insert into sontu_private.event_orders(event_instance_id,event_participant_id,state) values($1,$2,'PENDING')",
+        [event, unrelatedParticipant],
+      ),
+    ).rejects.toThrow();
+    expect(
+      await sql(
+        "select status from sontu_private.event_admissions where event_participant_id=$1",
+        [participant],
+      ),
+    ).toEqual([]);
+    await sql(
+      "update sontu_private.event_orders set state='PAID',paid_at=now(),updated_at=now() where id=$1",
+      [order],
+    );
+    expect(
+      await sql(
+        "select source_kind,status from sontu_private.event_admissions where event_participant_id=$1",
+        [participant],
+      ),
+    ).toEqual([{ source_kind: "ORDER", status: "VALID" }]);
+    await sql(
+      "update sontu_private.event_participants set commitment_state='CONFIRMED',plus_one_allowance=2 where id=$1",
+      [participant],
+    );
+    expect(
+      (
+        await sql<{ r: any }>(
+          "select public.sontu_host_operational_analytics($1) r",
+          [event],
+        )
+      )[0].r.rsvp,
+    ).toMatchObject({ confirmed: 1, reserved_places: 3, remaining_places: 9 });
+    expect(
+      await sql<{ status: string }>(
+        "select c.status from sontu_private.event_credentials c join sontu_private.event_admissions a on a.id=c.admission_id where a.event_participant_id=$1",
+        [participant],
+      ),
+    ).toEqual([{ status: "ACTIVE" }]);
+    const credential = await sql<{ id: string }>(
+      "select c.id from sontu_private.event_credentials c join sontu_private.event_admissions a on a.id=c.admission_id where a.event_participant_id=$1",
+      [participant],
+    );
+    await sql(
+      "update sontu_private.event_instances set lifecycle='IN_PROGRESS' where id=$1",
+      [event],
+    );
+    expect(
+      await sql<{ result: { result: string } }>(
+        "select sontu_private.check_in_credential_command($1,$2,$3) result",
+        [event, credential[0].id, randomUUID()],
+      ),
+    ).toEqual([{ result: { status: "ready", result: "ADMITTED", participant_id: participant } }]);
+    await sql(
+      "update sontu_private.event_orders set state='REFUNDED',refunded_at=now(),updated_at=now() where id=$1",
+      [order],
+    );
+    expect(
+      await sql(
+        "select status,invalidated_at is not null invalidated from sontu_private.event_admissions where event_participant_id=$1",
+        [participant],
+      ),
+    ).toEqual([{ status: "REFUNDED_INVALID", invalidated: true }]);
+    expect(
+      await sql<{ status: string }>(
+        "select c.status from sontu_private.event_credentials c join sontu_private.event_admissions a on a.id=c.admission_id where a.event_participant_id=$1",
+        [participant],
+      ),
+    ).toEqual([{ status: "REVOKED" }]);
+    expect(
+      await sql(
+        "select prior_state,state,source_kind from sontu_private.event_payment_state_history where order_id=$1 order by recorded_at,id",
+        [order],
+      ),
+    ).toEqual([
+      { prior_state: null, state: "PENDING", source_kind: "BACKOFFICE" },
+      { prior_state: "PENDING", state: "PAID", source_kind: "BACKOFFICE" },
+      { prior_state: "PAID", state: "REFUNDED", source_kind: "BACKOFFICE" },
+    ]);
+    await expect(
+      sql("update sontu_private.event_orders set state='PAID' where id=$1", [
+        order,
+      ]),
+    ).rejects.toThrow(/INVALID_ORDER_STATE_TRANSITION/);
+    expect(
+      await sql<{ allowed: boolean }>(
+        "select has_table_privilege('authenticated','sontu_private.event_orders','select') allowed",
+      ),
+    ).toEqual([{ allowed: false }]);
+    expect(
+      await sql<{ allowed: boolean }>(
+        "select has_table_privilege('authenticated','sontu_private.event_orders','update') allowed",
+      ),
+    ).toEqual([{ allowed: false }]);
+  });
+
+  it("makes management events discoverable without promoting check-in staff", async () => {
+    await sql(
+      "insert into sontu_private.event_team_members(event_instance_id,user_id,role) values($1,$2,'CO_HOST') on conflict(event_instance_id,user_id) do update set role=excluded.role",
+      [event, stranger],
+    );
+    await asHost(stranger);
+    expect(
+      (
+        await sql<{ r: any }>("select public.sontu_my_events() r")
+      )[0].r.events.some((item: any) => item.id === event && item.hosting),
+    ).toBe(true);
+    expect(
+      (
+        await sql<{ r: any }>("select public.sontu_event_hub($1) r", [event])
+      )[0].r.viewer.hosting,
+    ).toBe(true);
+    await sql(
+      "update sontu_private.event_team_members set role='CHECK_IN_STAFF' where event_instance_id=$1 and user_id=$2",
+      [event, stranger],
+    );
+    expect(
+      (
+        await sql<{ r: any }>("select public.sontu_my_events() r")
+      )[0].r.events.some((item: any) => item.id === event),
+    ).toBe(false);
+    await asHost();
   });
 });

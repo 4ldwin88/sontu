@@ -326,6 +326,7 @@ export function MinimumProfile() {
   const a = useAccount(),
     [params] = useSearchParams(),
     [name, setName] = useState(""),
+    [eventEmailEnabled, setEventEmailEnabled] = useState(true),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   const next = safeAccountReturn(params.get("next"));
@@ -362,6 +363,7 @@ export function MinimumProfile() {
             try {
               const r = await profileRequest("create", {
                 first_name: name.trim(),
+                event_email_enabled: eventEmailEnabled,
               });
               if (r.status === "ready") a.reload();
               else setError("Enter a first name of up to 80 characters.");
@@ -382,6 +384,10 @@ export function MinimumProfile() {
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
+          <label className="legal-check">
+            <input type="checkbox" checked={eventEmailEnabled} onChange={(e) => setEventEmailEnabled(e.target.checked)} />
+            <span><strong>Send me event emails</strong><small>Invitations and important updates for events you join. You can change this later. Guest RSVP emails are always required to manage a reservation.</small></span>
+          </label>
           {error && <p role="alert">{error}</p>}
           <Button disabled={busy || !name.trim()}>
             {busy ? "Saving…" : "Start exploring"}
@@ -401,7 +407,7 @@ export function MinimumProfile() {
 export function AccountEntryGate({ children }: { children: ReactNode }) {
   const a = useAccount(),
     l = useLocation();
-  // Accountless invitation and fixture review destinations remain separate.
+  // Accountless invitation destinations remain separate from account setup.
   if (a.session && a.checking)
     return (
       <p role="status" className="panel">
@@ -426,6 +432,7 @@ export function RealProfile({ onBack }: { onBack: () => void }) {
     [name, setName] = useState(p?.first_name ?? ""),
     [display, setDisplay] = useState(p?.display_name ?? ""),
     [handle, setHandle] = useState(p?.handle ?? ""),
+    [eventEmailEnabled, setEventEmailEnabled] = useState(p?.event_email_enabled ?? true),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
   if (!p) return <Navigate to="/account/setup" replace />;
@@ -458,6 +465,7 @@ export function RealProfile({ onBack }: { onBack: () => void }) {
                 first_name: name,
                 display_name: display,
                 handle,
+                event_email_enabled: eventEmailEnabled,
                 revision: p.revision,
               });
               if (r.status === "ready") {
@@ -494,6 +502,10 @@ export function RealProfile({ onBack }: { onBack: () => void }) {
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
+          <label className="legal-check">
+            <input type="checkbox" checked={eventEmailEnabled} onChange={(e) => setEventEmailEnabled(e.target.checked)} />
+            <span><strong>Event emails</strong><small>Receive invitations and important event updates by email.</small></span>
+          </label>
           <TextField
             label="Display name (optional)"
             maxLength={80}
@@ -530,6 +542,7 @@ export function RealProfile({ onBack }: { onBack: () => void }) {
             setName(p.first_name);
             setDisplay(p.display_name);
             setHandle(p.handle);
+            setEventEmailEnabled(p.event_email_enabled);
             setEditing(true);
           }}
         >

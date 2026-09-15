@@ -38,7 +38,19 @@ export interface Participant {
   invitation_state?: string;
   invitation_email?: string;
   link_revoked?: boolean;
+  plus_one_allowance?: number;
   response: ResponseState | null;
+  admission_status?:
+    | "PENDING"
+    | "VALID"
+    | "USED"
+    | "REVOKED"
+    | "CANCELLED_EVENT_INVALID"
+    | "REFUNDED_INVALID"
+    | "EXPIRED"
+    | null;
+  admission_issued_at?: string | null;
+  admission_invalidated_at?: string | null;
 }
 export interface Consequence {
   id: string;
@@ -60,12 +72,14 @@ export interface HostProjection {
   event: {
     id: string;
     event_kind?: "FIXTURE" | "SIMPLE";
-    lifecycle: "DRAFT" | "PUBLISHED" | "CANCELLED" | "CLOSED";
+    lifecycle:
+      "DRAFT" | "PUBLISHED" | "IN_PROGRESS" | "CANCELLED" | "COMPLETED";
     current_version_number: number;
   };
   version: EventVersion;
   versions: EventVersion[];
   participants: Participant[];
+  admission_summary?: { valid: number; used: number; invalid: number };
   cases: Consequence[];
   suggestion: {
     id: string;
@@ -83,25 +97,118 @@ export interface HostProjection {
 export interface EventOperationsProjection {
   status: CommandStatus;
   error_code?: string;
-  todos: { id: string; title: string; due_at: string | null; state: "OPEN" | "DONE"; assignee_team_member_id: string | null }[];
-  resources: { id: string; label: string; quantity: number; state: "NEEDED" | "READY"; note: string | null; assignee_team_member_id: string | null }[];
+  todos: {
+    id: string;
+    title: string;
+    due_at: string | null;
+    state: "OPEN" | "DONE";
+    assignee_team_member_id: string | null;
+  }[];
+  resources: {
+    id: string;
+    label: string;
+    quantity: number;
+    state: "NEEDED" | "READY";
+    note: string | null;
+    assignee_team_member_id: string | null;
+  }[];
 }
-export type TeamRole = "CO_HOST" | "EVENT_MANAGER" | "CHECK_IN_STAFF" | "VOLUNTEER" | "PHOTOGRAPHER";
+export type TeamRole =
+  "CO_HOST" | "EVENT_MANAGER" | "CHECK_IN_STAFF" | "VOLUNTEER" | "PHOTOGRAPHER";
 export type TeamVisibility = "EVENT_TEAM" | "PUBLIC_ROLE" | "HIDDEN";
-export interface TeamMember { id: string; user_id: string; email: string; display_name: string; role: TeamRole; attends_event: boolean; public_visibility: TeamVisibility }
-export interface TeamProjection { status: CommandStatus; error_code?: string; members: TeamMember[] }
+export interface TeamMember {
+  id: string;
+  user_id: string;
+  email: string;
+  display_name: string;
+  role: TeamRole;
+  attends_event: boolean;
+  public_visibility: TeamVisibility;
+}
+export interface TeamProjection {
+  status: CommandStatus;
+  error_code?: string;
+  members: TeamMember[];
+}
 export interface CheckInProjection {
   status: CommandStatus;
   error_code?: string;
-  event: { id: string; lifecycle: string; title: string; starts_at: string; timezone: string };
+  event: {
+    id: string;
+    lifecycle: string;
+    title: string;
+    starts_at: string;
+    timezone: string;
+  };
   counts: { eligible: number; admitted: number };
-  participants: { id: string; display_name: string; commitment_state: string; checked_in_at: string | null }[];
+  participants: {
+    id: string;
+    display_name: string;
+    commitment_state: string;
+    admission_status:
+      | "PENDING"
+      | "VALID"
+      | "USED"
+      | "REVOKED"
+      | "CANCELLED_EVENT_INVALID"
+      | "REFUNDED_INVALID"
+      | "EXPIRED"
+      | null;
+    checked_in_at: string | null;
+  }[];
 }
-export interface CheckInResult extends CommandResult { result?: "ADMITTED" | "ALREADY_USED" | "WRONG_EVENT" | "INVALID" | "UNABLE_TO_VERIFY" }
+
+export function checkInAdmissionLabel(
+  status: CheckInProjection["participants"][number]["admission_status"],
+  checkedInAt: string | null,
+) {
+  if (status === "USED" || checkedInAt) return "Checked in";
+  if (status === "VALID") return "Valid admission";
+  if (status === "PENDING") return "Admission pending";
+  if (status === "REFUNDED_INVALID") return "Invalid after refund";
+  if (status === "CANCELLED_EVENT_INVALID") return "Invalid — event cancelled";
+  if (status === "REVOKED") return "Admission revoked";
+  if (status === "EXPIRED") return "Admission expired";
+  return "No valid admission";
+}
+
+export function canAttemptCheckIn(
+  lifecycle: string,
+  status: CheckInProjection["participants"][number]["admission_status"],
+) {
+  return (
+    lifecycle === "IN_PROGRESS" && (status === "VALID" || status === "USED")
+  );
+}
+export interface CheckInResult extends CommandResult {
+  result?:
+    | "ADMITTED"
+    | "ALREADY_USED"
+    | "WRONG_EVENT"
+    | "INVALID"
+    | "UNABLE_TO_VERIFY";
+}
 export interface EventResultsProjection {
- status: CommandStatus; error_code?: string; lifecycle: string;
- summary: { confirmed: number; admitted: number; attendance_unknown: number; declined_or_withdrawn: number; open_todos: number; needed_resources: number; unresolved_obligations: number };
- closeout: null | { closed_at: string; closed_by: string; confirmed: number; admitted: number; attendance_unknown: number; declined_or_withdrawn: number };
+  status: CommandStatus;
+  error_code?: string;
+  lifecycle: string;
+  summary: {
+    confirmed: number;
+    admitted: number;
+    attendance_unknown: number;
+    declined_or_withdrawn: number;
+    open_todos: number;
+    needed_resources: number;
+    unresolved_obligations: number;
+  };
+  closeout: null | {
+    closed_at: string;
+    closed_by: string;
+    confirmed: number;
+    admitted: number;
+    attendance_unknown: number;
+    declined_or_withdrawn: number;
+  };
 }
 export function settlement(responses: ResponseState[]) {
   const terminal = responses.filter(
@@ -137,6 +244,8 @@ export const errorMessages: Record<string, string> = {
     "This email already has an invitation. Use its existing participant row to replace the link.",
   CAPACITY_FULL:
     "This event is full. Your invitation does not reserve a place.",
+  EMAIL_UNAVAILABLE:
+    "That email is already connected to this event. Sign in or use another email.",
   PUBLISH_BLOCKED:
     "Add a title, location and valid future start/end time, then review and confirm publication.",
   STALE_CONFLICT:

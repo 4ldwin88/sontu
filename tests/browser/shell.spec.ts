@@ -5,9 +5,6 @@ const routes = [
   "discover",
   "events",
   "feed",
-  "events/sunset-social",
-  "events/sunset-social/host",
-  "host/events/sunset-social",
 ];
 for (const route of routes) {
   test(`${route}: layout, semantics and assets`, async ({ page }, info) => {
@@ -56,25 +53,14 @@ for (const route of routes) {
     });
   });
 }
-test("theme, square imagery, keyboard, and focused host transition", async ({
+test("theme and keyboard navigation preserve the consumer shell", async ({
   page,
 }, info) => {
   await page.goto("/#/settings");
   await page.getByLabel("Display mode").selectOption("dark");
   await page.getByLabel("Curated accent").selectOption("navy");
-  await page.goto("/#/events?view=Hosting");
-  const image = page.locator(".compact-square .event-image").first();
-  const box = await image.boundingBox();
-  expect(box?.width).toBe(box?.height);
-  await page.getByRole("link", { name: "Manage event" }).click();
-  await expect(
-    page.getByRole("navigation", { name: "Main navigation" }),
-  ).toHaveCount(0);
-  const nav = page.locator(".workspace-nav:visible");
-  await nav.getByRole("button", { name: "Team & Roles" }).click();
-  await expect(
-    page.getByRole("heading", { name: "Team & Roles" }),
-  ).toBeVisible();
+  await page.goto("/#/events");
+  await expect(page.locator(".app-shell")).toBeVisible();
   expect(
     (
       await new AxeBuilder({ page })
@@ -83,13 +69,13 @@ test("theme, square imagery, keyboard, and focused host transition", async ({
     ).violations,
   ).toEqual([]);
   await page.screenshot({
-    path: info.outputPath("dark-host-team.png"),
+    path: info.outputPath("dark-events.png"),
     fullPage: true,
   });
-  await page.getByRole("link", { name: "Close workspace" }).click();
-  await expect(
-    page.getByRole("navigation", { name: "Main navigation" }),
-  ).toBeVisible();
+  await page
+    .getByRole("navigation", { name: "Main navigation" })
+    .getByRole("link", { name: "Events" })
+    .focus();
   await page.keyboard.press("Tab");
   expect(
     await page.evaluate(() => {
@@ -98,19 +84,15 @@ test("theme, square imagery, keyboard, and focused host transition", async ({
     }),
   ).toBe(true);
 });
-test("320px text reflow and unresolved state", async ({ page }) => {
+test("320px text reflow", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 900 });
-  await page.goto("/#/preview/states");
-  await page.getByLabel("Preview state").selectOption("pending_unknown");
+  await page.goto("/#/home");
   await page.addStyleTag({ content: "html{font-size:200%}" });
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth + 1,
     ),
   ).toBe(true);
-  await expect(
-    page.getByText("The outcome is unresolved. Don’t treat this as confirmed."),
-  ).toBeVisible();
 });
 
 test("root navigation starts at top and chrome follows scroll direction", async ({
@@ -180,9 +162,9 @@ test("utility drawers keep the page, trap focus, and return focus", async ({
     page.viewportSize()!.width,
   );
   await page.screenshot({ path: info.outputPath("notifications-drawer.png") });
-  await notifications.getByRole("link").first().click();
+  await page.keyboard.press("Escape");
   await expect(notifications).toHaveCount(0);
-  await expect(page).toHaveURL(/#\/events\/sunset-social$/);
+  await expect(page).toHaveURL(/#\/discover$/);
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
 });
 

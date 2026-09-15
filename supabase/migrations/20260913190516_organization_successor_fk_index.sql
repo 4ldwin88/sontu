@@ -1,0 +1,2 @@
+create index organization_successors_nominated_by
+  on sontu_private.organization_successor_nominations(nominated_by);
