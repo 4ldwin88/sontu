@@ -766,7 +766,10 @@ function Notifications({ embedded = false }: { embedded?: boolean }) {
               <div className="panel">
                 <StatusBadge tone="info">Connection request</StatusBadge>
                 <h2>{request.display_name} wants to connect</h2>
-                <p>@{request.handle}</p>
+                <p>
+                  @{request.handle} sent a mutual connection request. Accepting
+                  may reveal profile fields marked for connections.
+                </p>
                 <div className="coord-actions">
                   <Button
                     disabled={!!responding}

@@ -104,7 +104,7 @@ const pages: Record<string, { title: string; intro: string; body: string }> = {
   connections: {
     title: "Connections",
     intro: "People and relationships around shared experiences.",
-    body: "Connections will grow from shared events. Relationship requests and types are not available yet.",
+    body: "Connections are explicit mutual relationships. Review requests, organize private groups, and choose who belongs in future invitation contexts.",
   },
   privacy: {
     title: "Privacy & Safety",
@@ -234,7 +234,7 @@ export function ConnectionsPage({ onBack }: { onBack: () => void }) {
       </button>
       <h1>Connections</h1>
       <p className="muted">
-        Find people, review requests, and organize private groups for future invitations.
+        Find people, accept or deny requests, and organize private groups for future invitations.
       </p>
       <div className="relationship-tabs" role="tablist" aria-label="Connections sections">
         {[
@@ -308,7 +308,7 @@ export function ConnectionsPage({ onBack }: { onBack: () => void }) {
           <div className="relationship-empty">
             <Users size={28} />
             <strong>No connection requests</strong>
-            <p className="muted">New requests will appear here for quick review.</p>
+            <p className="muted">When someone asks to connect, you can accept or deny it here.</p>
           </div>
         )}
       </section>}
@@ -612,12 +612,12 @@ function ProfileConnectControl({
     return <p className="profile-viewer-note">Connected</p>;
   }
   if (status === "pending_sent") {
-    return <p className="profile-viewer-note">Request sent</p>;
+    return <p className="profile-viewer-note">Connection request sent</p>;
   }
   if (status === "pending_received") {
     return (
       <Link to="/connections" className="profile-hub-secondary-action">
-        Respond in Connections
+        Accept or deny request
       </Link>
     );
   }
@@ -640,7 +640,7 @@ function ProfileConnectControl({
             setMessage(
               response.connection_status === "ACCEPTED"
                 ? "You are already connected."
-                : "Connection request sent.",
+                : "Connection request sent. They can accept or deny it from Notifications or Connections.",
             );
           } else {
             setMessage("That request could not be sent.");

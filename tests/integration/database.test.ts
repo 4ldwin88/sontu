@@ -1314,6 +1314,14 @@ describe("public profile hubs", () => {
       status: "ready",
       connection_status: "PENDING",
     });
+    expect(
+      (
+        await sql<{ r: any }>("select public.sontu_connections($1,$2) r", [
+          "accept",
+          JSON.stringify({ connection_id: request.connection_id }),
+        ])
+      )[0].r.error_code,
+    ).toBe("REQUEST_NOT_FOUND");
     const requesterHubAfterRequest = (
       await sql<{ r: any }>("select public.sontu_public_profile_hub($1) r", [
         ownerProfile.handle,
@@ -1353,8 +1361,35 @@ describe("public profile hubs", () => {
     expect(
       (
         await sql<{ r: any }>("select public.sontu_connections($1,$2) r", [
-          "accept",
+          "deny",
           JSON.stringify({ connection_id: request.connection_id }),
+        ])
+      )[0].r.status,
+    ).toBe("ready");
+    const ownerReadAfterDeny = (
+      await sql<{ r: any }>("select public.sontu_connections($1,$2) r", [
+        "read",
+        "{}",
+      ])
+    )[0].r;
+    expect(ownerReadAfterDeny.requests).toEqual([]);
+    await asHost(requester);
+    const rerequest = (
+      await sql<{ r: any }>("select public.sontu_connections($1,$2) r", [
+        "request",
+        JSON.stringify({ handle: ownerProfile.handle }),
+      ])
+    )[0].r;
+    expect(rerequest).toMatchObject({
+      status: "ready",
+      connection_status: "PENDING",
+    });
+    await asHost(owner);
+    expect(
+      (
+        await sql<{ r: any }>("select public.sontu_connections($1,$2) r", [
+          "accept",
+          JSON.stringify({ connection_id: rerequest.connection_id }),
         ])
       )[0].r.status,
     ).toBe("ready");
