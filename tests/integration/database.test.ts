@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { PGlite } from "@electric-sql/pglite";
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { beforeAll, afterAll, describe, it, expect } from "vitest";
 import { randomUUID, randomBytes } from "node:crypto";
@@ -56,7 +56,10 @@ beforeAll(async () => {
     "create role anon; create role authenticated; create schema auth; create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz,is_anonymous boolean default false); create function auth.uid() returns uuid language sql as $$ select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$; grant usage on schema auth to anon,authenticated;",
   );
   await sql("insert into auth.users(id) values($1),($2)", [host, stranger]);
-  const dir = resolve(process.cwd(), "../../supabase/migrations");
+  const rootDir = existsSync(resolve(process.cwd(), "supabase/migrations"))
+    ? process.cwd()
+    : resolve(process.cwd(), "../..");
+  const dir = resolve(rootDir, "supabase/migrations");
   for (const name of readdirSync(dir)
     .filter((n) => n.endsWith(".sql"))
     .sort())

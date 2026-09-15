@@ -3,9 +3,14 @@ export type DiagnosticKind =
   "request_failed" | "access_denied" | "unexpected_error";
 const key = "sontu-diagnostics-v1";
 type Entry = { reference: string; time: string; kind: DiagnosticKind };
+let memoryEntries: Entry[] = [];
+function storage(): Storage | null {
+  return typeof sessionStorage === "undefined" ? null : sessionStorage;
+}
 export function diagnosticEntries(): Entry[] {
   try {
-    return JSON.parse(sessionStorage.getItem(key) ?? "[]");
+    const store = storage();
+    return store ? JSON.parse(store.getItem(key) ?? "[]") : memoryEntries;
   } catch {
     return [];
   }
@@ -14,10 +19,10 @@ export function recordDiagnostic(kind: DiagnosticKind): string {
   const reference = crypto.randomUUID();
   try {
     const entry = { reference, time: new Date().toISOString(), kind };
-    sessionStorage.setItem(
-      key,
-      JSON.stringify([...diagnosticEntries(), entry].slice(-30)),
-    );
+    const entries = [...diagnosticEntries(), entry].slice(-30);
+    const store = storage();
+    if (store) store.setItem(key, JSON.stringify(entries));
+    else memoryEntries = entries;
   } catch {
     /* Diagnostics must never block product behavior. */
   }
@@ -25,6 +30,8 @@ export function recordDiagnostic(kind: DiagnosticKind): string {
 }
 export function clearDiagnostics() {
   try {
-    sessionStorage.removeItem(key);
+    const store = storage();
+    if (store) store.removeItem(key);
+    memoryEntries = [];
   } catch {}
 }
