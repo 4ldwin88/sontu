@@ -876,6 +876,19 @@ function DraftEditor({
               value={form.title}
               onChange={(e) => update("title", e.target.value)}
             />
+            <TextField
+              label={
+                format === "online"
+                  ? "Online access details"
+                  : format === "hybrid"
+                    ? "Venue or access summary"
+                    : "Location"
+              }
+              required
+              maxLength={300}
+              value={form.venue_label}
+              onChange={(e) => update("venue_label", e.target.value)}
+            />
             <label className="field">
               Description <span className="small muted">Optional</span>
               <textarea
@@ -959,19 +972,6 @@ function DraftEditor({
                 />
               ))}
             </div>
-            <TextField
-              label={
-                format === "online"
-                  ? "Online access details"
-                  : format === "hybrid"
-                    ? "Venue or access summary"
-                    : "Location"
-              }
-              required
-              maxLength={300}
-              value={form.venue_label}
-              onChange={(e) => update("venue_label", e.target.value)}
-            />
             <TextField
               label="Participation limit (optional)"
               type="number"

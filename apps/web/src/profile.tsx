@@ -465,6 +465,7 @@ function ProfileHubContent({
   result: PublicProfileHubResult;
   compact?: boolean;
 }) {
+  const account = useAccount();
   if (result.status !== "ready" || !result.profile) return null;
   return (
     <section className={compact ? "profile-hub-card mini" : "profile-hub-card"}>
@@ -514,7 +515,7 @@ function ProfileHubContent({
             <span>View full profile</span>
           </Link>
         )}
-        {!compact && (
+        {!compact && !account.session && (
           <>
             <Link to="/home">
               <CalendarDays size={18} />
@@ -525,6 +526,12 @@ function ProfileHubContent({
               <span>Create account</span>
             </Link>
           </>
+        )}
+        {!compact && account.session && (
+          <Link to="/connections">
+            <Users size={18} />
+            <span>Connections</span>
+          </Link>
         )}
       </div>
     </section>

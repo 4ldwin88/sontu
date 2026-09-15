@@ -860,6 +860,12 @@ it("joins and withdraws from a public event atomically with safe retries", async
     )[0].r;
 
   await asHost(attendee);
+  const attendeeProfile = (
+    await sql<{ r: any }>("select public.sontu_account_profile($1,$2) r", [
+      "create",
+      JSON.stringify({ first_name: "Public One" }),
+    ])
+  )[0].r.profile;
   let read = await participate("READ");
   expect(read.commitment_state).toBeNull();
   const joinOperation = randomUUID();
@@ -876,8 +882,18 @@ it("joins and withdraws from a public event atomically with safe retries", async
   expect(
     (
       await sql<{ r: any }>("select public.sontu_event_hub($1) r", [event])
-    )[0].r.going.some((person: any) => person.display_name === "public-one"),
+    )[0].r.going.some(
+      (person: any) =>
+        person.display_name === "Public One" &&
+        person.handle === attendeeProfile.handle,
+    ),
   ).toBe(true);
+  expect(
+    JSON.stringify(
+      (await sql<{ r: any }>("select public.sontu_event_hub($1) r", [event]))[0]
+        .r.going,
+    ),
+  ).not.toContain("public-one@example.com");
 
   await asHost(waiting);
   expect((await participate("JOIN")).error_code).toBe("CAPACITY_FULL");

@@ -1211,7 +1211,7 @@ export function ConnectedEventHub() {
       invitation_state?: string;
     };
     host?: { display_name: string; handle?: string | null };
-    going?: { display_name: string; badge: string | null }[];
+    going?: { display_name: string; badge: string | null; handle?: string | null }[];
   } | null>(null);
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
@@ -1630,7 +1630,16 @@ export function ConnectedEventHub() {
                           <span className="avatar">
                             {person.display_name.slice(0, 1).toUpperCase()}
                           </span>
-                          <span>{person.display_name}</span>
+                          {person.handle ? (
+                            <MiniProfileLauncher
+                              handle={person.handle}
+                              className="participant-profile-link"
+                            >
+                              {person.display_name}
+                            </MiniProfileLauncher>
+                          ) : (
+                            <span>{person.display_name}</span>
+                          )}
                           {person.badge && (
                             <StatusBadge
                               tone={

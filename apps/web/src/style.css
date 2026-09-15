@@ -4364,6 +4364,19 @@ button.back-link {
 .host-profile-link:hover {
   text-decoration: underline;
 }
+.participant-profile-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--interactive-primary);
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+.participant-profile-link:hover {
+  text-decoration: underline;
+}
 .hub-avatar {
   width: 44px;
   height: 44px;
