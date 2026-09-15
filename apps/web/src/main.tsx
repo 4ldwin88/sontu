@@ -18,7 +18,8 @@ window.addEventListener("unhandledrejection", () =>
 const invitedHubKey = "sontu-opened-invited-event";
 function preserveInvitedHubAffordance() {
   document.addEventListener("click", (event) => {
-    const link = (event.target as Element | null)?.closest<HTMLAnchorElement>(
+    if (!(event.target instanceof Element)) return;
+    const link = event.target.closest<HTMLAnchorElement>(
       'a[href*="#/my-events/"], a[href^="/my-events/"]',
     );
     if (!link?.closest(".event-list-row")?.textContent?.includes("Invited"))
