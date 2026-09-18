@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   Link,
   Navigate,
@@ -16,15 +16,25 @@ import {
   Lock,
   ChevronDown,
   Users,
+  Mail,
+  Phone,
+  MapPin,
+  Trash2,
 } from "lucide-react";
 import { Button, TextField } from "../../../packages/ui-web";
 import { supabase } from "../../../packages/data/sontu";
+import { trackBeta } from "../../../packages/data/telemetry";
 import {
   passwordChecks,
   safeAccountReturn,
 } from "../../../packages/domain/password";
 import { Wordmark } from "./shells";
-import { profileRequest, useAccount } from "./account-state";
+import {
+  profileAvatarUrl,
+  profileMediaBucket,
+  profileRequest,
+  useAccount,
+} from "./account-state";
 
 function AccountShell({ children }: { children: ReactNode }) {
   return (
@@ -152,6 +162,7 @@ export function AccountPortal() {
                   email: email.trim(),
                   password,
                   options: {
+                    emailRedirectTo: window.location.origin,
                     data: {
                       ...(hasPolicies
                         ? {
@@ -380,7 +391,7 @@ export function MinimumProfile() {
           }}
         >
           <TextField
-            label="First name"
+            label="Name"
             autoComplete="given-name"
             required
             maxLength={80}
@@ -401,7 +412,19 @@ export function MinimumProfile() {
         Photo, interests and other personal details can wait. You can set them
         up later.
       </p>
-      <Button variant="quiet" onClick={() => supabase.auth.signOut()}>
+      <Button
+        variant="quiet"
+        onClick={() => {
+          trackBeta("sign_out_attempted", "account", {
+            source: "profile_setup",
+          });
+          void supabase.auth.signOut().then(({ error }) =>
+            trackBeta(error ? "sign_out_failed" : "sign_out_succeeded", "account", {
+              source: "profile_setup",
+            }),
+          );
+        }}
+      >
         Sign out and finish later
       </Button>
     </AccountShell>
@@ -438,13 +461,55 @@ export function RealProfile({ onBack }: { onBack: () => void }) {
     [eventEmailEnabled, setEventEmailEnabled] = useState(p?.event_email_enabled ?? true),
     [bio, setBio] = useState(p?.bio ?? ""),
     [bioVisibility, setBioVisibility] = useState<Visibility>(p?.bio_visibility ?? "GENERAL"),
+    [contactEmail, setContactEmail] = useState(p?.contact_email ?? ""),
+    [contactEmailVisibility, setContactEmailVisibility] = useState<Visibility>(p?.contact_email_visibility ?? "ONLY_ME"),
+    [phoneNumber, setPhoneNumber] = useState(p?.phone_number ?? ""),
+    [phoneVisibility, setPhoneVisibility] = useState<Visibility>(p?.phone_visibility ?? "ONLY_ME"),
+    [profileLocation, setProfileLocation] = useState(p?.profile_location ?? ""),
+    [locationVisibility, setLocationVisibility] = useState<Visibility>(p?.location_visibility ?? "GENERAL"),
     [linkLabel, setLinkLabel] = useState(p?.link_label ?? ""),
     [linkUrl, setLinkUrl] = useState(p?.link_url ?? ""),
     [linkVisibility, setLinkVisibility] = useState<Visibility>(p?.link_visibility ?? "GENERAL"),
     [interests, setInterests] = useState((p?.interests ?? []).join(", ")),
     [interestsVisibility, setInterestsVisibility] = useState<Visibility>(p?.interests_visibility ?? "GENERAL"),
+    [avatarPath, setAvatarPath] = useState(p?.avatar_path ?? ""),
+    [avatarPreview, setAvatarPreview] = useState(profileAvatarUrl(p?.avatar_path)),
+    [avatarFile, setAvatarFile] = useState<File | null>(null),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
+  const avatarSrc = editing ? avatarPreview : profileAvatarUrl(p?.avatar_path);
+  useEffect(
+    () => () => {
+      if (avatarPreview.startsWith("blob:")) URL.revokeObjectURL(avatarPreview);
+    },
+    [avatarPreview],
+  );
+  const uploadAvatar = async () => {
+    if (!avatarFile || !a.session) return avatarPath;
+    const allowedTypes = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+    if (!allowedTypes.includes(avatarFile.type) || avatarFile.size > 2 * 1024 * 1024)
+      throw new Error("INVALID_AVATAR");
+    const ext = (
+      avatarFile.name.split(".").pop() ||
+      avatarFile.type.split("/").pop() ||
+      "jpg"
+    )
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "")
+      .slice(0, 8);
+    const path = `${a.session.user.id}/avatar-${Date.now()}-${Math.random()
+      .toString(16)
+      .slice(2)}.${ext || "jpg"}`;
+    const { error } = await supabase.storage
+      .from(profileMediaBucket)
+      .upload(path, avatarFile, {
+        cacheControl: "3600",
+        contentType: avatarFile.type,
+        upsert: false,
+      });
+    if (error) throw error;
+    return path;
+  };
   const normalizeProfileUrl = (value: string) => {
     const trimmed = value.trim();
     if (!trimmed) return "";
@@ -526,9 +591,21 @@ export function RealProfile({ onBack }: { onBack: () => void }) {
       </details>
     );
   };
-  const visibilityLabel = (value: Visibility) =>
-    visibilityOptions.find((option) => option.value === value)?.label ??
-    "General";
+  const visibilityIcon = (value: Visibility, field: string) => {
+    const option =
+      visibilityOptions.find((candidate) => candidate.value === value) ??
+      visibilityOptions[0];
+    const Icon = option.icon;
+    return (
+      <span
+        className="profile-field-visibility"
+        aria-label={`${field} visibility: ${option.label}`}
+        title={`${option.label}: ${option.description}`}
+      >
+        <Icon size={16} />
+      </span>
+    );
+  };
   if (!p) return <Navigate to="/account/setup" replace />;
   return (
     <main id="main" tabIndex={-1} className="settings-page lightweight-profile">
@@ -541,7 +618,7 @@ export function RealProfile({ onBack }: { onBack: () => void }) {
       </button>
       <div className="profile-identity">
         <span className="avatar profile-avatar">
-          <UserRound />
+          {avatarSrc ? <img src={avatarSrc} alt="" /> : <UserRound />}
         </span>
         <div>
           <h1>{p.display_name || p.first_name}</h1>
@@ -554,14 +631,25 @@ export function RealProfile({ onBack }: { onBack: () => void }) {
             e.preventDefault();
             setBusy(true);
             setError("");
+            let uploadedAvatarPath = "";
             try {
+              const savedAvatarPath = await uploadAvatar();
+              if (avatarFile && savedAvatarPath !== p.avatar_path)
+                uploadedAvatarPath = savedAvatarPath;
               const r = await profileRequest("update", {
                 first_name: name,
                 display_name: display,
                 handle,
+                avatar_path: savedAvatarPath,
                 event_email_enabled: eventEmailEnabled,
                 bio,
                 bio_visibility: bioVisibility,
+                contact_email: contactEmail,
+                contact_email_visibility: contactEmailVisibility,
+                phone_number: phoneNumber,
+                phone_visibility: phoneVisibility,
+                profile_location: profileLocation,
+                location_visibility: locationVisibility,
                 link_label: linkLabel,
                 link_url: normalizeProfileUrl(linkUrl),
                 link_visibility: linkVisibility,
@@ -570,10 +658,20 @@ export function RealProfile({ onBack }: { onBack: () => void }) {
                 revision: p.revision,
               });
               if (r.status === "ready") {
+                if (p.avatar_path && p.avatar_path !== savedAvatarPath) {
+                  await supabase.storage
+                    .from(profileMediaBucket)
+                    .remove([p.avatar_path]);
+                }
                 a.reload();
                 setEditing(false);
                 onBack();
-              } else
+              } else {
+                if (uploadedAvatarPath) {
+                  await supabase.storage
+                    .from(profileMediaBucket)
+                    .remove([uploadedAvatarPath]);
+                }
                 setError(
                   (
                     {
@@ -586,18 +684,31 @@ export function RealProfile({ onBack }: { onBack: () => void }) {
                         "Your profile changed elsewhere. Reload before saving again.",
                       INVALID_PROFILE_FIELD:
                         "Keep your bio and link details short.",
+                      INVALID_CONTACT_EMAIL: "Enter a valid contact email.",
+                      INVALID_PHONE: "Keep your phone number under 40 characters.",
+                      INVALID_LOCATION: "Keep your location under 120 characters.",
                       INVALID_VISIBILITY:
                         "Choose General, Close, or Only me visibility.",
                       INVALID_LINK:
                         "Use a valid website link.",
                       INVALID_INTERESTS:
                         "Use up to 12 interests, 32 characters each.",
+                      INVALID_AVATAR:
+                        "Choose a profile image saved to your account folder.",
                     } as Record<string, string>
                   )[r.error_code ?? ""] ?? "Check your name and try again.",
                 );
+              }
             } catch {
+              if (uploadedAvatarPath) {
+                await supabase.storage
+                  .from(profileMediaBucket)
+                  .remove([uploadedAvatarPath]);
+              }
               setError(
-                "Save could not be confirmed. Reload your profile before trying again.",
+                avatarFile
+                  ? "Your profile image could not be saved. Use a JPG, PNG, GIF, or WebP image under 2 MB."
+                  : "Save could not be confirmed. Reload your profile before trying again.",
               );
             } finally {
               setBusy(false);
@@ -605,7 +716,7 @@ export function RealProfile({ onBack }: { onBack: () => void }) {
           }}
         >
           <TextField
-            label="First name"
+            label="Name"
             required
             maxLength={80}
             value={name}
@@ -628,16 +739,95 @@ export function RealProfile({ onBack }: { onBack: () => void }) {
             value={handle}
             onChange={(e) => setHandle(e.target.value)}
           />
-          <div className="profile-edit-field">
-            <TextField
-              label="Bio"
-              maxLength={240}
-              value={bio}
-              onChange={(e) => setBio(e.target.value)}
+          <label className="profile-image-picker">
+            <span>Profile image</span>
+            <span className="profile-image-preview">
+              {avatarPreview ? <img src={avatarPreview} alt="" /> : <UserRound />}
+            </span>
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/gif,image/webp"
+              onChange={(event) => {
+                const file = event.target.files?.[0] ?? null;
+                const allowedTypes = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+                if (
+                  file &&
+                  (!allowedTypes.includes(file.type) || file.size > 2 * 1024 * 1024)
+                ) {
+                  setAvatarFile(null);
+                  setError("Use a JPG, PNG, GIF, or WebP image under 2 MB.");
+                  event.currentTarget.value = "";
+                  return;
+                }
+                setError("");
+                setAvatarFile(file);
+                if (file) {
+                  setAvatarPath(p.avatar_path);
+                  setAvatarPreview(URL.createObjectURL(file));
+                }
+                else setAvatarPreview(profileAvatarUrl(avatarPath));
+              }}
             />
+            <small>JPG, PNG, GIF or WebP. Max 2 MB.</small>
+          </label>
+          {(avatarPreview || avatarPath) && (
+            <Button
+              type="button"
+              variant="quiet"
+              onClick={() => {
+                setAvatarFile(null);
+                setAvatarPath("");
+                setAvatarPreview("");
+                setError("");
+              }}
+            >
+              <Trash2 size={17} /> Remove profile image
+            </Button>
+          )}
+          <div className="profile-edit-field">
+            <label className="profile-grow-field">
+              Bio
+              <textarea
+                maxLength={240}
+                rows={2}
+                value={bio}
+                onChange={(e) => setBio(e.target.value)}
+              />
+            </label>
             {visibilityField("Bio visibility", bioVisibility, setBioVisibility)}
           </div>
           <div className="profile-edit-field">
+            <TextField
+              label="Contact email"
+              type="email"
+              maxLength={254}
+              value={contactEmail}
+              onChange={(e) => setContactEmail(e.target.value)}
+              placeholder="you@example.com"
+            />
+            {visibilityField("Contact email visibility", contactEmailVisibility, setContactEmailVisibility)}
+          </div>
+          <div className="profile-edit-field">
+            <TextField
+              label="Phone"
+              type="tel"
+              maxLength={40}
+              value={phoneNumber}
+              onChange={(e) => setPhoneNumber(e.target.value)}
+            />
+            {visibilityField("Phone visibility", phoneVisibility, setPhoneVisibility)}
+          </div>
+          <div className="profile-edit-field">
+            <TextField
+              label="Location"
+              maxLength={120}
+              value={profileLocation}
+              onChange={(e) => setProfileLocation(e.target.value)}
+              placeholder="City, region"
+            />
+            {visibilityField("Location visibility", locationVisibility, setLocationVisibility)}
+          </div>
+          <div className="profile-edit-field profile-edit-field-link">
             <TextField
               label="Link label"
               maxLength={80}
@@ -655,13 +845,16 @@ export function RealProfile({ onBack }: { onBack: () => void }) {
             {visibilityField("Link visibility", linkVisibility, setLinkVisibility)}
           </div>
           <div className="profile-edit-field">
-            <TextField
-              label="Interests"
-              maxLength={420}
-              value={interests}
-              onChange={(e) => setInterests(e.target.value)}
-              placeholder="Music, Food & Drink, Outdoors"
-            />
+            <label className="profile-grow-field">
+              Interests
+              <textarea
+                maxLength={420}
+                rows={2}
+                value={interests}
+                onChange={(e) => setInterests(e.target.value)}
+                placeholder="Music, Food & Drink, Outdoors"
+              />
+            </label>
             {visibilityField("Interests visibility", interestsVisibility, setInterestsVisibility)}
           </div>
           <p className="small muted">
@@ -682,31 +875,56 @@ export function RealProfile({ onBack }: { onBack: () => void }) {
         </form>
       ) : (
         <section className="profile-owner-preview">
-          <div className="profile-preview-grid">
+          {(p.bio || p.contact_email || p.phone_number || p.profile_location || p.link_label || p.link_url || p.interests.length > 0) && (
+            <div className="profile-preview-grid">
+            {p.bio && (
             <div className="profile-field-preview">
               <span>Bio</span>
-              <p>{p.bio || "No bio added yet."}</p>
-              <small>{visibilityLabel(p.bio_visibility)}</small>
+              <p>{p.bio}</p>
+              {visibilityIcon(p.bio_visibility, "Bio")}
             </div>
+            )}
+            {p.contact_email && (
+            <div className="profile-field-preview">
+              <span><Mail size={16} /> Email</span>
+              <p>{p.contact_email}</p>
+              {visibilityIcon(p.contact_email_visibility, "Contact email")}
+            </div>
+            )}
+            {p.phone_number && (
+            <div className="profile-field-preview">
+              <span><Phone size={16} /> Phone</span>
+              <p>{p.phone_number}</p>
+              {visibilityIcon(p.phone_visibility, "Phone")}
+            </div>
+            )}
+            {p.profile_location && (
+            <div className="profile-field-preview">
+              <span><MapPin size={16} /> Location</span>
+              <p>{p.profile_location}</p>
+              {visibilityIcon(p.location_visibility, "Location")}
+            </div>
+            )}
+            {(p.link_label || p.link_url) && (
             <div className="profile-field-preview">
               <span>Link</span>
-              <p>{p.link_label || p.link_url || "No profile link added yet."}</p>
-              <small>{visibilityLabel(p.link_visibility)}</small>
+              <p>{p.link_label || p.link_url}</p>
+              {visibilityIcon(p.link_visibility, "Link")}
             </div>
+            )}
+            {p.interests.length > 0 && (
             <div className="profile-field-preview">
               <span>Interests</span>
-              {p.interests.length ? (
-                <div className="interest-chip-row">
-                  {p.interests.map((interest) => (
-                    <small key={interest}>{interest}</small>
-                  ))}
-                </div>
-              ) : (
-                <p>No interests added yet.</p>
-              )}
-              <small>{visibilityLabel(p.interests_visibility)}</small>
+              <div className="interest-chip-row">
+                {p.interests.map((interest) => (
+                  <small key={interest}>{interest}</small>
+                ))}
+              </div>
+              {visibilityIcon(p.interests_visibility, "Interests")}
             </div>
+            )}
           </div>
+          )}
           <div className="profile-home-actions">
             <Link to={`/p/${p.handle}`} className="profile-hub-secondary-action">
               View public profile
@@ -720,11 +938,20 @@ export function RealProfile({ onBack }: { onBack: () => void }) {
                 setEventEmailEnabled(p.event_email_enabled);
                 setBio(p.bio);
                 setBioVisibility(p.bio_visibility);
+                setContactEmail(p.contact_email);
+                setContactEmailVisibility(p.contact_email_visibility);
+                setPhoneNumber(p.phone_number);
+                setPhoneVisibility(p.phone_visibility);
+                setProfileLocation(p.profile_location);
+                setLocationVisibility(p.location_visibility);
                 setLinkLabel(p.link_label);
                 setLinkUrl(p.link_url);
                 setLinkVisibility(p.link_visibility);
                 setInterests(p.interests.join(", "));
                 setInterestsVisibility(p.interests_visibility);
+                setAvatarPath(p.avatar_path);
+                setAvatarPreview(profileAvatarUrl(p.avatar_path));
+                setAvatarFile(null);
                 setEditing(true);
               }}
             >
@@ -736,3 +963,6 @@ export function RealProfile({ onBack }: { onBack: () => void }) {
     </main>
   );
 }
+
+
+

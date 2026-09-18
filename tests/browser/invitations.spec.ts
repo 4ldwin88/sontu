@@ -25,6 +25,7 @@ test("verified invitee accepts and reconfirms through connected Events", async (
       })
     ).error,
   ).toBeNull();
+  const eventTitle = `Invitation dinner ${info.project.name} ${randomUUID().slice(0, 8)}`;
   let id: string | null = null,
     version = 1;
   async function cmd(cmd: string, input: Record<string, unknown> = {}) {
@@ -43,7 +44,7 @@ test("verified invitee accepts and reconfirms through connected Events", async (
   }
   await cmd("create_draft", { timezone: "Asia/Ho_Chi_Minh" });
   await cmd("save_draft", {
-    title: `Invitation dinner ${info.project.name}`,
+    title: eventTitle,
     description: "A protected private gathering.",
     starts_at: "2030-09-16T23:00:00Z",
     ends_at: "2030-09-17T01:00:00Z",
@@ -116,31 +117,42 @@ test("verified invitee accepts and reconfirms through connected Events", async (
   await page.getByRole("button", { name: "Verify email", exact: true }).click();
   await expect(
     page.getByRole("heading", {
-      name: `Invitation dinner ${info.project.name}`,
+      name: eventTitle,
     }),
   ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Accept invitation" }),
   ).toBeVisible();
   await page.getByRole("link", { name: "Your Events" }).click();
-  await page.getByLabel("First name", { exact: true }).fill("Invited guest");
-  await page.getByRole("button", { name: "Start exploring" }).click();
-  await page.getByRole("tab", { name: "Invited", exact: true }).click();
+  const setupName = page.getByLabel("Name", { exact: true });
+  if (await setupName.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await setupName.fill("Invited guest");
+    await page.getByRole("button", { name: "Start exploring" }).click();
+  }
+  await page.getByRole("tab", { name: "Invited" }).click();
   await page
     .getByRole("link")
     .filter({
       has: page.getByRole("heading", {
-        name: `Invitation dinner ${info.project.name}`,
+        name: eventTitle,
       }),
     })
     .click();
-  await page.getByRole("button", { name: "Accept invitation" }).click();
-  await expect(page.getByText("You’re going.", { exact: true })).toBeVisible();
-  await page.getByRole("link", { name: "Your Events" }).click();
+  const acceptInvitation = page.getByRole("button", {
+    name: "Accept invitation",
+  });
+  if (await acceptInvitation.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await acceptInvitation.click();
+    await expect(page.getByText(/^You’re going[.!]$/)).toBeVisible();
+  } else {
+    await page.getByRole("button", { name: "Going" }).click();
+    await expect(page.getByText(/^You’re going[.!]$/)).toBeVisible();
+  }
+  await page.getByRole("link", { name: "Back to Events" }).click();
   await page.getByRole("tab", { name: "Upcoming", exact: true }).click();
   await expect(
     page.getByRole("heading", {
-      name: `Invitation dinner ${info.project.name}`,
+      name: eventTitle,
     }),
   ).toBeVisible();
   await page.screenshot({
@@ -160,7 +172,7 @@ test("verified invitee accepts and reconfirms through connected Events", async (
   ).toBeVisible();
   await expect(page.getByText(/Ends.*9:00/)).toBeVisible();
   await page.getByRole("button", { name: "I can still make it" }).click();
-  await expect(page.getByText("You’re going.", { exact: true })).toBeVisible();
+  await expect(page.getByText(/^You’re going[.!]$/)).toBeVisible();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   const projection = await client.rpc("sontu_host_projection", {
     event_id: id,

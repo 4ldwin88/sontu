@@ -37,6 +37,11 @@ test("authenticated host and scoped participants complete the core workflow", as
   // synthetic-event control. The workflow itself continues through real UI.
   const eventId = await createValidationFixture(api);
   await page.goto(`/#/core/events/${eventId}/host`);
+  await page.getByRole("button", { name: "Publish test event" }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Confirm", exact: true })
+    .click();
   await expect(
     page.getByRole("button", { name: "Change start time" }),
   ).toBeVisible();
@@ -128,12 +133,16 @@ test("authenticated host and scoped participants complete the core workflow", as
     path: info.outputPath("core-partial.png"),
     fullPage: true,
   });
-  const nav = page
-    .getByRole("navigation", { name: "Event workspace modules" })
+  const categories = page
+    .getByRole("navigation", { name: "Event workspace categories" })
     .filter({ visible: true });
-  await nav.getByRole("button", { name: "Participants", exact: true }).click();
+  const tools = page
+    .getByRole("navigation", { name: "Current workspace tools" })
+    .filter({ visible: true });
+  await categories.getByRole("button", { name: "People", exact: true }).click();
+  await tools.getByRole("button", { name: "Participants", exact: true }).click();
   await page
-    .getByRole("button", { name: "Response link for Guest 12", exact: true })
+    .getByRole("button", { name: "Issue private link for Guest 12", exact: true })
     .click();
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
@@ -164,16 +173,19 @@ test("authenticated host and scoped participants complete the core workflow", as
   });
   await guest.close();
   await dialog.getByRole("button", { name: "Done", exact: true }).click();
-  await nav.getByRole("button", { name: "Overview", exact: true }).click();
+  await categories.getByRole("button", { name: "Overview", exact: true }).click();
   await page.getByRole("button", { name: "Refresh status" }).click();
   await expect(page.getByText("12 / 12", { exact: true })).toBeVisible();
   await expect(page.getByText("Resolved", { exact: true })).toBeVisible();
   // Reload verifies durable state through the real session and backend.
   await page.reload();
   await expect(page.getByText("12 / 12", { exact: true })).toBeVisible();
-  await nav.getByRole("button", { name: "Participants", exact: true }).click();
+  await categories.getByRole("button", { name: "People", exact: true }).click();
+  await tools.getByRole("button", { name: "Participants", exact: true }).click();
   await expect(page.getByText("Admission: Valid").first()).toBeVisible();
-  await nav.getByRole("button", { name: "Analytics", exact: true }).click();
+
+  await categories.getByRole("button", { name: "Insights", exact: true }).click();
+  await tools.getByRole("button", { name: "Analytics", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Analytics", exact: true }),
   ).toBeVisible();
@@ -190,7 +202,8 @@ test("authenticated host and scoped participants complete the core workflow", as
   expect(analytics.data.status).toBe("ready");
   expect(analytics.data.admissions.valid).toBeGreaterThan(0);
   expect(analytics.data.check_in.checked_in).toBe(0);
-  await nav.getByRole("button", { name: "Assistant", exact: true }).click();
+  await categories.getByRole("button", { name: "Communications", exact: true }).click();
+  await tools.getByRole("button", { name: "Assistant", exact: true }).click();
   await expect(
     page.getByText(
       "This workspace can draft, summarize and flag. It cannot publish, message guests, charge, refund, change access, or settle obligations.",
@@ -202,7 +215,7 @@ test("authenticated host and scoped participants complete the core workflow", as
     .click();
   await expect(page.getByLabel("Editable draft")).toBeVisible();
   await expect(page.getByText("Nothing is sent automatically.")).toBeVisible();
-  await nav.getByRole("button", { name: "Overview", exact: true }).click();
+  await categories.getByRole("button", { name: "Overview", exact: true }).click();
   await page.getByRole("button", { name: "Change start time" }).click();
   await page
     .getByLabel("New start time (event time zone)")
@@ -231,7 +244,8 @@ test("authenticated host and scoped participants complete the core workflow", as
   await expect(
     page.getByText("Open unresolved", { exact: true }),
   ).toBeVisible();
-  await nav.getByRole("button", { name: "Assistant", exact: true }).click();
+  await categories.getByRole("button", { name: "Communications", exact: true }).click();
+  await tools.getByRole("button", { name: "Assistant", exact: true }).click();
   await expect(
     page.getByText(
       "This event is cancelled. Do not send reminders or make access assumptions.",
@@ -288,7 +302,18 @@ test("admission status governs host check-in and cancellation", async ({
   await page.getByLabel("Email", { exact: true }).fill(email);
   await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Sign out", exact: true })).toBeVisible();
   const eventId = await createValidationFixture(api);
+  const fixture = await api.rpc("sontu_host_projection", { event_id: eventId });
+  const published = await api.rpc("sontu_host_command", {
+    cmd: "publish",
+    event_id: eventId,
+    expected_version: fixture.data.data.event.current_version_number,
+    operation_id: randomUUID(),
+    input: { confirmed: true },
+  });
+  expect(published.error).toBeNull();
+  expect(published.data.status).toBe("ready");
 
   const before = await api.rpc("sontu_host_projection", { event_id: eventId });
   expect(before.error).toBeNull();

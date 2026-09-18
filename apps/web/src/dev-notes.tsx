@@ -5,21 +5,32 @@ import { useLocation } from "react-router-dom";
 import { Plus } from "lucide-react";
 import { Button } from "../../../packages/ui-web";
 import { supabase } from "../../../packages/data/sontu";
-import { trackBeta, type TelemetryScreen } from "../../../packages/data/telemetry";
+import {
+  betaSessionId,
+  trackBeta,
+  type TelemetryScreen,
+} from "../../../packages/data/telemetry";
 import { useAccount } from "./account-state";
 import { Modal } from "./shells";
+import { clientUuid } from "./ids";
+
+const localNotesKey = "sontu.devNotes.v1";
 
 function category(path: string) {
   if (/^\/(core|host)/.test(path)) return "hosting";
   if (/^\/(invite|respond)/.test(path)) return "invitation";
   if (/^\/(sign-|account)/.test(path)) return "account";
+  if (/^\/(connections|profile|settings|privacy|help|about)(\/|$)/.test(path))
+    return "profile";
   return (
-    ["home", "discover", "events", "feed", "profile"].find(
+    ["home", "discover", "events", "feed"].find(
       (s) => path === "/" + s || path.startsWith("/" + s + "/"),
     ) ?? "other"
   );
 }
+
 type Note = { id: string; body: string; screen: string; created_at?: string };
+
 function noteTime(value?: string) {
   if (!value) return "Time unavailable";
   const date = new Date(value);
@@ -27,26 +38,74 @@ function noteTime(value?: string) {
   const two = (part: number) => String(part).padStart(2, "0");
   return `${two(date.getMonth() + 1)}/${two(date.getDate())} ${two(date.getHours())}:${two(date.getMinutes())}:${two(date.getSeconds())}`;
 }
+
+function localNotes() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(localNotesKey) ?? "[]");
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (note): note is Note =>
+        typeof note === "object" &&
+        note !== null &&
+        typeof note.id === "string" &&
+        typeof note.body === "string" &&
+        typeof note.screen === "string",
+    );
+  } catch {
+    return [];
+  }
+}
+
+function noteId() {
+  return clientUuid();
+}
+
+function saveLocalNote(note: Note) {
+  try {
+    const notes = [note, ...localNotes().filter((item) => item.id !== note.id)].slice(0, 25);
+    localStorage.setItem(localNotesKey, JSON.stringify(notes));
+    return notes;
+  } catch {
+    return null;
+  }
+}
+
+function mergeNotes(...groups: Note[][]) {
+  const seen = new Set<string>();
+  return groups
+    .flat()
+    .filter((note) => {
+      if (seen.has(note.id)) return false;
+      seen.add(note.id);
+      return true;
+    })
+    .slice(0, 25);
+}
+
 export function DevNotes() {
   const account = useAccount();
   return (
     <Notes
       key={account.session?.user.id ?? "signed-out"}
       signedIn={!!account.session}
+      userId={account.session?.user.id ?? null}
     />
   );
 }
-function Notes({ signedIn }: { signedIn: boolean }) {
+
+function Notes({ signedIn, userId }: { signedIn: boolean; userId: string | null }) {
   const location = useLocation();
   const [open, setOpen] = useState(false),
     [body, setBody] = useState(""),
     [screen, setScreen] = useState("other");
   const [busy, setBusy] = useState(false),
     [message, setMessage] = useState(""),
-    [unknown, setUnknown] = useState(false);
+    [unknown, setUnknown] = useState(false),
+    [hasPendingSync, setHasPendingSync] = useState(false);
   const [notes, setNotes] = useState<Note[]>([]),
     [target, setTarget] = useState<Element>(document.body);
   const pending = useRef<Note | null>(null);
+
   useEffect(() => {
     if (open) return;
     const update = () => {
@@ -63,52 +122,128 @@ function Notes({ signedIn }: { signedIn: boolean }) {
     update();
     return () => observer.disconnect();
   }, [open]);
+
   async function load() {
-    if (!signedIn) return;
+    const deviceNotes = localNotes();
+    setNotes(deviceNotes);
+    if (!signedIn || !userId) return;
     const { data, error } = await supabase
       .from("sontu_dev_notes")
       .select("id,body,screen,created_at")
       .order("created_at", { ascending: false })
       .limit(10);
-    if (error)
-      setMessage("Saved notes could not be loaded. Your draft is still here.");
-    else setNotes(data ?? []);
+    if (error) {
+      setMessage("Cloud notes could not be loaded. Device notes are still here.");
+      return;
+    }
+    setNotes((current) => mergeNotes(data ?? [], localNotes(), current));
   }
-  async function save() {
-    if (!signedIn || busy || !body.trim()) return;
-    pending.current ??= { id: crypto.randomUUID(), body: body.trim(), screen };
-    const note = pending.current;
-    setBusy(true);
-    setMessage("");
-    trackBeta("dev_note_submit_attempted", note.screen as TelemetryScreen);
+
+  async function copyNoteText() {
+    if (!body.trim()) return;
     try {
-      const { error } = await supabase.from("sontu_dev_notes").insert(note);
-      if (error && error.code !== "23505") throw error;
-      const result = await supabase
-        .from("sontu_dev_notes")
-        .select("id,body,screen")
-        .eq("id", note.id)
-        .single();
-      if (
-        result.error ||
-        result.data?.body !== note.body ||
-        result.data?.screen !== note.screen
-      )
-        throw new Error("Unconfirmed");
-      pending.current = null;
-      setUnknown(false);
-      setBody("");
-      await load();
-      trackBeta("dev_note_submit_succeeded", note.screen as TelemetryScreen);
-      setMessage("Note saved for development review.");
+      if (!navigator.clipboard?.writeText) throw new Error("Clipboard unavailable");
+      await navigator.clipboard.writeText(body);
+      setMessage("Note copied.");
+      return;
+    } catch {
+      const field = document.querySelector<HTMLTextAreaElement>("#dev-note-body");
+      field?.focus();
+      field?.select();
+      try {
+        if (document.execCommand("copy")) {
+          setMessage("Note copied.");
+          return;
+        }
+      } catch {
+        /* Selection fallback below. */
+      }
+      setMessage("Copy is blocked by this browser. The note text is selected; use your device copy command.");
+    }
+  }
+
+  async function save() {
+    if ((!body.trim() && !pending.current) || busy) return;
+    setMessage("Saving note...");
+    let note: Note;
+    try {
+      if (!pending.current) {
+        pending.current = {
+          id: noteId(),
+          body: body.trim(),
+          screen,
+          created_at: new Date().toISOString(),
+        };
+        setHasPendingSync(true);
+      }
+      note = pending.current;
     } catch {
       setUnknown(true);
-      trackBeta("dev_note_submit_failed", note.screen as TelemetryScreen);
-      setMessage("Saving is unconfirmed. Retry the same note safely.");
+      setMessage("This browser could not start the save. Copy the note here instead.");
+      return;
+    }
+    const saved = saveLocalNote(note);
+    if (!saved) {
+      setUnknown(true);
+      setMessage("This browser blocked device storage. Copy the note here instead.");
+      return;
+    }
+    setNotes(saved);
+    setBody("");
+    setUnknown(false);
+    trackBeta("dev_note_submit_succeeded", note.screen as TelemetryScreen);
+
+    setBusy(true);
+    setMessage(
+      signedIn
+        ? "Note saved on this device. Syncing to account..."
+        : "Note saved on this device. Syncing to local prototype...",
+    );
+    try {
+      const cloudPayload = signedIn
+        ? { ...note, user_id: userId }
+        : { ...note, user_id: null, session_id: betaSessionId() };
+      const { error } = await supabase
+        .from("sontu_dev_notes")
+        .insert(cloudPayload);
+      if (error && error.code !== "23505") throw error;
+      let cloudNote = note;
+      if (signedIn) {
+        const result = await supabase
+          .from("sontu_dev_notes")
+          .select("id,body,screen")
+          .eq("id", note.id)
+          .maybeSingle();
+        if (
+          result.error ||
+          result.data?.body !== note.body ||
+          result.data?.screen !== note.screen
+        )
+          throw result.error ?? new Error("Unconfirmed");
+        cloudNote = result.data
+          ? { ...note, body: result.data.body, screen: result.data.screen }
+          : note;
+      }
+      setNotes((current) => mergeNotes([cloudNote], current));
+      pending.current = null;
+      setHasPendingSync(false);
+      setMessage(
+        signedIn
+          ? "Note saved on this device and synced to your account."
+          : "Note saved on this device and synced to the local prototype.",
+      );
+    } catch (error) {
+      const code =
+        typeof error === "object" && error && "code" in error
+          ? String((error as { code?: unknown }).code)
+          : "unconfirmed";
+      setUnknown(true);
+      setMessage(`Note saved on this device. Account sync is unconfirmed (${code}).`);
     } finally {
       setBusy(false);
     }
   }
+
   return (
     <>
       {createPortal(
@@ -154,76 +289,61 @@ function Notes({ signedIn }: { signedIn: boolean }) {
             }}
           >
             <p className="small muted">
-              Screen: {screen}. Saves your note with your account, time and
-              screen category. No screen recording or automatic activity
-              tracking.
+              Screen: {screen}. Saves your note on this device first. Signed-in
+              sessions also try to sync a copy to the local Sontu database.
             </p>
             <label className="dev-note-field">
               What should we fix or improve?
               <textarea
                 required
+                id="dev-note-body"
                 maxLength={4000}
                 rows={5}
                 value={body}
-                disabled={busy || unknown}
+                disabled={busy}
                 onChange={(e) => setBody(e.target.value)}
               />
             </label>
-            {!signedIn && (
-              <p>
-                Sign in to save notes to Sontu. You can copy this note to share
-                in chat while signed out.
-              </p>
-            )}
             {message && <p role="status">{message}</p>}
             <div className="coord-actions">
               <Button
-                type="submit"
-                disabled={!signedIn || busy || !body.trim()}
+                type="button"
+                disabled={busy || (!body.trim() && !hasPendingSync)}
+                onClick={() => void save()}
               >
-                {busy ? "Saving…" : unknown ? "Retry same note" : "Save note"}
+                {busy ? "Syncing..." : unknown ? "Retry sync" : "Save note"}
               </Button>
               <Button
                 type="button"
                 variant="secondary"
                 disabled={!body.trim()}
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(body);
-                    setMessage("Note copied.");
-                  } catch {
-                    setMessage(
-                      "Could not copy. Select and copy the note text manually.",
-                    );
-                  }
-                }}
+                onClick={() => void copyNoteText()}
               >
                 Copy note
               </Button>
             </div>
           </form>
-          {signedIn && (
-            <section className="dev-note-history">
-              <h3>Your recent notes</h3>
-              {notes.length ? (
-                <ul>
-                  {notes.map((n) => (
-                    <li key={n.id}>
-                      <div className="dev-note-meta">
-                        <small>{n.screen}</small>
-                        <time dateTime={n.created_at}>{noteTime(n.created_at)}</time>
-                      </div>
-                      <p>{n.body}</p>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p>No saved notes loaded.</p>
-              )}
-            </section>
-          )}
+          <section className="dev-note-history">
+            <h3>Recent notes on this device</h3>
+            {notes.length ? (
+              <ul>
+                {notes.map((n) => (
+                  <li key={n.id}>
+                    <div className="dev-note-meta">
+                      <small>{n.screen}</small>
+                      <time dateTime={n.created_at}>{noteTime(n.created_at)}</time>
+                    </div>
+                    <p>{n.body}</p>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>No notes saved on this device yet.</p>
+            )}
+          </section>
         </Modal>
       )}
     </>
   );
 }
+

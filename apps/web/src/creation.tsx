@@ -29,12 +29,17 @@ import {
 import { Button, TextField, StatusBadge } from "../../../packages/ui-web";
 import { FocusedWorkspaceShell, Modal } from "./shells";
 import { SessionGate } from "./coordination";
+import { useAccount } from "./account-state";
+import { clientUuid } from "./ids";
 import {
+  eventCoverUrl,
+  eventMediaBucket,
   eventOwner,
   hostCommand,
   hostRead,
   organizationOverview,
   rpc,
+  supabase,
 } from "../../../packages/data/sontu";
 import type { OrganizationContext } from "../../../packages/data/sontu";
 import { trackBeta } from "../../../packages/data/telemetry";
@@ -51,6 +56,7 @@ import type { DraftFields } from "../../../packages/domain/draft";
 type Request = {
   cmd: string;
   event: string | null;
+  createdEventId?: string;
   version: number;
   input: Record<string, unknown>;
   op: string;
@@ -147,6 +153,23 @@ const categories = [
   "Volunteer event",
   "Other",
 ];
+const createStepTimeoutMs = 12000;
+async function withCreateTimeout<T>(work: Promise<T>) {
+  let timeout = 0;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<never>((_resolve, reject) => {
+        timeout = window.setTimeout(
+          () => reject(new Error("CREATE_TIMEOUT")),
+          createStepTimeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
 const commonTypes = categories.slice(0, 8);
 const commonTypeIcons = [
   CakeSlice,
@@ -230,6 +253,7 @@ function CreateEntry({ returnTo }: { returnTo: string }) {
   const [organizations, setOrganizations] = useState<OrganizationContext[]>([]);
   const [owner, setOwner] = useState(requestedOrganization ?? "PERSONAL");
   const pending = useRef<Request | null>(readPending("new"));
+  const createWatchdog = useRef(0);
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(
       readPending("new")
@@ -276,57 +300,112 @@ function CreateEntry({ returnTo }: { returnTo: string }) {
   async function create() {
     if (busy) return;
     setBusy(true);
+    setError("");
+    window.clearTimeout(createWatchdog.current);
+    const retrying = Boolean(pending.current);
+    trackBeta("create_draft_attempted", "hosting", {
+      retrying,
+      category: category || null,
+      format,
+      owner_kind: owner === "PERSONAL" ? "PERSONAL" : "ORGANIZATION",
+    });
+    createWatchdog.current = window.setTimeout(() => {
+      trackBeta("create_draft_delayed", "hosting", {
+        retrying,
+        category: category || null,
+        format,
+        owner_kind: owner === "PERSONAL" ? "PERSONAL" : "ORGANIZATION",
+      });
+      setError(
+        "Draft creation is taking too long. Retry will recover the same draft request.",
+      );
+      setBusy(false);
+    }, createStepTimeoutMs);
     const req = pending.current ?? {
       cmd: "create_draft",
       event: null,
       version: 1,
-      input: { timezone: deviceTimezone(), owner },
-      op: crypto.randomUUID(),
+      input: { timezone: deviceTimezone(), owner, category, format },
+      op: clientUuid(),
       next: 0,
     };
     pending.current = req;
     keep("new", req);
     try {
-      const r = await hostCommand(req.cmd, null, 1, req.input, req.op);
-      if (r.status === "ready" && r.event_id) {
-        const requestedOwner = String(req.input.owner ?? "PERSONAL");
-        const ownership = await eventOwner(
-          r.event_id,
+      let eventId = req.createdEventId;
+      if (!eventId) {
+        const r = await withCreateTimeout(
+          hostCommand(req.cmd, null, 1, req.input, req.op),
+        );
+        if (r.status !== "ready" || !r.event_id) {
+          keep("new", null);
+          pending.current = null;
+          setError(
+            errorMessages[r.error_code ?? ""] ?? "Could not create draft.",
+          );
+          return;
+        }
+        eventId = r.event_id;
+        req.createdEventId = eventId;
+        keep("new", req);
+      }
+      const requestedOwner = String(req.input.owner ?? "PERSONAL");
+      const requestedCategory = String(req.input.category ?? category);
+      const requestedFormat = String(req.input.format ?? format);
+      const ownership = await withCreateTimeout(
+        eventOwner(
+          eventId,
           requestedOwner === "PERSONAL" ? "PERSONAL" : "ORGANIZATION",
           requestedOwner === "PERSONAL" ? null : requestedOwner,
-        );
-        if (ownership.status !== "ready")
-          throw new Error(ownership.error_code ?? "OWNER_SAVE_FAILED");
-        const intent = await rpc<{ status: string; error_code?: string }>(
+        ),
+      );
+      if (ownership.status !== "ready")
+        throw new Error(ownership.error_code ?? "OWNER_SAVE_FAILED");
+      const intent = await withCreateTimeout(
+        rpc<{ status: string; error_code?: string }>(
           "sontu_set_event_intent",
           {
-            event_id: r.event_id,
-            event_category: category,
-            event_format: format,
+            event_id: eventId,
+            event_category: requestedCategory,
+            event_format: requestedFormat,
           },
-        );
-        if (intent.status !== "ready") {
-          throw new Error(intent.error_code ?? "INTENT_SAVE_FAILED");
-        }
-        keepIntent(r.event_id, format, category);
-        keep("new", null);
-        pending.current = null;
-        const query = new URLSearchParams({
-          format,
-          category,
-          return: returnTo,
-        });
-        navigate(`/create/${r.event_id}?${query}`, { replace: true });
-      } else {
-        keep("new", null);
-        pending.current = null;
-        setError(
-          errorMessages[r.error_code ?? ""] ?? "Could not create draft.",
-        );
+        ),
+      );
+      if (intent.status !== "ready") {
+        throw new Error(intent.error_code ?? "INTENT_SAVE_FAILED");
       }
-    } catch {
-      setError("Draft creation is unconfirmed. Retry uses the same request.");
+      keepIntent(eventId, requestedFormat, requestedCategory);
+      keep("new", null);
+      pending.current = null;
+      const query = new URLSearchParams({
+        format: requestedFormat,
+        category: requestedCategory,
+        return: returnTo,
+      });
+      trackBeta("create_draft_succeeded", "hosting", {
+        retrying,
+        category: requestedCategory,
+        format: requestedFormat,
+        owner_kind: requestedOwner === "PERSONAL" ? "PERSONAL" : "ORGANIZATION",
+      });
+      navigate(`/create/${eventId}?${query}`, { replace: true });
+    } catch (err) {
+      trackBeta("create_draft_failed", "hosting", {
+        retrying,
+        category: String(req.input.category ?? category),
+        format: String(req.input.format ?? format),
+        owner_kind:
+          String(req.input.owner ?? "PERSONAL") === "PERSONAL"
+            ? "PERSONAL"
+            : "ORGANIZATION",
+        timeout:
+          err instanceof Error && err.message === "CREATE_TIMEOUT",
+      });
+      setError(
+        "Draft creation is unconfirmed. Retry uses the same request; refresh only if retry does not recover it.",
+      );
     } finally {
+      window.clearTimeout(createWatchdog.current);
       setBusy(false);
     }
   }
@@ -503,6 +582,7 @@ function DraftEditor({
   returnTo: string;
 }) {
   const navigate = useNavigate();
+  const account = useAccount();
   const pending = useRef<Request | null>(readPending(id));
   const [form, setForm] = useState<DraftFields>(emptyDraft),
     [version, setVersion] = useState(1),
@@ -517,28 +597,40 @@ function DraftEditor({
       "ANYONE" | "SONTU_USERS_ONLY"
     >("ANYONE"),
     [pictureOpen, setPictureOpen] = useState(false),
+    [pictureBusy, setPictureBusy] = useState(false),
     [previewOpen, setPreviewOpen] = useState(false),
     [deleteOpen, setDeleteOpen] = useState(false);
   const [ownerName, setOwnerName] = useState("Personal");
   const deleteOperation = useRef<string | null>(null);
+  const loadWatchdog = useRef(0);
   const load = useCallback(async () => {
     setLoading(true);
+    setError("");
+    window.clearTimeout(loadWatchdog.current);
+    loadWatchdog.current = window.setTimeout(() => {
+      setError("This draft is taking too long to load. Refresh or reopen it from Hosting.");
+      setLoading(false);
+    }, createStepTimeoutMs);
     try {
-      const [r, access, participation, ownership] = await Promise.all([
-        hostRead(id),
-        rpc<{ status: string; visibility?: "PUBLIC" | "UNLISTED" | "PRIVATE" }>(
-          "sontu_event_visibility",
-          { action: "read", event_id: id, value: null },
-        ),
-        rpc<{
-          status: string;
-          participation_access?: "ANYONE" | "SONTU_USERS_ONLY";
-        }>("sontu_event_participation_access", {
-          action: "read",
-          event_id: id,
-          value: null,
-        }),
-        eventOwner(id),
+      const r = await withCreateTimeout(hostRead(id));
+      const [access, participation, ownership] = await Promise.all([
+        withCreateTimeout(
+          rpc<{ status: string; visibility?: "PUBLIC" | "UNLISTED" | "PRIVATE" }>(
+            "sontu_event_visibility",
+            { action: "read", event_id: id, value: null },
+          ),
+        ).catch(() => null),
+        withCreateTimeout(
+          rpc<{
+            status: string;
+            participation_access?: "ANYONE" | "SONTU_USERS_ONLY";
+          }>("sontu_event_participation_access", {
+            action: "read",
+            event_id: id,
+            value: null,
+          }),
+        ).catch(() => null),
+        withCreateTimeout(eventOwner(id)).catch(() => null),
       ]);
       if (r.status !== "ready" || !r.data) {
         setError("This draft is unavailable or you do not have access.");
@@ -570,14 +662,14 @@ function DraftEditor({
       const defaultedForm = withDefaultTimes(loadedForm);
       setForm(defaultedForm);
       setVersion(d.event.current_version_number);
-      if (access.status === "ready" && access.visibility)
+      if (access?.status === "ready" && access.visibility)
         setVisibility(access.visibility);
       if (
-        participation.status === "ready" &&
+        participation?.status === "ready" &&
         participation.participation_access
       )
         setParticipationAccess(participation.participation_access);
-      if (ownership.status === "ready" && ownership.owner_name)
+      if (ownership?.status === "ready" && ownership.owner_name)
         setOwnerName(ownership.owner_name);
       const addedDefaults =
         !loadedForm.starts_at ||
@@ -594,6 +686,7 @@ function DraftEditor({
     } catch {
       setError("Could not load this draft. Please retry.");
     } finally {
+      window.clearTimeout(loadWatchdog.current);
       setLoading(false);
     }
   }, [category, id, navigate]);
@@ -701,7 +794,7 @@ function DraftEditor({
           event: id,
           version: r.current_version ?? version,
           input: { confirmed: true },
-          op: crypto.randomUUID(),
+          op: clientUuid(),
           next: 0,
         };
         pending.current = publishRequest;
@@ -750,6 +843,32 @@ function DraftEditor({
       setBusy(false);
     }
   }
+  async function uploadCover(file: File | null) {
+    if (!file || !account.session) return;
+    setPictureBusy(true);
+    setError("");
+    try {
+      const ext = (file.name.split(".").pop() || "jpg")
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, "")
+        .slice(0, 8);
+      const path = `${account.session.user.id}/${id}/cover-${clientUuid()}.${ext || "jpg"}`;
+      const { error: uploadError } = await supabase.storage
+        .from(eventMediaBucket)
+        .upload(path, file, {
+          cacheControl: "3600",
+          contentType: file.type,
+          upsert: false,
+        });
+      if (uploadError) throw uploadError;
+      update("cover_key", `upload:${path}`);
+      setPictureOpen(false);
+    } catch {
+      setError("Could not upload that photo. Try a JPG, PNG, WebP, or GIF under 5 MB.");
+    } finally {
+      setPictureBusy(false);
+    }
+  }
   function save(returnAfter = false, validate = true) {
     if (
       validate &&
@@ -763,7 +882,7 @@ function DraftEditor({
       event: id,
       version,
       input: { ...form },
-      op: crypto.randomUUID(),
+      op: clientUuid(),
       next: 0,
       returnAfter,
     });
@@ -772,7 +891,7 @@ function DraftEditor({
     if (busy) return;
     setBusy(true);
     setError("");
-    deleteOperation.current ??= crypto.randomUUID();
+    deleteOperation.current ??= clientUuid();
     try {
       const result = await rpc<{
         status: string;
@@ -808,7 +927,7 @@ function DraftEditor({
       <header className="section-heading">
         <div>
           <span className="eyebrow">
-            {ownerName} event · {category} · {format.replace("-", " ")}
+            {ownerName} event draft
           </span>
           <h1>{form.title || "Something good starts here."}</h1>
         </div>
@@ -907,7 +1026,7 @@ function DraftEditor({
                 <p className="small muted">Optional</p>
               </div>
               {form.cover_key !== "none" && (
-                <img src={`images/${form.cover_key}.jpg`} alt="" />
+                <img src={eventCoverUrl(form.cover_key)} alt="" />
               )}
               <Button
                 type="button"
@@ -1150,7 +1269,7 @@ function DraftEditor({
                         event: id,
                         version,
                         input: { ...form },
-                        op: crypto.randomUUID(),
+                        op: clientUuid(),
                         next: 0,
                         publishAfter: true,
                       }
@@ -1159,7 +1278,7 @@ function DraftEditor({
                         event: id,
                         version,
                         input: { confirmed: true },
-                        op: crypto.randomUUID(),
+                        op: clientUuid(),
                         next: 0,
                       },
                 )
@@ -1188,13 +1307,23 @@ function DraftEditor({
           title="Choose your picture"
           onClose={() => setPictureOpen(false)}
         >
-          <button type="button" className="picture-upload-placeholder" disabled>
+          <label className="picture-upload-placeholder">
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif"
+              disabled={pictureBusy}
+              onChange={(event) => {
+                const file = event.target.files?.[0] ?? null;
+                event.target.value = "";
+                void uploadCover(file);
+              }}
+            />
             <Upload size={20} />
             <span>
-              <strong>Upload a photo</strong>
-              <small>Coming soon</small>
+              <strong>{pictureBusy ? "Uploading..." : "Upload a photo"}</strong>
+              <small>JPG, PNG, WebP, or GIF</small>
             </span>
-          </button>
+          </label>
           <fieldset className="cover-options stock-cover-options">
             <legend>Choose a stock photo</legend>
             {covers.map((c) => (
@@ -1209,7 +1338,7 @@ function DraftEditor({
                     setPictureOpen(false);
                   }}
                 />
-                <img src={`images/${c}.jpg`} alt="" />
+                <img src={eventCoverUrl(c)} alt="" />
                 <span>{c[0].toUpperCase() + c.slice(1)}</span>
               </label>
             ))}
@@ -1217,11 +1346,11 @@ function DraftEditor({
         </Modal>
       )}
       {previewOpen && (
-        <Modal title="Event preview" onClose={() => setPreviewOpen(false)}>
+        <Modal className="event-preview-modal" title="Event preview" onClose={() => setPreviewOpen(false)}>
           <article className="creation-event-preview">
             <div className="preview-cover">
               {form.cover_key !== "none" ? (
-                <img src={`images/${form.cover_key}.jpg`} alt="" />
+                <img src={eventCoverUrl(form.cover_key)} alt="" />
               ) : (
                 <div className="image-fallback">
                   Choose a picture to add a cover
@@ -1252,7 +1381,6 @@ function DraftEditor({
                   <span className="small muted">Hosted by</span>
                   <strong>You</strong>
                 </div>
-                <StatusBadge>Host</StatusBadge>
               </div>
               <div className="preview-details">
                 <div className="detail">
@@ -1337,3 +1465,4 @@ function DraftEditor({
     </>
   );
 }
+

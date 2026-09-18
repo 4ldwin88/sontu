@@ -1,4 +1,5 @@
 import { supabase } from "./sontu";
+import { clientUuid } from "./ids";
 
 export type TelemetryScreen =
   | "home"
@@ -16,19 +17,22 @@ type MetadataValue = string | number | boolean | null;
 const key = "sontu-beta-telemetry-session-v1";
 const sensitive = /([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|https?:\/\/|\/invite\/|\/respond\/|token|password|secret)/i;
 
-function sessionId() {
+function makeSessionId() {
+  return clientUuid();
+}
+export function betaSessionId() {
   try {
     const existing = sessionStorage.getItem(key);
     if (existing) return existing;
-    const id = crypto.randomUUID();
+    const id = makeSessionId();
     sessionStorage.setItem(key, id);
     return id;
   } catch {
-    return crypto.randomUUID();
+    return makeSessionId();
   }
 }
 
-function cleanMetadata(metadata: Record<string, MetadataValue> = {}) {
+export function cleanTelemetryMetadata(metadata: Record<string, MetadataValue> = {}) {
   return Object.fromEntries(
     Object.entries(metadata).filter(([, value]) => {
       if (value === null) return true;
@@ -36,6 +40,26 @@ function cleanMetadata(metadata: Record<string, MetadataValue> = {}) {
       return typeof value === "number" || typeof value === "boolean";
     }),
   );
+}
+
+const attributionKeys = [
+  "utm_source",
+  "utm_medium",
+  "utm_campaign",
+  "utm_content",
+  "utm_term",
+  "ref",
+  "source",
+] as const;
+
+export function attributionFromSearch(search: string) {
+  const params = new URLSearchParams(search);
+  const metadata: Record<string, MetadataValue> = {};
+  for (const key of attributionKeys) {
+    const value = params.get(key);
+    if (value) metadata[key] = value.slice(0, 80);
+  }
+  return cleanTelemetryMetadata(metadata);
 }
 
 export function screenFromPath(pathname: string): TelemetryScreen {
@@ -56,10 +80,10 @@ export function trackBeta(
   metadata?: Record<string, MetadataValue>,
 ) {
   const payload = {
-    session_id: sessionId(),
+    session_id: betaSessionId(),
     event_name: eventName,
     screen,
-    metadata: cleanMetadata(metadata),
+    metadata: cleanTelemetryMetadata(metadata),
   };
   void supabase
     .from("sontu_beta_telemetry")

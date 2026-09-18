@@ -9,16 +9,29 @@ import {
 } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { rpc, supabase } from "../../../packages/data/sontu";
+export const profileMediaBucket = "profile-media";
+export const profileAvatarUrl = (path?: string | null) =>
+  path
+    ? supabase.storage.from(profileMediaBucket).getPublicUrl(path).data
+        .publicUrl
+    : "";
 export type AccountProfile = {
   user_id: string;
   first_name: string;
   display_name: string;
   handle: string;
+  avatar_path: string;
   handle_provisional: boolean;
   handle_changed_at: string | null;
   event_email_enabled: boolean;
   bio: string;
   bio_visibility: "GENERAL" | "CLOSE" | "ONLY_ME";
+  contact_email: string;
+  contact_email_visibility: "GENERAL" | "CLOSE" | "ONLY_ME";
+  phone_number: string;
+  phone_visibility: "GENERAL" | "CLOSE" | "ONLY_ME";
+  profile_location: string;
+  location_visibility: "GENERAL" | "CLOSE" | "ONLY_ME";
   link_label: string;
   link_url: string;
   link_visibility: "GENERAL" | "CLOSE" | "ONLY_ME";
@@ -116,3 +129,4 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     </Context.Provider>
   );
 }
+

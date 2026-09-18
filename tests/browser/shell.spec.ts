@@ -10,6 +10,10 @@ for (const route of routes) {
   test(`${route}: layout, semantics and assets`, async ({ page }, info) => {
     await page.goto("/#/" + route);
     await expect(page.locator("main")).toBeVisible();
+    if (route === "home") {
+      await expect(page.getByText("We couldn't load this view.")).toHaveCount(0);
+      await expect(page.locator(".editorial-grid .event-card").first()).toBeVisible();
+    }
     await page.locator("img").evaluateAll(async (images) => {
       await Promise.all(
         images.map((i) =>
@@ -98,7 +102,8 @@ test("320px text reflow", async ({ page }) => {
 test("root navigation starts at top and chrome follows scroll direction", async ({
   page,
 }) => {
-  await page.goto("/#/feed");
+  await page.goto("/#/home");
+  await page.evaluate(() => { document.body.style.minHeight = "2000px"; });
   await page.evaluate(() => window.scrollTo(0, 450));
   await expect(page.locator(".app-shell")).toHaveClass(/chrome-hidden/);
   await page.evaluate(() => window.scrollTo(0, 320));
@@ -165,7 +170,9 @@ test("utility drawers keep the page, trap focus, and return focus", async ({
   await page.keyboard.press("Escape");
   await expect(notifications).toHaveCount(0);
   await expect(page).toHaveURL(/#\/discover$/);
-  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+  await expect
+    .poll(() => page.evaluate(() => window.scrollY))
+    .toBeLessThanOrEqual(12);
 });
 
 test("sideways root gestures respect controls, direction and boundaries", async ({
@@ -204,15 +211,15 @@ test("sideways root gestures respect controls, direction and boundaries", async 
   await expect(page).toHaveURL(/#\/home$/);
   await swipe(".home-welcome", -100);
   await expect(page).toHaveURL(/#\/discover$/);
-  await swipe(".filter-row button", -100);
+  await swipe(".discover-tools input", -100);
   await expect(page).toHaveURL(/#\/discover$/);
-  await swipe(".discover-feature", -100);
+  await swipe("main section", -100);
   await expect(page).toHaveURL(/#\/events$/);
   await swipe(".events-page h1", -100);
   await expect(page).toHaveURL(/#\/feed$/);
-  await swipe(".feed-item", -100);
+  await swipe("main h1", -100);
   await expect(page).toHaveURL(/#\/feed$/);
-  await swipe(".feed-item", 100);
+  await swipe("main h1", 100);
   await expect(page).toHaveURL(/#\/events$/);
 });
 

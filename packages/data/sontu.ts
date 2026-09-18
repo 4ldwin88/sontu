@@ -1,4 +1,5 @@
 import { recordDiagnostic } from "./diagnostics";
+import { clientUuid } from "./ids";
 import { createClient } from "@supabase/supabase-js";
 import type {
   CheckInProjection,
@@ -9,13 +10,51 @@ import type {
   HostProjection,
   TeamProjection,
 } from "../domain/coordination";
+export function resolveSupabaseUrl(
+  configuredUrl: string,
+  pageHostname = typeof window === "undefined" ? "" : window.location.hostname,
+) {
+  if (
+    !pageHostname ||
+    pageHostname === "localhost" ||
+    pageHostname === "127.0.0.1"
+  )
+    return configuredUrl;
+  try {
+    const url = new URL(configuredUrl);
+    if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
+      url.hostname = pageHostname;
+      return url.toString().replace(/\/$/, "");
+    }
+  } catch {
+    return configuredUrl;
+  }
+  return configuredUrl;
+}
 // Publishable key only. All authorization and consequential writes are enforced by RPCs.
 export const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL ??
-    "https://zukfxasttgmtygnsqqav.supabase.co",
+  resolveSupabaseUrl(
+    import.meta.env.VITE_SUPABASE_URL ??
+      "https://zukfxasttgmtygnsqqav.supabase.co",
+  ),
   import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ??
     "sb_publishable_HOaki0v0jS9BmMSv8MuQng_Oh4X39wm",
 );
+export const eventMediaBucket = "event-media";
+export const organizationMediaBucket = "organization-media";
+export const eventCoverUrl = (coverKey?: string | null) => {
+  if (!coverKey || coverKey === "none") return "";
+  if (coverKey.startsWith("upload:"))
+    return supabase.storage
+      .from(eventMediaBucket)
+      .getPublicUrl(coverKey.slice("upload:".length)).data.publicUrl;
+  return `images/${coverKey}.jpg`;
+};
+export const organizationLogoUrl = (path?: string | null) =>
+  path
+    ? supabase.storage.from(organizationMediaBucket).getPublicUrl(path).data
+        .publicUrl
+    : "";
 export class TransportUnknown extends Error {}
 export async function rpc<T>(
   name: string,
@@ -72,6 +111,7 @@ export type OrganizationContext = {
   visibility?: "PUBLIC" | "PRIVATE";
   lifecycle?: OrganizationLifecycle;
   accepted_successor_count?: number;
+  logo_path?: string | null;
 };
 export type OrganizationType =
   | "BUSINESS"
@@ -160,6 +200,25 @@ export const organizationOverview = () =>
     input: {},
     operation_id: null,
   });
+export const organizationLogos = () =>
+  rpc<{
+    status: string;
+    logos?: Array<{ organization_id: string; logo_path: string | null }>;
+  }>("sontu_organization_logo", {
+    action: "overview",
+    organization_id: null,
+    logo_path: null,
+    operation_id: null,
+  });
+export const setOrganizationLogo = (
+  organization_id: string,
+  logo_path: string | null,
+  operation_id: string,
+) =>
+  rpc<{ status: string; error_code?: string; logo_path?: string | null }>(
+    "sontu_organization_logo",
+    { action: "write", organization_id, logo_path, operation_id },
+  );
 export const organizationGovernanceDetail = (organization_id: string) =>
   rpc<{
     status: string;
@@ -217,7 +276,7 @@ export const eventOperationsCommand = (
     event_id,
     item_id,
     input,
-    operation_id: crypto.randomUUID(),
+    operation_id: clientUuid(),
   });
 export const teamRead = (event_id: string) =>
   rpc<TeamProjection>("sontu_team_projection", { event_id });
@@ -232,7 +291,7 @@ export const teamCommand = (
     event_id,
     member_id,
     input,
-    operation_id: crypto.randomUUID(),
+    operation_id: clientUuid(),
   });
 export const assignOperationItem = (
   kind: "todo" | "resource",
@@ -245,7 +304,7 @@ export const assignOperationItem = (
     event_id,
     item_id,
     team_member_id,
-    operation_id: crypto.randomUUID(),
+    operation_id: clientUuid(),
   });
 export const checkInRead = (event_id: string) =>
   rpc<CheckInProjection>("sontu_check_in_projection", { event_id });
@@ -253,26 +312,26 @@ export const checkInParticipant = (event_id: string, participant_id: string) =>
   rpc<CheckInResult>("sontu_check_in_command", {
     event_id,
     participant_id,
-    operation_id: crypto.randomUUID(),
+    operation_id: clientUuid(),
   });
 export const checkInCredential = (event_id: string, credential_id: string) =>
   rpc<CheckInResult>("sontu_check_in_credential_command", {
     event_id,
     credential_id,
-    operation_id: crypto.randomUUID(),
+    operation_id: clientUuid(),
   });
 export const resultsRead = (event_id: string) =>
   rpc<EventResultsProjection>("sontu_results_projection", { event_id });
 export const closeEvent = (event_id: string) =>
   rpc<CommandResult>("sontu_close_event", {
     event_id,
-    operation_id: crypto.randomUUID(),
+    operation_id: clientUuid(),
     confirmed: true,
   });
 export const startEvent = (event_id: string) =>
   rpc<CommandResult>("sontu_start_event", {
     event_id,
-    operation_id: crypto.randomUUID(),
+    operation_id: clientUuid(),
   });
 export type EventDeliverySummary = {
   kind: "EVENT_CHANGE" | "GUEST_RSVP_CONFIRMATION" | "EVENT_CANCELLED";
@@ -314,3 +373,4 @@ export function createParticipantToken() {
     b.toString(16).padStart(2, "0"),
   ).join("");
 }
+

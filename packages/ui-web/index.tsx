@@ -203,6 +203,10 @@ export function TrustBadge({ verified }: { verified: boolean }) {
     </span>
   ) : null;
 }
+function imageSource(src: string) {
+  return /^(https?:|blob:|data:)/.test(src) ? src : `${import.meta.env.BASE_URL}${src}`;
+}
+
 export function EventImage({
   event,
   image,
@@ -215,6 +219,8 @@ export function EventImage({
   priority?: boolean;
 }) {
   const [failed, setFailed] = useState(false);
+  const rawSrc = image?.src ?? event?.presentation.image ?? "";
+  const src = imageSource(rawSrc);
   return failed ? (
     <div
       className={`image-fallback ${className}`}
@@ -227,7 +233,7 @@ export function EventImage({
   ) : (
     <img
       className={`event-image ${className}`}
-      src={`${import.meta.env.BASE_URL}${image?.src ?? event?.presentation.image ?? ""}`}
+      src={src}
       alt={image?.alt ?? event?.presentation.imageAlt ?? ""}
       loading={priority ? "eager" : "lazy"}
       onError={() => setFailed(true)}
@@ -394,3 +400,5 @@ export const UnavailableState = () => (
 export const PendingUnknownState = () => (
   <SystemState state={{ status: "pending_unknown" }} />
 );
+
+

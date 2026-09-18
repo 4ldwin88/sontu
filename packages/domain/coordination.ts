@@ -27,6 +27,7 @@ export interface EventVersion {
   ends_at: string;
   timezone: string;
   venue_label: string;
+  protected_join_info?: string | null;
   cover_key?: string;
   capacity?: number | null;
   materiality_class: string;
@@ -235,6 +236,51 @@ export function validateTimeChange(startsAt: string, endsAt: string): boolean {
     Number.isFinite(Date.parse(startsAt)) &&
     Date.parse(startsAt) < Date.parse(endsAt)
   );
+}
+function csvCell(value: unknown) {
+  const text = value === null || value === undefined ? "" : String(value);
+  return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+export function participantExportCsv(
+  participants: Participant[],
+  options: { includeEmail?: boolean } = {},
+) {
+  const headers = [
+    "name",
+    ...(options.includeEmail ? ["email"] : []),
+    "commitment",
+    "invitation",
+    "response",
+    "admission",
+    "guest_places",
+    "private_link",
+  ];
+  const rows = participants.map((participant) => [
+    participant.display_name,
+    ...(options.includeEmail ? [participant.invitation_email ?? ""] : []),
+    participant.commitment_state,
+    participant.invitation_state ?? "",
+    participant.response ?? "",
+    participant.admission_status ?? "",
+    participant.plus_one_allowance ?? 0,
+    participant.link_revoked ? "revoked" : "active_or_unissued",
+  ]);
+  return [headers, ...rows]
+    .map((row) => row.map(csvCell).join(","))
+    .join("\n");
+}
+export function duplicateEventDraftInput(version: EventVersion) {
+  const title = `Copy of ${version.title || "Untitled event"}`.slice(0, 120);
+  return {
+    title,
+    description: version.description ?? "",
+    starts_at: version.starts_at ?? "",
+    ends_at: version.ends_at ?? "",
+    timezone: version.timezone || "UTC",
+    venue_label: version.venue_label ?? "",
+    cover_key: version.cover_key || "none",
+    capacity: version.capacity ? String(version.capacity) : "",
+  };
 }
 export const errorMessages: Record<string, string> = {
   VERIFY_EMAIL: "Verify the email address this invitation was sent to.",

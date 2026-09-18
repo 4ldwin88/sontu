@@ -3,16 +3,18 @@
   --ocean: #0ea5e9;
   --ocean-deep: #2563eb;
   --navy: #0f2d5b;
-  --background: #ffffff;
+  --background: #f4f7fb;
   --surface: #ffffff;
-  --surface-elevated: #f1f8fe;
+  --surface-elevated: #edf4fa;
+  --surface-muted: #f5f9fc;
+  --surface-soft: #f8fbfd;
   --text-primary: var(--navy);
   --text-secondary: #536b8a;
-  --border: #e3edf6;
-  --interactive-primary: #086bbf;
-  --interactive-hover: var(--ocean-deep);
+  --border: #cad9e7;
+  --interactive-primary: #066daf;
+  --interactive-hover: #075f99;
   --on-interactive: #ffffff;
-  --selected: #e8f2ff;
+  --selected: #dceffd;
   --focus: #1d4ed8;
   --success: #166445;
   --success-bg: #e8f5ee;
@@ -20,11 +22,11 @@
   --warning-bg: #fff4db;
   --error: #af2539;
   --error-bg: #fff0f1;
-  --info: #20579b;
-  --info-bg: #e8f2ff;
+  --info: #185f91;
+  --info-bg: #dceffd;
   --destructive: var(--error);
   --imagery-overlay: linear-gradient(180deg, transparent 15%, #07172aee 100%);
-  --font-ui: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-ui: "Sora", ui-sans-serif, system-ui, sans-serif;
   --space-1: 0.25rem;
   --space-2: 0.5rem;
   --space-3: 0.75rem;
@@ -32,9 +34,11 @@
   --space-6: 1.5rem;
   --space-8: 2rem;
   --space-12: 3rem;
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --shadow-soft: 0 8px 22px rgba(7, 23, 42, 0.055);
+  --shadow-raised: 0 14px 36px rgba(7, 23, 42, 0.08);
   --motion-fast: 150ms;
   color-scheme: light;
 }
@@ -42,6 +46,8 @@
   --background: #0a1424;
   --surface: #101f33;
   --surface-elevated: #182c45;
+  --surface-muted: #13243a;
+  --surface-soft: #0e1b2e;
   --text-primary: #f1f6ff;
   --text-secondary: #b4c4d8;
   --border: #344760;
@@ -63,12 +69,18 @@
 :root[data-accent="navy"] {
   --interactive-primary: #0f2d5b;
   --interactive-hover: #143e7c;
+  --selected: #e2e9f5;
   --focus: #2563eb;
+  --info: #294c7a;
+  --info-bg: #e2e9f5;
 }
 :root[data-theme="dark"][data-accent="navy"] {
   --interactive-primary: #b5ceff;
   --interactive-hover: #d4e3ff;
+  --selected: #273a5b;
   --focus: #b5ceff;
+  --info: #c3d7ff;
+  --info-bg: #273a5b;
 }
 @media (prefers-reduced-motion: reduce) {
   :root {
