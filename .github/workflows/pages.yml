@@ -24,7 +24,13 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npm run build
+      - name: Build hosted application
+        run: npm run build
+        env:
+          VITE_SUPABASE_URL: https://zukfxasttgmtygnsqqav.supabase.co
+          VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_HOaki0v0jS9BmMSv8MuQng_Oh4X39wm
+          VITE_REGISTRATION_ENABLED: "true"
+          VITE_INVITATION_VERIFICATION_ENABLED: "true"
       - uses: actions/upload-pages-artifact@v4
         with:
           path: dist
