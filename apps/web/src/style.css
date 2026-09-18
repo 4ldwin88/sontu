@@ -5912,6 +5912,15 @@ h3 {
     scrollbar-width: none;
   }
 
+  .profile-hub-tabs {
+    grid-template-columns: repeat(3, max-content);
+  }
+
+  .profile-hub-tabs button {
+    padding-inline: 16px;
+    white-space: nowrap;
+  }
+
   .tabs::-webkit-scrollbar,
   .relationship-tabs::-webkit-scrollbar,
   .profile-hub-tabs::-webkit-scrollbar {

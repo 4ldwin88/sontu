@@ -14,7 +14,7 @@ export function passwordChecks(value: string) {
 }
 export function safeAccountReturn(value: string | null) {
   return value &&
-    /^\/(home|discover|events|feed|create|core|my-events|invite|connections|profile|settings|privacy|help|about|organizations)(\/|\?|$)/.test(
+    /^\/(home|discover|event|events|feed|create|core|my-events|invite|connections|profile|settings|privacy|help|about|organizations)(\/|\?|$)/.test(
       value,
     ) &&
     !/[\\\r\n]/.test(value)

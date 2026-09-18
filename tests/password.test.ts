@@ -21,6 +21,9 @@ it("keeps auth return destinations inside governed product routes", () => {
   ])
     expect(safeAccountReturn(p)).toBe("/events");
   expect(safeAccountReturn("/create/abc")).toBe("/create/abc");
+  expect(safeAccountReturn("/event/abc?return=%2Fhome")).toBe(
+    "/event/abc?return=%2Fhome",
+  );
   expect(safeAccountReturn("/connections")).toBe("/connections");
   expect(safeAccountReturn("/privacy")).toBe("/privacy");
 });
