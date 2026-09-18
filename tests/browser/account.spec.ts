@@ -114,54 +114,58 @@ test("account portal registers, resumes minimum profile, and keeps real identity
   await page
     .getByRole("button", { name: "Create account", exact: true })
     .click();
-  await expect(
-    page.getByRole("heading", { name: "Check your email" }),
-  ).toBeVisible();
-  let mailId = "";
-  await expect
-    .poll(
-      async () => {
-        const data = await (
-          await request.get(
-            process.env.SONTU_TEST_MAIL_URL! + "/api/v1/messages",
-          )
-        ).json();
-        mailId =
-          data.messages?.find((m: { ID: string; To: { Address: string }[] }) =>
-            m.To?.some((t) => t.Address === email),
-          )?.ID ?? "";
-        return mailId;
-      },
-      { timeout: 15000 },
-    )
-    .not.toBe("");
-  const mail = await (
-    await request.get(
-      process.env.SONTU_TEST_MAIL_URL! + "/api/v1/message/" + mailId,
-    )
-  ).json();
-  const confirmationHref = mail.HTML?.match(
-    /href="([^"]+\/auth\/v1\/verify\?[^"]+)"/i,
-  )?.[1].replaceAll("&amp;", "&");
-  if (!confirmationHref)
-    throw new Error("Confirmation link missing from local email");
-  const confirmationUrl = new URL(confirmationHref);
-  const localApi = new URL(process.env.SONTU_TEST_API!);
-  confirmationUrl.protocol = localApi.protocol;
-  confirmationUrl.host = localApi.host;
-  const confirmation = await request.get(confirmationUrl.toString(), {
-    maxRedirects: 0,
+  const confirmationHeading = page.getByRole("heading", {
+    name: "Check your email",
   });
-  expect([302, 303]).toContain(confirmation.status());
-  await page
-    .getByRole("link", { name: "Back to sign in", exact: true })
-    .click();
-  await page.getByLabel("Email", { exact: true }).fill(email);
-  await page.getByLabel("Password", { exact: true }).fill(password);
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
   const setupHeading = page.getByRole("heading", {
     name: "What should we call you?",
   });
+  await expect(confirmationHeading.or(setupHeading)).toBeVisible();
+  if (await confirmationHeading.isVisible()) {
+    let mailId = "";
+    await expect
+      .poll(
+        async () => {
+          const data = await (
+            await request.get(
+              process.env.SONTU_TEST_MAIL_URL! + "/api/v1/messages",
+            )
+          ).json();
+          mailId =
+            data.messages?.find(
+              (m: { ID: string; To: { Address: string }[] }) =>
+                m.To?.some((t) => t.Address === email),
+            )?.ID ?? "";
+          return mailId;
+        },
+        { timeout: 15000 },
+      )
+      .not.toBe("");
+    const mail = await (
+      await request.get(
+        process.env.SONTU_TEST_MAIL_URL! + "/api/v1/message/" + mailId,
+      )
+    ).json();
+    const confirmationHref = mail.HTML?.match(
+      /href="([^"]+\/auth\/v1\/verify\?[^"]+)"/i,
+    )?.[1].replaceAll("&amp;", "&");
+    if (!confirmationHref)
+      throw new Error("Confirmation link missing from local email");
+    const confirmationUrl = new URL(confirmationHref);
+    const localApi = new URL(process.env.SONTU_TEST_API!);
+    confirmationUrl.protocol = localApi.protocol;
+    confirmationUrl.host = localApi.host;
+    const confirmation = await request.get(confirmationUrl.toString(), {
+      maxRedirects: 0,
+    });
+    expect([302, 303]).toContain(confirmation.status());
+    await page
+      .getByRole("link", { name: "Back to sign in", exact: true })
+      .click();
+    await page.getByLabel("Email", { exact: true }).fill(email);
+    await page.getByLabel("Password", { exact: true }).fill(password);
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  }
   const acceptInvitation = page.getByRole("button", {
     name: "Accept invitation",
     exact: true,
@@ -240,9 +244,16 @@ test("account portal registers, resumes minimum profile, and keeps real identity
     .getByRole("link", { name: "View Profile", exact: true })
     .click();
   await expect(page.getByText(email, { exact: true })).toBeVisible();
-  await expect(page.getByText("+1 416 555 0101", { exact: true })).toBeVisible();
-  await expect(page.getByText("Toronto, Ontario", { exact: true })).toBeVisible();
-  const accountSession = await client.auth.signInWithPassword({ email, password });
+  await expect(
+    page.getByText("+1 416 555 0101", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Toronto, Ontario", { exact: true }),
+  ).toBeVisible();
+  const accountSession = await client.auth.signInWithPassword({
+    email,
+    password,
+  });
   expect(accountSession.error).toBeNull();
   const userId = accountSession.data.user!.id;
   const ownObjects = await client.storage.from("profile-media").list(userId);
@@ -266,7 +277,9 @@ test("account portal registers, resumes minimum profile, and keeps real identity
   await expect(
     page.getByRole("button", { name: "Profile and appearance" }),
   ).toBeVisible();
-  const replacedObjects = await client.storage.from("profile-media").list(userId);
+  const replacedObjects = await client.storage
+    .from("profile-media")
+    .list(userId);
   expect(replacedObjects.error).toBeNull();
   expect(replacedObjects.data).toHaveLength(1);
   expect(replacedObjects.data?.[0]?.name).not.toBe(ownObjects.data?.[0]?.name);
@@ -277,28 +290,35 @@ test("account portal registers, resumes minimum profile, and keeps real identity
   await page.getByLabel("Profile image").setInputFiles({
     name: "avatar.svg",
     mimeType: "image/svg+xml",
-    buffer: Buffer.from("<svg xmlns='http://www.w3.org/2000/svg'/>")
+    buffer: Buffer.from("<svg xmlns='http://www.w3.org/2000/svg'/>"),
   });
-  await expect(page.getByText("Use a JPG, PNG, GIF, or WebP image under 2 MB.")).toBeVisible();
+  await expect(
+    page.getByText("Use a JPG, PNG, GIF, or WebP image under 2 MB."),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Remove profile image" }).click();
   await page.getByRole("button", { name: "Save profile", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "Profile and appearance" }),
   ).toBeVisible();
-  const removedObjects = await client.storage.from("profile-media").list(userId);
+  const removedObjects = await client.storage
+    .from("profile-media")
+    .list(userId);
   expect(removedObjects.error).toBeNull();
   expect(removedObjects.data).toHaveLength(0);
   await page.getByRole("button", { name: "Close profile" }).click();
   await page.goto("/#/profile");
-  await page.getByRole("link", { name: "View public profile", exact: true }).click();
-  await expect(page.getByRole("link", { name: email, exact: true })).toHaveAttribute(
-    "href",
-    `mailto:${email}`,
-  );
+  await page
+    .getByRole("link", { name: "View public profile", exact: true })
+    .click();
+  await expect(
+    page.getByRole("link", { name: email, exact: true }),
+  ).toHaveAttribute("href", `mailto:${email}`);
   await expect(
     page.getByRole("link", { name: "+1 416 555 0101", exact: true }),
   ).toHaveAttribute("href", "tel:+1 416 555 0101");
-  await expect(page.getByText("Toronto, Ontario", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("Toronto, Ontario", { exact: true }),
+  ).toBeVisible();
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth + 1,

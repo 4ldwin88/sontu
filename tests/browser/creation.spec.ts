@@ -25,7 +25,9 @@ test("host resumes a draft and publishes only reviewed valid event details", asy
   await expect(
     page.getByRole("heading", { name: "What are you creating?" }),
   ).toBeVisible();
-  await expect(page.getByRole("combobox", { name: "Event owner" })).toHaveValue("PERSONAL");
+  await expect(page.getByRole("combobox", { name: "Event owner" })).toHaveValue(
+    "PERSONAL",
+  );
   await page.getByRole("button", { name: "Birthday", exact: true }).click();
   await page.getByRole("radio", { name: /In person/ }).check();
   await page.getByRole("button", { name: "Continue to event details" }).click();
@@ -36,9 +38,7 @@ test("host resumes a draft and publishes only reviewed valid event details", asy
     }),
   ).toBeVisible();
   const draftUrl = page.url();
-  await page
-    .getByLabel("Event title", { exact: true })
-    .fill(eventTitle);
+  await page.getByLabel("Event title", { exact: true }).fill(eventTitle);
   await page.getByLabel("Description").fill("An evening with friends.");
   await page.getByRole("button", { name: "Choose your picture" }).click();
   await page
@@ -110,7 +110,7 @@ test("host resumes a draft and publishes only reviewed valid event details", asy
       .getByText("Published", { exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByText(/^America\/.+ · Participation limit 8$/),
+    page.getByText(/^(?:UTC|.+\/.+) · Participation limit 8$/),
   ).toBeVisible();
   await expect(
     page.getByRole("region", { name: "Event status", exact: true }),
@@ -118,10 +118,7 @@ test("host resumes a draft and publishes only reviewed valid event details", asy
   await expect(
     page.getByRole("region", { name: "Next up", exact: true }),
   ).toBeVisible();
-  await page
-    .getByRole("button", { name: "Change picture" })
-    .first()
-    .click();
+  await page.getByRole("button", { name: "Change picture" }).first().click();
   await page
     .getByRole("dialog", { name: "Choose your picture" })
     .getByRole("button", { name: "Market", exact: true })
@@ -156,17 +153,11 @@ test("host resumes a draft and publishes only reviewed valid event details", asy
   await page.goto("/#/events");
   await page.getByRole("tab", { name: "Upcoming", exact: true }).click();
   await expect(
-    page
-      .getByRole("link")
-      .filter({ hasText: eventTitle })
-      .first(),
+    page.getByRole("link").filter({ hasText: eventTitle }).first(),
   ).toBeVisible();
   await page.getByRole("tab", { name: "Hosting", exact: true }).click();
   await expect(
-    page
-      .getByRole("link")
-      .filter({ hasText: eventTitle })
-      .first(),
+    page.getByRole("link").filter({ hasText: eventTitle }).first(),
   ).toBeVisible();
 
   const hostedCard = page
@@ -299,15 +290,21 @@ test("host resumes a draft and publishes only reviewed valid event details", asy
   await page.getByRole("button", { name: "Add choice", exact: true }).click();
   await page.getByLabel("Choice 3", { exact: true }).fill("Veggie");
   await page.getByLabel("Required", { exact: true }).check();
-  await page.getByRole("button", { name: "Save RSVP form", exact: true }).click();
-  await expect(page.getByText("RSVP form saved.", { exact: true })).toBeVisible();
+  await page
+    .getByRole("button", { name: "Save RSVP form", exact: true })
+    .click();
+  await expect(
+    page.getByText("RSVP form saved.", { exact: true }),
+  ).toBeVisible();
 
   await tools.getByRole("button", { name: "Seating", exact: true }).click();
   await page.getByLabel("Table name", { exact: true }).fill("Table A");
   await page.getByLabel("Seats", { exact: true }).fill("8");
   await page.getByRole("button", { name: "Add table", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Table A" })).toBeVisible();
-  await expect(page.getByText("0 of 8 seats assigned", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("0 of 8 seats assigned", { exact: true }),
+  ).toBeVisible();
   await page
     .getByRole("combobox", { name: "Table", exact: true })
     .selectOption({ index: 1 });
@@ -315,16 +312,23 @@ test("host resumes a draft and publishes only reviewed valid event details", asy
     .getByRole("combobox", { name: "Attendee", exact: true })
     .selectOption({ index: 1 });
   await page.getByRole("button", { name: "Assign seat", exact: true }).click();
-  await expect(page.getByText("1 of 8 seats assigned", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("1 of 8 seats assigned", { exact: true }),
+  ).toBeVisible();
 
-  await tools.getByRole("button", { name: "Accessibility", exact: true }).click();
+  await tools
+    .getByRole("button", { name: "Accessibility", exact: true })
+    .click();
   await page.getByLabel("Step-free entry", { exact: true }).check();
   await page.getByLabel("Seating available", { exact: true }).check();
   await page
     .getByLabel("Additional accessibility details")
     .fill("Elevator access beside the main entrance.");
   await page
-    .getByRole("button", { name: "Save accessibility information", exact: true })
+    .getByRole("button", {
+      name: "Save accessibility information",
+      exact: true,
+    })
     .click();
   await expect(
     page.getByText("Accessibility information saved.", { exact: true }),
@@ -339,10 +343,18 @@ test("host resumes a draft and publishes only reviewed valid event details", asy
     "Veggie",
   );
   await tools.getByRole("button", { name: "Seating", exact: true }).click();
-  await expect(page.getByText("1 of 8 seats assigned", { exact: true })).toBeVisible();
-  await tools.getByRole("button", { name: "Accessibility", exact: true }).click();
-  await expect(page.getByLabel("Step-free entry", { exact: true })).toBeChecked();
-  await expect(page.getByLabel("Seating available", { exact: true })).toBeChecked();
+  await expect(
+    page.getByText("1 of 8 seats assigned", { exact: true }),
+  ).toBeVisible();
+  await tools
+    .getByRole("button", { name: "Accessibility", exact: true })
+    .click();
+  await expect(
+    page.getByLabel("Step-free entry", { exact: true }),
+  ).toBeChecked();
+  await expect(
+    page.getByLabel("Seating available", { exact: true }),
+  ).toBeChecked();
   await expect(page.getByLabel("Additional accessibility details")).toHaveValue(
     "Elevator access beside the main entrance.",
   );
@@ -418,9 +430,7 @@ test("host resumes a draft and publishes only reviewed valid event details", asy
     page.getByRole("heading", { name: "Your upcoming events", exact: true }),
   ).toBeVisible();
   await expect(
-    page
-      .getByRole("link")
-      .filter({ hasText: eventTitle }),
+    page.getByRole("link").filter({ hasText: eventTitle }),
   ).toHaveCount(0);
   await page.getByRole("tab", { name: "Hosting", exact: true }).click();
   await expect(

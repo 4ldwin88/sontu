@@ -125,11 +125,14 @@ test("verified invitee accepts and reconfirms through connected Events", async (
   ).toBeVisible();
   await page.getByRole("link", { name: "Your Events" }).click();
   const setupName = page.getByLabel("Name", { exact: true });
-  if (await setupName.isVisible({ timeout: 2000 }).catch(() => false)) {
+  const invitedTab = page.getByRole("tab", { name: "Invited" });
+  await expect(setupName.or(invitedTab)).toBeVisible();
+  if (await setupName.isVisible()) {
     await setupName.fill("Invited guest");
     await page.getByRole("button", { name: "Start exploring" }).click();
   }
-  await page.getByRole("tab", { name: "Invited" }).click();
+  await expect(invitedTab).toBeVisible();
+  await invitedTab.click();
   await page
     .getByRole("link")
     .filter({
