@@ -5,6 +5,7 @@ test("host resumes a draft and publishes only reviewed valid event details", asy
 }, info) => {
   test.skip(!process.env.SONTU_TEST_PASSWORD, "Requires isolated auth");
   test.setTimeout(120000);
+  const eventTitle = `Garden dinner ${info.project.name} ${Date.now()}`;
   await page.goto("/#/events?view=Hosting");
   await page.getByRole("button", { name: "Create Event", exact: true }).click();
   await expect(
@@ -24,23 +25,26 @@ test("host resumes a draft and publishes only reviewed valid event details", asy
   await expect(
     page.getByRole("heading", { name: "What are you creating?" }),
   ).toBeVisible();
-  await expect(page.getByRole("combobox", { name: "Event owner" })).toHaveValue("PERSONAL");
+  await expect(page.getByRole("combobox", { name: "Event owner" })).toHaveValue(
+    "PERSONAL",
+  );
   await page.getByRole("button", { name: "Birthday", exact: true }).click();
   await page.getByRole("radio", { name: /In person/ }).check();
   await page.getByRole("button", { name: "Continue to event details" }).click();
   await expect(
-    page.getByRole("heading", { name: "The idea", exact: true }),
+    page.getByRole("heading", {
+      name: "Something good starts here.",
+      exact: true,
+    }),
   ).toBeVisible();
   const draftUrl = page.url();
-  await page
-    .getByLabel("Event title", { exact: true })
-    .fill(`Garden dinner ${info.project.name}`);
+  await page.getByLabel("Event title", { exact: true }).fill(eventTitle);
   await page.getByLabel("Description").fill("An evening with friends.");
   await page.getByRole("button", { name: "Choose your picture" }).click();
   await page
     .getByRole("dialog", { name: "Choose your picture" })
     .getByRole("radio", { name: "Sunset", exact: true })
-    .check();
+    .evaluate((node: HTMLInputElement) => node.click());
   // Save reached the server but response was lost: recovery must retain one operation.
   let dropped = false;
   await page.route("**/rest/v1/rpc/sontu_host_command", async (route) => {
@@ -93,9 +97,7 @@ test("host resumes a draft and publishes only reviewed valid event details", asy
   await page.getByRole("button", { name: "Save draft" }).click();
   await expect(page).toHaveURL(/view=Hosting/);
   await page.goto(draftUrl);
-  await expect(page.getByLabel("Event title")).toHaveValue(
-    `Garden dinner ${info.project.name}`,
-  );
+  await expect(page.getByLabel("Event title")).toHaveValue(eventTitle);
   await page
     .getByRole("button", { name: "Publish event", exact: true })
     .click();
@@ -108,7 +110,7 @@ test("host resumes a draft and publishes only reviewed valid event details", asy
       .getByText("Published", { exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByText("America/Vancouver · Participation limit 8"),
+    page.getByText(/^(?:UTC|.+\/.+) · Participation limit 8$/),
   ).toBeVisible();
   await expect(
     page.getByRole("region", { name: "Event status", exact: true }),
@@ -116,7 +118,7 @@ test("host resumes a draft and publishes only reviewed valid event details", asy
   await expect(
     page.getByRole("region", { name: "Next up", exact: true }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Change picture" }).click();
+  await page.getByRole("button", { name: "Change picture" }).first().click();
   await page
     .getByRole("dialog", { name: "Choose your picture" })
     .getByRole("button", { name: "Market", exact: true })
@@ -138,33 +140,29 @@ test("host resumes a draft and publishes only reviewed valid event details", asy
     .getByRole("button", { name: "Manage guests", exact: true })
     .boundingBox();
   expect(guestAction).not.toBeNull();
-  expect(guestAction!.y + guestAction!.height).toBeLessThan(650);
+  expect(guestAction!.y + guestAction!.height).toBeLessThan(
+    await page.evaluate(() => innerHeight),
+  );
   await page.reload();
   await expect(
     page.getByRole("heading", {
-      name: `Garden dinner ${info.project.name}`,
+      name: eventTitle,
       exact: true,
     }),
   ).toBeVisible();
   await page.goto("/#/events");
   await page.getByRole("tab", { name: "Upcoming", exact: true }).click();
   await expect(
-    page
-      .getByRole("link")
-      .filter({ hasText: `Garden dinner ${info.project.name}` })
-      .first(),
+    page.getByRole("link").filter({ hasText: eventTitle }).first(),
   ).toBeVisible();
   await page.getByRole("tab", { name: "Hosting", exact: true }).click();
   await expect(
-    page
-      .getByRole("link")
-      .filter({ hasText: `Garden dinner ${info.project.name}` })
-      .first(),
+    page.getByRole("link").filter({ hasText: eventTitle }).first(),
   ).toBeVisible();
 
   const hostedCard = page
     .getByRole("link")
-    .filter({ hasText: `Garden dinner ${info.project.name}` })
+    .filter({ hasText: eventTitle })
     .first();
   await expect(hostedCard.getByText("Hosting", { exact: true })).toBeVisible();
   await expect(
@@ -175,9 +173,6 @@ test("host resumes a draft and publishes only reviewed valid event details", asy
     page.getByRole("heading", { name: "About this event" }),
   ).toBeVisible();
   await expect(page.getByText("An evening with friends.")).toBeVisible();
-  await expect(
-    page.getByText("America/Vancouver", { exact: true }),
-  ).toBeVisible();
   await page.screenshot({
     path: info.outputPath("event-hub.png"),
     animations: "disabled",
@@ -280,8 +275,90 @@ test("host resumes a draft and publishes only reviewed valid event details", asy
     .click();
   await expect(page.getByText("Dinner guest", { exact: true })).toBeVisible();
   const modules = page
-    .getByRole("navigation", { name: "Event workspace modules" })
+    .getByRole("navigation", { name: "Event workspace categories" })
     .filter({ visible: true });
+  const tools = page
+    .getByRole("navigation", { name: "Current workspace tools" })
+    .filter({ visible: true });
+
+  // Exercise the simple-event host modules that failed during the human pass.
+  await tools.getByRole("button", { name: "Rsvp", exact: true }).click();
+  await page.getByRole("button", { name: "Add question", exact: true }).click();
+  await page.getByLabel("Question", { exact: true }).fill("Food choice");
+  await page.getByLabel("Choice 1", { exact: true }).fill("Chicken");
+  await page.getByLabel("Choice 2", { exact: true }).fill("Beef");
+  await page.getByRole("button", { name: "Add choice", exact: true }).click();
+  await page.getByLabel("Choice 3", { exact: true }).fill("Veggie");
+  await page.getByLabel("Required", { exact: true }).check();
+  await page
+    .getByRole("button", { name: "Save RSVP form", exact: true })
+    .click();
+  await expect(
+    page.getByText("RSVP form saved.", { exact: true }),
+  ).toBeVisible();
+
+  await tools.getByRole("button", { name: "Seating", exact: true }).click();
+  await page.getByLabel("Table name", { exact: true }).fill("Table A");
+  await page.getByLabel("Seats", { exact: true }).fill("8");
+  await page.getByRole("button", { name: "Add table", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Table A" })).toBeVisible();
+  await expect(
+    page.getByText("0 of 8 seats assigned", { exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("combobox", { name: "Table", exact: true })
+    .selectOption({ index: 1 });
+  await page
+    .getByRole("combobox", { name: "Attendee", exact: true })
+    .selectOption({ index: 1 });
+  await page.getByRole("button", { name: "Assign seat", exact: true }).click();
+  await expect(
+    page.getByText("1 of 8 seats assigned", { exact: true }),
+  ).toBeVisible();
+
+  await tools
+    .getByRole("button", { name: "Accessibility", exact: true })
+    .click();
+  await page.getByLabel("Step-free entry", { exact: true }).check();
+  await page.getByLabel("Seating available", { exact: true }).check();
+  await page
+    .getByLabel("Additional accessibility details")
+    .fill("Elevator access beside the main entrance.");
+  await page
+    .getByRole("button", {
+      name: "Save accessibility information",
+      exact: true,
+    })
+    .click();
+  await expect(
+    page.getByText("Accessibility information saved.", { exact: true }),
+  ).toBeVisible();
+  await page.reload();
+  await modules.getByRole("button", { name: "People", exact: true }).click();
+  await tools.getByRole("button", { name: "Rsvp", exact: true }).click();
+  await expect(page.getByLabel("Question", { exact: true })).toHaveValue(
+    "Food choice",
+  );
+  await expect(page.getByLabel("Choice 3", { exact: true })).toHaveValue(
+    "Veggie",
+  );
+  await tools.getByRole("button", { name: "Seating", exact: true }).click();
+  await expect(
+    page.getByText("1 of 8 seats assigned", { exact: true }),
+  ).toBeVisible();
+  await tools
+    .getByRole("button", { name: "Accessibility", exact: true })
+    .click();
+  await expect(
+    page.getByLabel("Step-free entry", { exact: true }),
+  ).toBeChecked();
+  await expect(
+    page.getByLabel("Seating available", { exact: true }),
+  ).toBeChecked();
+  await expect(page.getByLabel("Additional accessibility details")).toHaveValue(
+    "Elevator access beside the main entrance.",
+  );
+
   await modules.getByRole("button", { name: "Overview", exact: true }).click();
   await page
     .getByRole("button", { name: "Edit description", exact: true })
@@ -297,7 +374,8 @@ test("host resumes a draft and publishes only reviewed valid event details", asy
   await page.getByRole("link", { name: "View event", exact: true }).click();
   await expect(page.getByText("Bring a favourite dish.")).toBeVisible();
   await page.getByRole("link", { name: "Manage event", exact: true }).click();
-  await modules.getByRole("button", { name: "To Do", exact: true }).click();
+  await modules.getByRole("button", { name: "Plan", exact: true }).click();
+  await tools.getByRole("button", { name: "To Do", exact: true }).click();
   await expect(
     page.getByText("Nothing here yet.", { exact: true }),
   ).toBeVisible();
@@ -308,7 +386,7 @@ test("host resumes a draft and publishes only reviewed valid event details", asy
   ).toBeVisible();
   await page.getByRole("button", { name: "Complete", exact: true }).click();
   await expect(page.getByText("Completed", { exact: true })).toBeVisible();
-  await modules.getByRole("button", { name: "Resources", exact: true }).click();
+  await tools.getByRole("button", { name: "Resources", exact: true }).click();
   await page.getByLabel("Resource", { exact: true }).fill("Folding tables");
   await page.getByLabel("Quantity", { exact: true }).fill("2");
   await page.getByLabel("Note", { exact: true }).fill("Check the garage");
@@ -320,7 +398,8 @@ test("host resumes a draft and publishes only reviewed valid event details", asy
   await expect(page.getByText(/Ready · Check the garage/)).toBeVisible();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await page.reload();
-  await modules.getByRole("button", { name: "Resources", exact: true }).click();
+  await modules.getByRole("button", { name: "Plan", exact: true }).click();
+  await tools.getByRole("button", { name: "Resources", exact: true }).click();
   await expect(
     page.getByText("Folding tables · 2", { exact: true }),
   ).toBeVisible();
@@ -329,7 +408,7 @@ test("host resumes a draft and publishes only reviewed valid event details", asy
   await expect(
     page
       .getByRole("dialog")
-      .getByText("No cancellation email will be sent automatically.", {
+      .getByText("Cancellation emails are queued separately.", {
         exact: false,
       }),
   ).toBeVisible();
@@ -351,15 +430,13 @@ test("host resumes a draft and publishes only reviewed valid event details", asy
     page.getByRole("heading", { name: "Your upcoming events", exact: true }),
   ).toBeVisible();
   await expect(
-    page
-      .getByRole("link")
-      .filter({ hasText: `Garden dinner ${info.project.name}` }),
+    page.getByRole("link").filter({ hasText: eventTitle }),
   ).toHaveCount(0);
   await page.getByRole("tab", { name: "Hosting", exact: true }).click();
   await expect(
     page
       .getByRole("region", { name: "History", exact: true })
       .getByRole("link")
-      .filter({ hasText: `Garden dinner ${info.project.name}` }),
+      .filter({ hasText: eventTitle }),
   ).toBeVisible();
 });

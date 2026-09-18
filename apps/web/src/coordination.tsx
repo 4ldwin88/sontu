@@ -2,6 +2,7 @@ import { ChevronLeft } from "lucide-react";
 import { instantForWall, wallTime } from "../../../packages/domain/draft";
 import { useAccount } from "./account-state";
 import { ScheduleEditor } from "./schedule-editor";
+import { clientUuid } from "./ids";
 /* oxlint-disable react/set-state-in-effect -- Effects initiate asynchronous reads from the external backend. */
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
@@ -9,6 +10,7 @@ import {
   Link,
   Navigate,
   useLocation,
+  useNavigate,
   useParams,
 } from "react-router-dom";
 import {
@@ -16,6 +18,7 @@ import {
   CalendarDays,
   CheckCircle2,
   Clock3,
+  Download,
   ImagePlus,
   RefreshCw,
   Upload,
@@ -33,6 +36,8 @@ import {
   eventOperationsCommand,
   eventOperationsRead,
   eventDeliveryRead,
+  eventCoverUrl,
+  eventMediaBucket,
   dispatchEventEmail,
   sendInvitationEmail,
   eventOwner,
@@ -54,7 +59,9 @@ import { trackBeta } from "../../../packages/data/telemetry";
 import {
   canAttemptCheckIn,
   checkInAdmissionLabel,
+  duplicateEventDraftInput,
   errorMessages,
+  participantExportCsv,
   providerOutcome,
   settlement,
 } from "../../../packages/domain/coordination";
@@ -64,6 +71,7 @@ import type {
   EventOperationsProjection,
   CheckInProjection,
   EventResultsProjection,
+  EventVersion,
   TeamMember,
   TeamProjection,
 } from "../../../packages/domain/coordination";
@@ -103,6 +111,77 @@ const label = (s: string) =>
         .toLowerCase()
         .replaceAll("_", " ")
         .replace(/^./, (x) => x.toUpperCase());
+
+const workspaceGroups = [
+  { label: "Overview", sections: ["overview"] },
+  {
+    label: "People",
+    sections: [
+      "participants",
+      "rsvp",
+      "seating",
+      "accessibility",
+      "accommodations",
+      "team",
+      "check-in",
+    ],
+  },
+  { label: "Plan", sections: ["todo", "resources"] },
+  {
+    label: "Communications",
+    sections: ["questions", "discussion", "assistant"],
+  },
+  { label: "Insights", sections: ["analytics", "results", "history"] },
+] as const;
+
+const workspaceSections = workspaceGroups.flatMap((group) => group.sections);
+
+const versionFingerprint = (version: EventVersion) =>
+  JSON.stringify({
+    title: version.title,
+    description: version.description,
+    starts_at: version.starts_at,
+    ends_at: version.ends_at,
+    timezone: version.timezone,
+    venue_label: version.venue_label,
+    cover_key: version.cover_key ?? null,
+    capacity: version.capacity ?? null,
+    materiality_class: version.materiality_class,
+  });
+
+function groupedEventVersions(versions: EventVersion[]) {
+  return versions.reduce<
+    Array<{ version: EventVersion; first: number; last: number; count: number }>
+  >((groups, version) => {
+    const previous = groups[groups.length - 1];
+    if (
+      previous &&
+      versionFingerprint(previous.version) === versionFingerprint(version)
+    ) {
+      previous.first = Math.min(previous.first, version.version_number);
+      previous.last = Math.max(previous.last, version.version_number);
+      previous.count += 1;
+      return groups;
+    }
+    groups.push({
+      version,
+      first: version.version_number,
+      last: version.version_number,
+      count: 1,
+    });
+    return groups;
+  }, []);
+}
+
+const auditLabel = (kind: string) => {
+  const normalized = kind.toLowerCase();
+  if (normalized === "join_public_event") return "Participant joined event";
+  if (normalized === "join_guest_event") return "Guest joined event";
+  if (normalized === "withdraw_public_event")
+    return "Participant left event";
+  if (normalized === "withdraw_guest_event") return "Guest left event";
+  return label(kind);
+};
 function Feedback({
   message,
   unknown = false,
@@ -207,7 +286,19 @@ function CoreEvents() {
             respond.
           </p>
         </div>
-        <Button variant="quiet" onClick={() => void supabase.auth.signOut()}>
+        <Button
+          variant="quiet"
+          onClick={() => {
+            trackBeta("sign_out_attempted", "hosting", {
+              source: "host_list",
+            });
+            void supabase.auth.signOut().then(({ error }) =>
+              trackBeta(error ? "sign_out_failed" : "sign_out_succeeded", "hosting", {
+                source: "host_list",
+              }),
+            );
+          }}
+        >
           Sign out
         </Button>
       </header>
@@ -224,7 +315,7 @@ function CoreEvents() {
             }
           >
             {e.cover_key !== "none" && (
-              <img src={`images/${e.cover_key ?? "food"}.jpg`} alt="" />
+              <img src={eventCoverUrl(e.cover_key ?? "food")} alt="" />
             )}
             <div>
               <StatusBadge>{label(e.lifecycle)}</StatusBadge>
@@ -343,6 +434,7 @@ function RsvpFormManager({ eventId }: { eventId: string }) {
         {
           action: "CONFIGURE",
           event_id: eventId,
+          operation_id: clientUuid(),
           payload: {
             questions: questions.map(
               ({ prompt, type, required, per_attendee, options }) => ({
@@ -521,9 +613,11 @@ type SeatingTable = {
 function SeatingManager({
   eventId,
   participants,
+  hostName,
 }: {
   eventId: string;
   participants: HostProjection["participants"];
+  hostName: string;
 }) {
   const [tables, setTables] = useState<SeatingTable[]>([]),
     [label, setLabel] = useState(""),
@@ -566,6 +660,10 @@ function SeatingManager({
   const confirmed = participants.filter(
     (p) => p.commitment_state === "CONFIRMED",
   );
+  const assignable = [
+    { id: eventId, display_name: `${hostName} (Host)` },
+    ...confirmed,
+  ];
   return (
     <section className="panel">
       <span className="eyebrow">Optional event logistics</span>
@@ -634,18 +732,20 @@ function SeatingManager({
             </select>
           </label>
           <label>
-            <span>Invitee</span>
+            <span>Attendee</span>
             <select
               required
               value={selectedParticipant}
               onChange={(e) => {
                 setSelectedParticipant(e.target.value);
-                const person = confirmed.find((p) => p.id === e.target.value);
-                setAttendeeName(person?.display_name ?? "");
+                const person = assignable.find((p) => p.id === e.target.value);
+                setAttendeeName(
+                  person?.id === eventId ? hostName : (person?.display_name ?? ""),
+                );
               }}
             >
-              <option value="">Choose invitee</option>
-              {confirmed.map((person) => (
+              <option value="">Choose attendee</option>
+              {assignable.map((person) => (
                 <option key={person.id} value={person.id}>
                   {person.display_name}
                 </option>
@@ -1175,6 +1275,16 @@ export function CoreHost() {
 function HostContent({ id }: { id: string }) {
   const covers = ["food", "sunset", "music", "market", "yoga", "sailing"];
   const account = useAccount();
+  const navigate = useNavigate();
+  const routeLocation = useLocation();
+  const requestedSection = new URLSearchParams(routeLocation.search).get("section");
+  const initialSection =
+    requestedSection &&
+    workspaceSections.includes(
+      requestedSection as (typeof workspaceSections)[number],
+    )
+      ? requestedSection
+      : "overview";
   const [editSource, setEditSource] = useState<HostProjection | null>(null);
   const [data, setData] = useState<HostProjection | null>(null),
     [delivery, setDelivery] = useState<EventDeliverySummary[]>([]),
@@ -1189,7 +1299,7 @@ function HostContent({ id }: { id: string }) {
       "PUBLIC" | "UNLISTED" | "PRIVATE" | null
     >(null),
     [participationBusy, setParticipationBusy] = useState(false),
-    [section, setSection] = useState("overview"),
+    [section, setSection] = useState(initialSection),
     [guestQuery, setGuestQuery] = useState(""),
     [guestFilter, setGuestFilter] = useState("all"),
     [busy, setBusy] = useState(false),
@@ -1211,8 +1321,112 @@ function HostContent({ id }: { id: string }) {
       email?: string;
       token: string;
     } | null>(null),
-    [inviteEmailBusy, setInviteEmailBusy] = useState(false);
+    [inviteEmailBusy, setInviteEmailBusy] = useState(false),
+    [coverUploadBusy, setCoverUploadBusy] = useState(false),
+    [joinInfo, setJoinInfo] = useState(""),
+    [joinInfoBusy, setJoinInfoBusy] = useState(false),
+    [duplicateBusy, setDuplicateBusy] = useState(false);
   const pending = useRef<Action | null>(recover<Action>(id));
+  const downloadParticipants = () => {
+    if (!data) return;
+    const csv = participantExportCsv(data.participants, { includeEmail: true });
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const safeTitle =
+      data.version.title
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "")
+        .slice(0, 60) || "event";
+    link.href = url;
+    link.download = `${safeTitle}-participants.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    setSuccess("Participant export downloaded.");
+  };
+  const duplicateEvent = async () => {
+    if (!data || duplicateBusy) return;
+    setDuplicateBusy(true);
+    setError("");
+    setSuccess("");
+    try {
+      const created = await hostCommand(
+        "create_draft",
+        null,
+        null,
+        { timezone: data.version.timezone || "UTC" },
+        clientUuid(),
+      );
+      if (created.status !== "ready" || !created.event_id) {
+        setError(
+          errorMessages[created.error_code ?? ""] ??
+            "The duplicate draft could not be created.",
+        );
+        return;
+      }
+      const saved = await hostCommand(
+        "save_draft",
+        created.event_id,
+        created.current_version ?? 1,
+        duplicateEventDraftInput(data.version),
+        clientUuid(),
+      );
+      if (saved.status !== "ready") {
+        setError(
+          errorMessages[saved.error_code ?? ""] ??
+            "The duplicate draft was created, but its copied details could not be saved.",
+        );
+        return;
+      }
+      navigate(`/create/${created.event_id}`, { replace: false });
+    } catch {
+      setError(
+        "The duplicate draft outcome could not be confirmed. Refresh your drafts before trying again.",
+      );
+    } finally {
+      setDuplicateBusy(false);
+    }
+  };
+  const uploadEventCover = async (file: File | null) => {
+    if (!file || !account.session || !data || coverUploadBusy) return;
+    setError("");
+    if (!file.type.startsWith("image/") || file.size > 5 * 1024 * 1024) {
+      setError("Choose a JPG, PNG, GIF, or WebP image under 5 MB.");
+      return;
+    }
+    setCoverUploadBusy(true);
+    try {
+      const ext = (
+        file.name.split(".").pop() ||
+        file.type.split("/").pop() ||
+        "jpg"
+      )
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, "")
+        .slice(0, 8);
+      const path = `${account.session.user.id}/${id}/cover-${clientUuid()}.${ext || "jpg"}`;
+      const { error } = await supabase.storage.from(eventMediaBucket).upload(path, file, {
+        cacheControl: "3600",
+        contentType: file.type,
+        upsert: false,
+      });
+      if (error) throw error;
+      await run({
+        cmd: "change_cover",
+        input: { cover_key: `upload:${path}` },
+        version: data.event.current_version_number,
+        op: clientUuid(),
+      });
+    } catch {
+      setError("The cover image could not be uploaded. Try a different image.");
+    } finally {
+      setCoverUploadBusy(false);
+    }
+  };
   const load = useCallback(async () => {
     try {
       const [
@@ -1221,6 +1435,7 @@ function HostContent({ id }: { id: string }) {
         recipientResult,
         participationResult,
         visibilityResult,
+        joinInfoResult,
       ] = await Promise.all([
         hostRead(id),
         eventDeliveryRead(id).catch(() => null),
@@ -1242,6 +1457,16 @@ function HostContent({ id }: { id: string }) {
           "sontu_event_visibility",
           { action: "read", event_id: id, value: null },
         ).catch(() => null),
+        rpc<{
+          status: string;
+          protected_join_info?: string | null;
+        }>("sontu_event_join_info", {
+          action: "read",
+          event_id: id,
+          value: null,
+          operation_id: null,
+          manage_token: null,
+        }).catch(() => null),
       ]);
       if (r.status === "ready" && r.data) {
         setData(r.data);
@@ -1256,6 +1481,8 @@ function HostContent({ id }: { id: string }) {
           setParticipationAccess(participationResult.participation_access);
         if (visibilityResult?.status === "ready" && visibilityResult.visibility)
           setEventVisibility(visibilityResult.visibility);
+        if (joinInfoResult?.status === "ready")
+          setJoinInfo(joinInfoResult.protected_join_info ?? "");
         if (!pending.current) setError("");
       } else
         setError(
@@ -1275,6 +1502,21 @@ function HostContent({ id }: { id: string }) {
     setSuccess("");
     pending.current = action;
     journal(id, action);
+    if (action.cmd === "issue_link" || action.cmd === "revoke_link") {
+      trackBeta(
+        action.cmd === "issue_link"
+          ? "host_link_issue_attempted"
+          : "host_link_revoke_attempted",
+        "hosting",
+        {
+          event_id: id,
+          participant_id:
+            typeof action.input.participant_id === "string"
+              ? action.input.participant_id
+              : null,
+        },
+      );
+    }
     try {
       const r =
         action.cmd === "change_cover"
@@ -1295,11 +1537,30 @@ function HostContent({ id }: { id: string }) {
       pending.current = null;
       journal(id, null);
       if (r.status === "ready") {
+        if (action.cmd === "issue_link" || action.cmd === "revoke_link") {
+          trackBeta(
+            action.cmd === "issue_link"
+              ? "host_link_issue_succeeded"
+              : "host_link_revoke_succeeded",
+            "hosting",
+            {
+              event_id: id,
+              participant_id:
+                typeof action.input.participant_id === "string"
+                  ? action.input.participant_id
+                  : null,
+            },
+          );
+        }
         setModal(null);
-        setSuccess(
+        const successMessage =
           action.cmd === "issue_link"
-            ? "Response link ready."
-            : "Saved. Event status updated.",
+            ? "Private response link issued. Share the new link with this guest."
+            : action.cmd === "revoke_link"
+              ? "Private response link revoked. This does not remove the RSVP."
+              : "Saved. Event status updated.";
+        setSuccess(
+          successMessage,
         );
         await load();
         if (r.token) {
@@ -1327,6 +1588,22 @@ function HostContent({ id }: { id: string }) {
           });
         }
       } else {
+        if (action.cmd === "issue_link" || action.cmd === "revoke_link") {
+          trackBeta(
+            action.cmd === "issue_link"
+              ? "host_link_issue_failed"
+              : "host_link_revoke_failed",
+            "hosting",
+            {
+              event_id: id,
+              participant_id:
+                typeof action.input.participant_id === "string"
+                  ? action.input.participant_id
+                  : null,
+              error_code: r.error_code ?? null,
+            },
+          );
+        }
         setError(
           errorMessages[r.error_code ?? ""] ??
             "The action could not be completed.",
@@ -1339,6 +1616,22 @@ function HostContent({ id }: { id: string }) {
         }
       }
     } catch {
+      if (action.cmd === "issue_link" || action.cmd === "revoke_link") {
+        trackBeta(
+          action.cmd === "issue_link"
+            ? "host_link_issue_failed"
+            : "host_link_revoke_failed",
+          "hosting",
+          {
+            event_id: id,
+            participant_id:
+              typeof action.input.participant_id === "string"
+                ? action.input.participant_id
+                : null,
+            error_code: "UNKNOWN_CONNECTION_STATE",
+          },
+        );
+      }
       setUnknown(true);
       setError(
         "The connection ended before an authoritative result arrived. Retry this same request; it will not create a duplicate change.",
@@ -1353,9 +1646,67 @@ function HostContent({ id }: { id: string }) {
         cmd,
         input,
         version: data.event.current_version_number,
-        op: crypto.randomUUID(),
+        op: clientUuid(),
       });
   };
+  async function removeParticipantRsvp(participant: {
+    id: string;
+    display_name: string;
+  }) {
+    if (busy) return;
+    trackBeta("host_rsvp_remove_attempted", "hosting", {
+      event_id: id,
+      participant_id: participant.id,
+    });
+    if (
+      !window.confirm(
+        `Remove ${participant.display_name}'s RSVP? They will no longer be counted as going.`,
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setSuccess("");
+    try {
+      const result = await rpc<{ status: string; error_code?: string }>(
+        "sontu_host_participant_rsvp",
+        {
+          event_id: id,
+          participant_id: participant.id,
+          action: "REJECT",
+          operation_id: clientUuid(),
+        },
+      );
+      if (result.status !== "ready") {
+        setError(
+          errorMessages[result.error_code ?? ""] ??
+            "The RSVP could not be removed.",
+        );
+        trackBeta("host_rsvp_remove_failed", "hosting", {
+          event_id: id,
+          participant_id: participant.id,
+          error_code: result.error_code ?? null,
+        });
+        return;
+      }
+      trackBeta("host_rsvp_remove_succeeded", "hosting", {
+        event_id: id,
+        participant_id: participant.id,
+      });
+      setSuccess("RSVP removed.");
+      await load();
+    } catch {
+      setError("The RSVP could not be removed.");
+      trackBeta("host_rsvp_remove_failed", "hosting", {
+        event_id: id,
+        participant_id: participant.id,
+        step: "transport",
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
   const updateParticipationAccess = async (
     value: "ANYONE" | "SONTU_USERS_ONLY",
   ) => {
@@ -1437,34 +1788,35 @@ function HostContent({ id }: { id: string }) {
     }
   };
   const nav = (
-    <nav className="workspace-nav" aria-label="Event workspace modules">
-      {[
-        "overview",
-        "participants",
-        "analytics",
-        "assistant",
-        "rsvp",
-        "seating",
-        "accessibility",
-        "accommodations",
-        "questions",
-        "discussion",
-        "team",
-        "todo",
-        "resources",
-        "check-in",
-        "results",
-        "history",
-      ].map((s) => (
-        <button
-          key={s}
-          aria-current={section === s ? "page" : undefined}
-          onClick={() => setSection(s)}
-        >
-          {label(s)}
-        </button>
-      ))}
-    </nav>
+    <div className="workspace-navigation">
+      <nav className="workspace-nav" aria-label="Event workspace categories">
+        {workspaceGroups.map((group) => {
+          const active = group.sections.some((item) => item === section);
+          return (
+            <button
+              key={group.label}
+              aria-current={active ? "page" : undefined}
+              onClick={() => setSection(group.sections[0])}
+            >
+              {group.label}
+            </button>
+          );
+        })}
+      </nav>
+      <nav className="workspace-subnav" aria-label="Current workspace tools">
+        {workspaceGroups
+          .find((group) => group.sections.some((item) => item === section))
+          ?.sections.map((item) => (
+            <button
+              key={item}
+              aria-current={section === item ? "page" : undefined}
+              onClick={() => setSection(item)}
+            >
+              {label(item)}
+            </button>
+          ))}
+      </nav>
+    </div>
   );
   if (!data)
     return (
@@ -1547,6 +1899,38 @@ function HostContent({ id }: { id: string }) {
       setDeliveryBusy(false);
     }
   };
+  const saveJoinInfo = async () => {
+    if (joinInfoBusy) return;
+    setJoinInfoBusy(true);
+    setError("");
+    setSuccess("");
+    try {
+      const result = await rpc<{ status: string; error_code?: string }>(
+        "sontu_event_join_info",
+        {
+          action: "write",
+          event_id: id,
+          value: joinInfo,
+          operation_id: clientUuid(),
+          manage_token: null,
+        },
+      );
+      if (result.status !== "ready") {
+        setError(
+          errorMessages[result.error_code ?? ""] ??
+            "Protected join details could not be saved.",
+        );
+        return;
+      }
+      setSuccess("Protected join details saved.");
+    } catch {
+      setError(
+        "Protected join details could not be confirmed. Refresh and try again.",
+      );
+    } finally {
+      setJoinInfoBusy(false);
+    }
+  };
   return (
     <main
       id="main"
@@ -1559,7 +1943,7 @@ function HostContent({ id }: { id: string }) {
         >
           {data.version.cover_key !== "none" && (
             <img
-              src={`images/${data.version.cover_key ?? "food"}.jpg`}
+              src={eventCoverUrl(data.version.cover_key ?? "food")}
               alt=""
             />
           )}
@@ -1586,6 +1970,25 @@ function HostContent({ id }: { id: string }) {
                 View event
               </Link>
             )}
+            {data.event.event_kind === "SIMPLE" && (
+              <Button
+                disabled={disabled || duplicateBusy}
+                variant="secondary"
+                onClick={() => void duplicateEvent()}
+              >
+                {duplicateBusy ? "Copying..." : "Duplicate"}
+              </Button>
+            )}
+            {data.event.event_kind === "SIMPLE" &&
+              data.event.lifecycle !== "CANCELLED" && (
+                <Button
+                  disabled={disabled}
+                  variant="secondary"
+                  onClick={() => setModal("change_cover")}
+                >
+                  <ImagePlus size={18} /> Change picture
+                </Button>
+              )}
             <button
               type="button"
               className="icon-button host-refresh"
@@ -1767,6 +2170,35 @@ function HostContent({ id }: { id: string }) {
                     </div>
                   </div>
                 </section>
+                {data.event.lifecycle !== "DRAFT" && (
+                  <section className="panel host-join-info">
+                    <div className="section-heading compact">
+                      <div>
+                        <span className="eyebrow">Protected access</span>
+                        <h2>Join details</h2>
+                      </div>
+                      <Button
+                        disabled={joinInfoBusy}
+                        onClick={() => void saveJoinInfo()}
+                      >
+                        {joinInfoBusy ? "Saving..." : "Save"}
+                      </Button>
+                    </div>
+                    <label className="field">
+                      Private online access
+                      <textarea
+                        maxLength={1000}
+                        rows={4}
+                        value={joinInfo}
+                        onChange={(e) => setJoinInfo(e.target.value)}
+                        placeholder="Meeting link, passcode, dial-in, or arrival instructions"
+                      />
+                    </label>
+                    <p className="small muted">
+                      Visible only to the host and confirmed participants with access.
+                    </p>
+                  </section>
+                )}
                 <section className="host-next" aria-label="Next up">
                   <h2>Next up</h2>
                   <button
@@ -2029,7 +2461,7 @@ function HostContent({ id }: { id: string }) {
                           onClick={() =>
                             act("simulate_provider", {
                               provider_status: s,
-                              evidence_id: crypto.randomUUID(),
+                              evidence_id: clientUuid(),
                               authoritative_at: new Date().toISOString(),
                             })
                           }
@@ -2085,6 +2517,7 @@ function HostContent({ id }: { id: string }) {
             {data.event.lifecycle === "PUBLISHED" && (
               <Button
                 variant="quiet"
+                className="cancel-event-action"
                 disabled={disabled}
                 onClick={() => open("cancel")}
               >
@@ -2104,6 +2537,14 @@ function HostContent({ id }: { id: string }) {
                     : "Twelve synthetic relationships. Response links are private and scoped to one person."}
                 </p>
               </div>
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={disabled || data.participants.length === 0}
+                onClick={downloadParticipants}
+              >
+                <Download size={18} /> Export CSV
+              </Button>
             </div>
             {data.event.event_kind === "SIMPLE" &&
               data.event.lifecycle === "PUBLISHED" && (
@@ -2255,6 +2696,16 @@ function HostContent({ id }: { id: string }) {
                     )}
                   </div>
                   <div className="coord-actions">
+                    {p.commitment_state === "CONFIRMED" && (
+                      <Button
+                        variant="quiet"
+                        disabled={disabled || busy}
+                        onClick={() => void removeParticipantRsvp(p)}
+                      >
+                        Remove from Going
+                        <span className="sr-only"> for {p.display_name}</span>
+                      </Button>
+                    )}
                     <Button
                       variant="secondary"
                       disabled={disabled}
@@ -2265,7 +2716,9 @@ function HostContent({ id }: { id: string }) {
                         })
                       }
                     >
-                      Response link
+                      {p.link_revoked
+                        ? "Reissue private link"
+                        : "Issue private link"}
                       <span className="sr-only"> for {p.display_name}</span>
                     </Button>
                     <Button
@@ -2275,13 +2728,19 @@ function HostContent({ id }: { id: string }) {
                         act("revoke_link", { participant_id: p.id })
                       }
                     >
-                      Revoke
+                      Revoke private link
                       <span className="sr-only">
                         {" "}
                         link for {p.display_name}
                       </span>
                     </Button>
                   </div>
+                  {p.commitment_state === "CONFIRMED" && (
+                    <p className="muted">
+                      Revoking a private link blocks link access only. Use
+                      Remove from Going to change attendance.
+                    </p>
+                  )}
                 </li>
               ))}
             </ul>
@@ -2293,7 +2752,11 @@ function HostContent({ id }: { id: string }) {
         {section === "analytics" && <HostOperationalAnalytics eventId={id} />}
         {section === "assistant" && <BoundedEventAssistant data={data} />}
         {section === "seating" && data.event.event_kind === "SIMPLE" && (
-          <SeatingManager eventId={id} participants={data.participants} />
+          <SeatingManager
+            eventId={id}
+            participants={data.participants}
+            hostName={hostName}
+          />
         )}
         {section === "accessibility" && data.event.event_kind === "SIMPLE" && (
           <AccessibilityManager eventId={id} />
@@ -2306,19 +2769,27 @@ function HostContent({ id }: { id: string }) {
             <section className="panel">
               <h2>Event versions</h2>
               <ol className="coord-history">
-                {data.versions.map((v) => (
-                  <li key={v.id}>
+                {groupedEventVersions(data.versions).map((group) => {
+                  const v = group.version;
+                  return <li key={v.id}>
                     <strong>
-                      Version {v.version_number} · {label(v.materiality_class)}
+                      {group.count > 1
+                        ? `Versions ${group.first}-${group.last}`
+                        : `Version ${v.version_number}`} · {label(v.materiality_class)}
                     </strong>
+                    {group.count > 1 && (
+                      <p className="small muted">
+                        {group.count} identical saved revisions collapsed
+                      </p>
+                    )}
                     <p>
                       {date(v.starts_at, v.timezone)} —{" "}
                       {date(v.ends_at, v.timezone)}
                     </p>
                     <p>{v.venue_label}</p>
                     <p className="muted">{v.description}</p>
-                  </li>
-                ))}
+                  </li>;
+                })}
               </ol>
             </section>
             <section className="panel">
@@ -2340,7 +2811,7 @@ function HostContent({ id }: { id: string }) {
               <ol className="coord-history">
                 {data.audit.map((a) => (
                   <li key={a.id}>
-                    <strong>{label(a.audit_kind)}</strong>
+                    <strong>{auditLabel(a.audit_kind)}</strong>
                     <p>{date(a.created_at)}</p>
                     {a.metadata.confirmed === true && (
                       <p className="small muted">
@@ -2395,7 +2866,7 @@ function HostContent({ id }: { id: string }) {
                   cmd: "change_schedule",
                   input,
                   version: editSource.event.current_version_number,
-                  op: crypto.randomUUID(),
+                  op: clientUuid(),
                 });
             }}
           />
@@ -2405,17 +2876,23 @@ function HostContent({ id }: { id: string }) {
             title="Choose your picture"
             onClose={() => !busy && setModal(null)}
           >
-            <button
-              type="button"
-              className="picture-upload-placeholder"
-              disabled
-            >
+            <label className="picture-upload-placeholder">
               <Upload size={20} />
               <span>
-                <strong>Upload a photo</strong>
-                <small>Coming soon</small>
+                <strong>{coverUploadBusy ? "Uploading..." : "Upload a photo"}</strong>
+                <small>JPG, PNG, GIF or WebP. Max 5 MB.</small>
               </span>
-            </button>
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/gif,image/webp"
+                disabled={busy || unknown || coverUploadBusy}
+                onChange={(event) => {
+                  const file = event.target.files?.[0] ?? null;
+                  event.currentTarget.value = "";
+                  void uploadEventCover(file);
+                }}
+              />
+            </label>
             <fieldset
               className="cover-options stock-cover-options host-cover-options"
               disabled={busy || unknown}
@@ -2432,11 +2909,11 @@ function HostContent({ id }: { id: string }) {
                       cmd: "change_cover",
                       input: { cover_key: cover },
                       version: data.event.current_version_number,
-                      op: crypto.randomUUID(),
+                      op: clientUuid(),
                     })
                   }
                 >
-                  <img src={`images/${cover}.jpg`} alt="" />
+                  <img src={eventCoverUrl(cover)} alt="" />
                   <span>{cover[0].toUpperCase() + cover.slice(1)}</span>
                 </button>
               ))}
@@ -2585,7 +3062,11 @@ function HostContent({ id }: { id: string }) {
                 />
               )}
               <div className="coord-actions">
-                <Button type="submit" disabled={disabled}>
+                <Button
+                  type="submit"
+                  className={modal === "cancel" ? "danger-action" : undefined}
+                  disabled={disabled}
+                >
                   {busy
                     ? "Saving…"
                     : data.event.event_kind === "SIMPLE"
@@ -2625,14 +3106,16 @@ function HostContent({ id }: { id: string }) {
                 ? "The named recipient must verify their email before viewing or responding. Forwarding this link does not grant another person access. Share it directly with the invitee; no email has been sent."
                 : `This link authorizes only ${link.name}’s response. Creating another link replaces the previous one.`}
             </p>
-            <a
-              className="button primary"
-              href={link.url}
-              target="_blank"
-              rel="noreferrer"
-            >
-              Open participant response
-            </a>
+            {data.event.event_kind !== "SIMPLE" && (
+              <a
+                className="button primary"
+                href={link.url}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open participant response
+              </a>
+            )}
             <Button
               onClick={async () => {
                 try {
@@ -2766,6 +3249,8 @@ function EventResults({
       const r = await closeEvent(eventId);
       if (r.status !== "ready") {
         const messages: Record<string, string> = {
+          EVENT_NOT_STARTED:
+            "Start the event before completing it so attendance can be reconciled.",
           UNRESOLVED_OBLIGATIONS:
             "Resolve or explicitly disposition every open obligation first.",
           OPEN_TODOS: "Complete the remaining event tasks first.",
@@ -2832,6 +3317,12 @@ function EventResults({
             </article>
           </div>
           <h3>Closeout checks</h3>
+          {data.lifecycle === "PUBLISHED" && (
+            <p className="coord-feedback">
+              Start the event before closeout. Check-in and attendance must be
+              available before results can be completed.
+            </p>
+          )}
           <ul className="coord-history">
             <li>
               <strong>
@@ -2869,7 +3360,7 @@ function EventResults({
               disabled={
                 busy ||
                 blockers > 0 ||
-                !["PUBLISHED", "IN_PROGRESS"].includes(data.lifecycle)
+                data.lifecycle !== "IN_PROGRESS"
               }
               onClick={() => void finish()}
             >
@@ -3564,8 +4055,7 @@ function DiscussionManagement({ eventId }: { eventId: string }) {
       {!enabled && (
         <p className="muted">Discussion is currently closed to participants.</p>
       )}
-      {enabled &&
-        (items.length ? (
+      {items.length ? (
           <ul className="ask-host-list">
             {items.map((item) => (
               <li key={item.id}>
@@ -3592,7 +4082,7 @@ function DiscussionManagement({ eventId }: { eventId: string }) {
           </ul>
         ) : (
           <p className="muted">No posts yet.</p>
-        ))}
+        )}
     </section>
   );
 }
@@ -3853,7 +4343,7 @@ export function ParticipantResponse() {
     pending.current ??= {
       decision,
       expected_version: data.event.current_version,
-      operation_id: crypto.randomUUID(),
+      operation_id: clientUuid(),
     };
     journal(token!, pending.current);
     setBusy(true);
@@ -3990,9 +4480,21 @@ export function CoreSignOut({
           </p>
           <Button
             onClick={async () => {
+              trackBeta("sign_out_attempted", "account", {
+                source: "settings",
+              });
               const { error } = await supabase.auth.signOut();
-              if (error) setError("Unable to sign out. Please retry.");
-              else onSignedOut();
+              if (error) {
+                trackBeta("sign_out_failed", "account", {
+                  source: "settings",
+                });
+                setError("Unable to sign out. Please retry.");
+              } else {
+                trackBeta("sign_out_succeeded", "account", {
+                  source: "settings",
+                });
+                onSignedOut();
+              }
             }}
           >
             Sign out

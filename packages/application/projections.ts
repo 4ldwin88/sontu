@@ -80,6 +80,7 @@ export const eventViews = [
   "Invited",
   "Interested",
   "Hosting",
+  "History",
 ] as const;
 export function eventsForView(events: EventProjection[], view: string) {
   return events.filter(
@@ -91,6 +92,7 @@ export function eventsForView(events: EventProjection[], view: string) {
           Invited: ["invited"],
           Interested: ["interested"],
           Hosting: ["host"],
+          History: ["going"],
         }[view] ?? []
       ).includes(e.context.relationship),
   );

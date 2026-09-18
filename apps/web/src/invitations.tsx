@@ -15,12 +15,18 @@ import {
   StatusBadge,
   EventImage,
 } from "../../../packages/ui-web";
-import { rpc, supabase } from "../../../packages/data/sontu";
+import { eventCoverUrl, rpc, supabase } from "../../../packages/data/sontu";
 import { trackBeta } from "../../../packages/data/telemetry";
 import { errorMessages } from "../../../packages/domain/coordination";
+import {
+  calendarFilename,
+  eventCalendarText,
+} from "../../../packages/domain/calendar";
 import { SessionGate } from "./coordination";
 import { Modal } from "./shells";
 import { MiniProfileLauncher } from "./profile";
+import { profileAvatarUrl } from "./account-state";
+import { clientUuid } from "./ids";
 export interface MyEvent {
   id: string;
   title: string;
@@ -29,6 +35,8 @@ export interface MyEvent {
   description: string;
   timezone: string;
   venue_label: string;
+  protected_join_info?: string | null;
+  join_info_visible?: boolean;
   cover_key: string;
   lifecycle: string;
   hosting: boolean;
@@ -42,10 +50,22 @@ export interface MyEvent {
   going_count?: number;
   host_name?: string;
   host_handle?: string | null;
+  host_avatar_path?: string | null;
   capacity?: number | null;
+  interested?: boolean;
   owner_kind?: "PERSONAL" | "ORGANIZATION";
   owner_name?: string;
   reconfirmation_required?: boolean;
+  schedule_changed?: boolean;
+  schedule_change?: {
+    version: number;
+    changed_at: string;
+    previous_starts_at: string | null;
+    previous_ends_at: string | null;
+    starts_at: string | null;
+    ends_at: string | null;
+  } | null;
+  total_going?: number;
 }
 export const when = (value: string | null, zone: string) =>
   value
@@ -55,6 +75,23 @@ export const when = (value: string | null, zone: string) =>
         timeZone: zone,
       }).format(new Date(value))
     : "Date to be decided";
+export function isFutureEvent(event: { ends_at: string | null }, now = Date.now()) {
+  return !event.ends_at || Date.parse(event.ends_at) > now;
+}
+function guestTokenFromLocation(search: string) {
+  const hash =
+    typeof window !== "undefined" ? window.location.hash : "";
+  const hashQuery =
+    hash.includes("?")
+      ? hash.slice(hash.indexOf("?"))
+      : "";
+  const pathToken = hash.match(/\/guest\/([0-9a-f-]{36})(?:[/?#]|$)/i)?.[1];
+  return (
+    pathToken ??
+    new URLSearchParams(search).get("guest") ??
+    new URLSearchParams(hashQuery).get("guest")
+  );
+}
 type ParticipantNotice = {
   kind: "EVENT_CHANGE" | "GUEST_RSVP_CONFIRMATION" | "EVENT_CANCELLED";
   state: "PENDING" | "SENT" | "DELIVERED" | "RETRYING" | "UNAVAILABLE";
@@ -73,6 +110,17 @@ const noticeKind = (kind: ParticipantNotice["kind"]) =>
     : kind === "EVENT_CANCELLED"
       ? "Event cancellation"
       : "Event update";
+const noticeHint = (notice: ParticipantNotice) => {
+  if (notice.kind === "EVENT_CHANGE" && notice.state === "PENDING")
+    return "Review this event hub for the latest details and confirm whether you can still make it.";
+  if (notice.kind === "EVENT_CHANGE" && notice.state === "UNAVAILABLE")
+    return "Email delivery is unavailable. This hub remains the source of truth for changed event details.";
+  if (notice.kind === "EVENT_CANCELLED")
+    return "This event has been cancelled. Your admission is no longer valid.";
+  if (notice.kind === "GUEST_RSVP_CONFIRMATION")
+    return "Keep your private RSVP link for changes or admission details.";
+  return null;
+};
 function ParticipantNotices({ notices }: { notices: ParticipantNotice[] }) {
   if (!notices.length) return null;
   return (
@@ -106,6 +154,9 @@ function ParticipantNotices({ notices }: { notices: ParticipantNotice[] }) {
                 " · Keep this hub link; email delivery is currently unavailable."}
               {notice.state === "RETRYING" && " · Sontu will retry delivery."}
             </p>
+            {noticeHint(notice) && (
+              <p className="small muted">{noticeHint(notice)}</p>
+            )}
           </article>
         ))}
       </div>
@@ -152,17 +203,6 @@ function AdmissionCredential({
     </div>
   );
 }
-const icalText = (value: string) =>
-  value
-    .replace(/\\/g, "\\\\")
-    .replace(/\n/g, "\\n")
-    .replace(/,/g, "\\,")
-    .replace(/;/g, "\\;");
-const icalTime = (value: string) =>
-  new Date(value)
-    .toISOString()
-    .replace(/[-:]/g, "")
-    .replace(/\.\d{3}/, "");
 function downloadCalendar(
   event: Pick<
     MyEvent,
@@ -170,37 +210,13 @@ function downloadCalendar(
   >,
 ) {
   if (!event.starts_at) return;
-  const end =
-    event.ends_at ??
-    new Date(Date.parse(event.starts_at) + 60 * 60 * 1000).toISOString();
-  const content = [
-    "BEGIN:VCALENDAR",
-    "VERSION:2.0",
-    "PRODID:-//Sontu//Event//EN",
-    "BEGIN:VEVENT",
-    `UID:${event.id}@sontu.cc`,
-    `DTSTAMP:${icalTime(new Date().toISOString())}`,
-    `DTSTART:${icalTime(event.starts_at)}`,
-    `DTEND:${icalTime(end)}`,
-    `SUMMARY:${icalText(event.title)}`,
-    `DESCRIPTION:${icalText(event.description ?? "")}`,
-    `LOCATION:${icalText(event.venue_label ?? "")}`,
-    `URL:${window.location.href}`,
-    "END:VEVENT",
-    "END:VCALENDAR",
-    "",
-  ].join("\r\n");
+  const content = eventCalendarText({ ...event, url: window.location.href });
   const href = URL.createObjectURL(
     new Blob([content], { type: "text/calendar;charset=utf-8" }),
   );
   const link = document.createElement("a");
   link.href = href;
-  link.download = `${
-    event.title
-      .trim()
-      .replace(/[^a-z0-9]+/gi, "-")
-      .replace(/^-|-$/g, "") || "sontu-event"
-  }.ics`;
+  link.download = calendarFilename(event.title);
   document.body.appendChild(link);
   link.click();
   link.remove();
@@ -225,7 +241,7 @@ export function useMyEvents() {
     let live = true;
     setLoading(true);
     setError("");
-    Promise.all([
+    Promise.allSettled([
       rpc<{ status: string; events?: MyEvent[] }>("sontu_public_events", {
         event_id: null,
       }),
@@ -233,9 +249,18 @@ export function useMyEvents() {
         ? rpc<{ status: string; events?: MyEvent[] }>("sontu_my_events", {})
         : Promise.resolve({ status: "ready", events: [] }),
     ])
-      .then(([publicResult, mine]) => {
+      .then(([publicRequest, mineRequest]) => {
         if (live) {
-          if (publicResult.status === "ready" && mine.status === "ready") {
+          if (
+            publicRequest.status === "fulfilled" &&
+            publicRequest.value.status === "ready"
+          ) {
+            const publicResult = publicRequest.value;
+            const mine =
+              mineRequest.status === "fulfilled" &&
+              mineRequest.value.status === "ready"
+                ? mineRequest.value
+                : { status: "unavailable", events: [] as MyEvent[] };
             const merged = new Map(
               (publicResult.events ?? []).map((event) => [event.id, event]),
             );
@@ -268,12 +293,20 @@ export function forView(items: MyEvent[], view: string) {
       ? e.hosting
       : view === "Upcoming"
         ? e.lifecycle === "PUBLISHED" &&
-          (!e.ends_at || Date.parse(e.ends_at) > Date.now()) &&
+          isFutureEvent(e) &&
           (e.hosting || e.commitment_state === "CONFIRMED")
-        : view === "Invited"
-          ? e.commitment_state === "NO_COMMITMENT" &&
-            e.invitation_state !== "DECLINED"
-          : false,
+          : view === "Invited"
+            ? e.commitment_state === "NO_COMMITMENT" &&
+              e.invitation_state !== "DECLINED"
+            : view === "Interested"
+              ? Boolean(e.interested)
+            : view === "History"
+              ? !e.hosting &&
+                e.commitment_state === "CONFIRMED" &&
+                (e.lifecycle === "CANCELLED" ||
+                  e.lifecycle === "COMPLETED" ||
+                  (!!e.ends_at && Date.parse(e.ends_at) <= Date.now()))
+            : false,
   );
 }
 export function hostingGroup(e: MyEvent, now = Date.now()): string {
@@ -313,6 +346,7 @@ export function SimpleEventCard({
   event: MyEvent;
   view: string;
 }) {
+  const location = useLocation();
   let remembered: { category?: string; format?: string } | null = null;
   try {
     remembered = JSON.parse(
@@ -324,18 +358,26 @@ export function SimpleEventCard({
   const eventType = e.category ?? remembered?.category ?? "Event";
   const relationship = e.hosting
     ? "Hosting"
-    : view === "Interested"
-      ? "Interested"
-      : e.commitment_state === "CONFIRMED"
-        ? "Going"
-        : "Invited";
-  const to = eventCardHref(e, eventType, remembered?.format);
+    : e.commitment_state === "CONFIRMED"
+      ? "Going"
+      : e.invitation_state === "CREATED" &&
+          e.commitment_state === "NO_COMMITMENT"
+        ? "Invited"
+        : view === "Interested"
+          ? "Interested"
+          : e.participation_access === "ANYONE"
+            ? "Open RSVP"
+            : e.participation_access === "SONTU_USERS_ONLY"
+              ? "Account RSVP"
+              : "Public";
+  const returnTo = `${location.pathname}${location.search}`;
+  const to = eventCardHref(e, eventType, remembered?.format, returnTo);
   return (
     <div className="event-list-row">
       <article className="event-card compact-square real-event-card">
         <Link className="event-card-link" to={to}>
           {e.cover_key !== "none" ? (
-            <EventImage image={{ src: `images/${e.cover_key}.jpg`, alt: "" }} />
+            <EventImage image={{ src: eventCoverUrl(e.cover_key), alt: "" }} />
           ) : (
             <div
               className="image-fallback"
@@ -396,17 +438,23 @@ export function eventCardHref(
   event: MyEvent,
   eventType = event.category ?? "Event",
   rememberedFormat?: string,
+  returnTo?: string,
 ) {
   if (event.hosting && event.lifecycle === "DRAFT") {
     return `/create/${event.id}?${new URLSearchParams({
       format: event.format ?? rememberedFormat ?? "in-person",
       category: eventType,
+      ...(returnTo ? { return: returnTo } : {}),
     })}`;
   }
   if (event.hosting || event.commitment_state || event.invitation_state) {
-    return `/my-events/${event.id}`;
+    return returnTo
+      ? `/my-events/${event.id}?${new URLSearchParams({ return: returnTo })}`
+      : `/my-events/${event.id}`;
   }
-  return `/event/${event.id}`;
+  return returnTo
+    ? `/event/${event.id}?${new URLSearchParams({ return: returnTo })}`
+    : `/event/${event.id}`;
 }
 export function EmailVerification({ onVerified }: { onVerified: () => void }) {
   const location = useLocation();
@@ -588,7 +636,6 @@ function StructuredRsvp({
     [error, setError] = useState(""),
     [saved, setSaved] = useState(false);
   const load = useCallback(async () => {
-    if (!token) return;
     const data = await rpc<RsvpFormData>("sontu_rsvp_form", {
       action: "READ",
       event_id: eventId,
@@ -616,7 +663,7 @@ function StructuredRsvp({
   useEffect(() => {
     void load().catch(() => setError("Could not load RSVP details."));
   }, [load]);
-  if (!token || !form?.questions.length) return null;
+  if (!form?.questions.length) return null;
   const update = (index: number, questionId: string, value: string) =>
     setAttendees((rows) =>
       rows.map((row, i) =>
@@ -637,7 +684,7 @@ function StructuredRsvp({
           event_id: eventId,
           token,
           payload: { attendees },
-          operation_id: crypto.randomUUID(),
+          operation_id: clientUuid(),
         },
       );
       if (result.status !== "ready") throw new Error(result.error_code);
@@ -745,11 +792,10 @@ function SeatingAssignment({
     { attendee_name: string; table_label: string }[]
   >([]);
   useEffect(() => {
-    if (!token) return;
     void rpc<{
       status: string;
       assignments?: { attendee_name: string; table_label: string }[];
-    }>("sontu_participant_seating", { event_id: eventId, token })
+    }>("sontu_participant_seating", { event_id: eventId, token: token ?? null })
       .then((result) => {
         if (result.status === "ready") setAssignments(result.assignments ?? []);
       })
@@ -776,26 +822,29 @@ function AccommodationRequest({
 }) {
   const [content, setContent] = useState(""),
     [status, setStatus] = useState(""),
+    [editable, setEditable] = useState(true),
     [busy, setBusy] = useState(false);
   const load = useCallback(async () => {
-    if (!token) return;
     const result = await rpc<{
       status: string;
+      editable?: boolean;
       request?: { content: string | null; status: string } | null;
     }>("sontu_participant_accommodation", {
       action: "READ",
       event_id: eventId,
-      token,
+      token: token ?? null,
     });
-    if (result.status === "ready" && result.request) {
-      setContent(result.request.content ?? "");
-      setStatus(result.request.status);
+    if (result.status === "ready") {
+      setEditable(result.editable !== false);
+      if (result.request) {
+        setContent(result.request.content ?? "");
+        setStatus(result.request.status);
+      }
     }
   }, [eventId, token]);
   useEffect(() => {
     void load();
   }, [load]);
-  if (!token) return null;
   const save = async (action: "SAVE" | "WITHDRAW") => {
     setBusy(true);
     trackBeta("accommodation_request_attempted", "invitation", {
@@ -808,7 +857,7 @@ function AccommodationRequest({
         {
           action,
           event_id: eventId,
-          token,
+          token: token ?? null,
           content: action === "SAVE" ? content : null,
         },
       );
@@ -849,6 +898,7 @@ function AccommodationRequest({
         <span>Your request</span>
         <textarea
           maxLength={1000}
+          disabled={!editable}
           value={content}
           onChange={(e) => setContent(e.target.value)}
           placeholder="For example: wheelchair-accessible seating or dietary accommodation."
@@ -856,12 +906,12 @@ function AccommodationRequest({
       </label>
       <div className="coord-actions">
         <Button
-          disabled={busy || !content.trim()}
+          disabled={!editable || busy || !content.trim()}
           onClick={() => void save("SAVE")}
         >
           {busy ? "Saving…" : "Save request"}
         </Button>
-        {content && (
+        {editable && content && (
           <Button
             variant="quiet"
             disabled={busy}
@@ -871,6 +921,9 @@ function AccommodationRequest({
           </Button>
         )}
       </div>
+      {!editable && (
+        <p className="muted">Accommodation requests are closed for this event.</p>
+      )}
       {status && <p role="status">{status}</p>}
     </section>
   );
@@ -996,7 +1049,7 @@ function InvitationContent({
     pending.current ??= {
       decision,
       expected_version: view.event.current_version,
-      operation_id: crypto.randomUUID(),
+      operation_id: clientUuid(),
     };
     try {
       sessionStorage.setItem(recoveryKey, JSON.stringify(pending.current));
@@ -1079,7 +1132,7 @@ function InvitationContent({
           {e.cover_key !== "none" && (
             <img
               className="coord-response-image"
-              src={`images/${e.cover_key}.jpg`}
+              src={eventCoverUrl(e.cover_key)}
               alt=""
             />
           )}
@@ -1200,6 +1253,12 @@ function InvitationContent({
 }
 export function ConnectedEventHub() {
   const { eventId } = useParams();
+  const location = useLocation();
+  const returnTo = new URLSearchParams(location.search).get("return");
+  const backTo =
+    returnTo && returnTo.startsWith("/") && !returnTo.startsWith("//")
+      ? returnTo
+      : null;
   const visibilityOptions = [
     {
       value: "PUBLIC",
@@ -1231,16 +1290,30 @@ export function ConnectedEventHub() {
       invitation_state?: string;
       event_visibility?: "PUBLIC" | "NAME_ONLY" | "HIDDEN";
     };
-    host?: { display_name: string; handle?: string | null };
+    host?: { display_name: string; handle?: string | null; avatar_path?: string | null };
+    organization?: {
+      id: string;
+      display_name: string;
+      logo_path?: string | null;
+      visibility: "PUBLIC" | "PRIVATE";
+    } | null;
     going?: {
+      participant_id?: string | null;
+      source_kind?: "HOST" | "TEAM" | "PARTICIPANT" | null;
       display_name: string;
       badge: string | null;
       handle?: string | null;
+      avatar_path?: string | null;
       visibility?: "PUBLIC" | "NAME_ONLY" | "HIDDEN";
+      removable?: boolean;
     }[];
   } | null>(null);
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
+  const [joinInfo, setJoinInfo] = useState<{
+    protected_join_info?: string | null;
+    join_info_visible?: boolean;
+  } | null>(null);
   const [question, setQuestion] = useState("");
   const [questionBusy, setQuestionBusy] = useState(false);
   const [discussion, setDiscussion] = useState<
@@ -1264,9 +1337,24 @@ export function ConnectedEventHub() {
   } | null>(null);
   const load = useCallback(async () => {
     if (!eventId) return;
-    setError("");
+      setError("");
     try {
-      setHub(await rpc("sontu_event_hub", { event_id: eventId }));
+      const nextHub = await rpc<typeof hub>("sontu_event_hub", {
+        event_id: eventId,
+      });
+      setHub(nextHub);
+      const access = await rpc<{
+        status: string;
+        protected_join_info?: string | null;
+        join_info_visible?: boolean;
+      }>("sontu_event_join_info", {
+        action: "read",
+        event_id: eventId,
+        value: null,
+        operation_id: null,
+        manage_token: null,
+      });
+      if (access.status === "ready") setJoinInfo(access);
     } catch {
       setError("Could not load this event.");
     }
@@ -1416,15 +1504,26 @@ export function ConnectedEventHub() {
     setBusy(true);
     setError("");
     try {
-      const result = await rpc<{ status: string; error_code?: string }>(
-        "sontu_simple_access",
-        {
-          event_id: hub.event.id,
-          decision,
-          expected_version: hub.event.current_version,
-          operation_id: crypto.randomUUID(),
-        },
-      );
+      const publicParticipant = !hub.viewer?.invitation_state;
+      const result = publicParticipant
+        ? await rpc<{ status: string; error_code?: string }>(
+            "sontu_public_event_participation",
+            {
+              event_id: hub.event.id,
+              action: decision === "WITHDRAW" ? "WITHDRAW" : "JOIN",
+              expected_version: hub.event.current_version,
+              operation_id: clientUuid(),
+            },
+          )
+        : await rpc<{ status: string; error_code?: string }>(
+            "sontu_simple_access",
+            {
+              event_id: hub.event.id,
+              decision,
+              expected_version: hub.event.current_version,
+              operation_id: clientUuid(),
+            },
+          );
       if (result.status === "ready") await load();
       else
         setError(
@@ -1530,12 +1629,12 @@ export function ConnectedEventHub() {
           <>
             <div className="hub-cover">
               {event.cover_key !== "none" ? (
-                <img src={`images/${event.cover_key}.jpg`} alt="" />
+                <img src={eventCoverUrl(event.cover_key)} alt="" />
               ) : (
                 <div className="image-fallback">No cover</div>
               )}
               <Link
-                to={viewer.hosting ? "/events?view=Hosting" : "/events"}
+                to={backTo ?? (viewer.hosting ? "/events?view=Hosting" : "/events")}
                 className="icon-button hub-back"
                 aria-label="Back to Events"
               >
@@ -1594,7 +1693,11 @@ export function ConnectedEventHub() {
                 <h1>{event.title || "Untitled event"}</h1>
                 <div className="event-host-row">
                   <span className="avatar hub-avatar">
-                    {(hub.host?.display_name ?? "H").slice(0, 1).toUpperCase()}
+                    {profileAvatarUrl(hub.host?.avatar_path) ? (
+                      <img src={profileAvatarUrl(hub.host?.avatar_path)} alt="" />
+                    ) : (
+                      (hub.host?.display_name ?? "H").slice(0, 1).toUpperCase()
+                    )}
                   </span>
                   <div>
                     <span className="small muted">Hosted by</span>
@@ -1608,6 +1711,11 @@ export function ConnectedEventHub() {
                   </div>
                   <StatusBadge>Host</StatusBadge>
                 </div>
+                {hub.organization && (
+                  <p className="event-organization">
+                    Organized by <strong>{hub.organization.display_name}</strong>
+                  </p>
+                )}
                 {event.lifecycle === "CANCELLED" && (
                   <p className="coord-feedback" role="status">
                     This event is cancelled. New participation is unavailable.
@@ -1625,6 +1733,21 @@ export function ConnectedEventHub() {
                       "The host hasn’t added a description yet."}
                   </p>
                 </section>
+                <AccessibilityInformation eventId={event.id} />
+                {!viewer.hosting &&
+                  viewer.commitment_state === "CONFIRMED" && (
+                    <AccommodationRequest eventId={event.id} />
+                  )}
+                {!viewer.hosting &&
+                  viewer.commitment_state === "CONFIRMED" && (
+                    <StructuredRsvp
+                      eventId={event.id}
+                      primaryName={viewer.display_name ?? "You"}
+                    />
+                  )}
+                {(viewer.hosting || viewer.commitment_state === "CONFIRMED") && (
+                  <SeatingAssignment eventId={event.id} />
+                )}
                 {!viewer.hosting && viewer.commitment_state === "CONFIRMED" && (
                   <ParticipantNotices notices={notices} />
                 )}
@@ -1664,14 +1787,15 @@ export function ConnectedEventHub() {
                     </div>
                   </section>
                 )}
-                {discussionEnabled &&
+                {(discussionEnabled || discussion.length > 0) &&
                   (viewer.hosting ||
                     viewer.commitment_state === "CONFIRMED") && (
                     <section className="hub-about ask-host">
                       <h2>Event discussion</h2>
                       <p className="muted">
-                        A shared, event-only conversation for confirmed
-                        participants.
+                        {discussionEnabled
+                          ? "A shared, event-only conversation for confirmed participants."
+                          : "This discussion is closed. Earlier posts remain available to participants."}
                       </p>
                       {discussion.map((post) => (
                         <article key={post.id} className="ask-host-thread">
@@ -1682,7 +1806,9 @@ export function ConnectedEventHub() {
                           <p>{post.body}</p>
                         </article>
                       ))}
-                      {!viewer.hosting && event.lifecycle !== "COMPLETED" && (
+                      {discussionEnabled &&
+                        !viewer.hosting &&
+                        event.lifecycle !== "COMPLETED" && (
                         <>
                           <label className="field">
                             <span>Add to the discussion</span>
@@ -1714,6 +1840,14 @@ export function ConnectedEventHub() {
                         {going.length === 1 ? "visible person" : "visible people"}
                       </p>
                     </div>
+                    {viewer.hosting && (
+                      <Link
+                        className="text-action"
+                        to={`/core/events/${event.id}/host?section=participants`}
+                      >
+                        Open attendee list
+                      </Link>
+                    )}
                   </div>
                   <p className="going-privacy-note">
                     Some participants may choose name-only or hidden visibility.
@@ -1723,7 +1857,11 @@ export function ConnectedEventHub() {
                       {going.map((person, index) => (
                         <li key={`${person.display_name}-${index}`}>
                           <span className="avatar">
-                            {person.display_name.slice(0, 1).toUpperCase()}
+                            {profileAvatarUrl(person.avatar_path) ? (
+                              <img src={profileAvatarUrl(person.avatar_path)} alt="" />
+                            ) : (
+                              person.display_name.slice(0, 1).toUpperCase()
+                            )}
                           </span>
                           {person.handle ? (
                             <MiniProfileLauncher
@@ -1813,6 +1951,14 @@ export function ConnectedEventHub() {
                 <div className="detail">
                   <CalendarDays />
                   <div>
+                    {event.schedule_change && (
+                      <>
+                        <StatusBadge tone="warning">Schedule updated</StatusBadge>
+                        <p className="muted">
+                          Previous: <del>{when(event.schedule_change.previous_starts_at, event.timezone)}</del>
+                        </p>
+                      </>
+                    )}
                     <strong>{when(event.starts_at, event.timezone)}</strong>
                     {event.ends_at && (
                       <p>Ends {when(event.ends_at, event.timezone)}</p>
@@ -1832,14 +1978,34 @@ export function ConnectedEventHub() {
                     </p>
                   </div>
                 </div>
+                {(event.format === "online" || event.format === "hybrid") && (
+                  <div className="detail">
+                    <Share2 />
+                    <div>
+                      <strong>
+                        {joinInfo?.join_info_visible &&
+                        joinInfo.protected_join_info
+                          ? joinInfo.protected_join_info
+                          : "Join details protected"}
+                      </strong>
+                      <p>
+                        {joinInfo?.join_info_visible
+                          ? "Private access for confirmed participants"
+                          : "RSVP to view private online access"}
+                      </p>
+                    </div>
+                  </div>
+                )}
                 <div className="detail">
                   <Users />
                   <div>
-                    <strong>{going.length} going</strong>
+                    <strong>
+                      {viewer.hosting ? (event.total_going ?? going.length) : going.length} going
+                    </strong>
                     {event.capacity && (
                       <p>
-                        {event.capacity - going.length > 0
-                          ? `${event.capacity - going.length} places remaining`
+                        {event.capacity - (viewer.hosting ? (event.total_going ?? going.length) : going.length) > 0
+                          ? `${event.capacity - (viewer.hosting ? (event.total_going ?? going.length) : going.length)} places remaining`
                           : "Event is full"}
                       </p>
                     )}
@@ -1885,6 +2051,18 @@ export function ConnectedEventHub() {
                           ? "Resume draft"
                           : "Manage event"}
                   </Link>
+                ) : event.lifecycle === "CANCELLED" ? (
+                  <div className="hub-confirmed muted-confirmed" role="status">
+                    Event cancelled. Your admission is no longer valid.
+                  </div>
+                ) : event.lifecycle === "COMPLETED" ? (
+                  <div className="hub-confirmed muted-confirmed" role="status">
+                    Event completed. Responses are closed.
+                  </div>
+                ) : event.lifecycle === "IN_PROGRESS" ? (
+                  <div className="hub-confirmed muted-confirmed" role="status">
+                    Event in progress. New responses are closed.
+                  </div>
                 ) : event.lifecycle !== "PUBLISHED" ? (
                   <StatusBadge>Responses closed</StatusBadge>
                 ) : viewer.commitment_state === "CONFIRMED" ? (
@@ -1933,8 +2111,13 @@ export function ConnectedEventHub() {
 }
 
 export function PublicEventHub() {
-  const { eventId } = useParams();
+  const { eventId, guestToken } = useParams();
   const location = useLocation();
+  const returnTo = new URLSearchParams(location.search).get("return");
+  const backTo =
+    returnTo && returnTo.startsWith("/") && !returnTo.startsWith("//")
+      ? returnTo
+      : null;
   const guestKey = `sontu-guest-rsvp:${eventId}`;
   const storedGuest = useMemo(() => {
     try {
@@ -1961,36 +2144,59 @@ export function PublicEventHub() {
       return null;
     }
   }, [eventId]);
+  const urlGuestToken = guestToken ?? guestTokenFromLocation(location.search);
+  const urlGuestCredential = useMemo(
+    () =>
+      eventId && urlGuestToken && /^[0-9a-f-]{36}$/i.test(urlGuestToken)
+        ? {
+            display_name: storedGuest?.display_name ?? "",
+            email: storedGuest?.email ?? "",
+            manage_token: urlGuestToken,
+          }
+        : null,
+    [eventId, storedGuest, urlGuestToken],
+  );
   const [event, setEvent] = useState<MyEvent | null>(null),
     [loading, setLoading] = useState(true),
     [signedIn, setSignedIn] = useState(false),
     [participation, setParticipation] = useState<{
       status: string;
       commitment_state?: string | null;
+      hosting?: boolean;
       current_version: number;
       going_count: number;
       participant_count: number;
       capacity?: number | null;
       full: boolean;
       responses_open: boolean;
+      protected_join_info?: string | null;
+      join_info_visible?: boolean;
     } | null>(null),
     [busy, setBusy] = useState(false),
+    [interestBusy, setInterestBusy] = useState(false),
+    [interested, setInterested] = useState(false),
     [joinOpen, setJoinOpen] = useState<"choice" | "guest" | "recovery" | null>(
       null,
     ),
-    [guestCredential, setGuestCredential] = useState(storedGuest),
-    [guestName, setGuestName] = useState(storedGuest?.display_name ?? ""),
-    [guestEmail, setGuestEmail] = useState(storedGuest?.email ?? ""),
+    [guestCredential, setGuestCredential] = useState(
+      urlGuestCredential ?? storedGuest,
+    ),
     [recoveryEmail, setRecoveryEmail] = useState(storedGuest?.email ?? ""),
     [guestParticipation, setGuestParticipation] = useState<{
       commitment_state?: string | null;
       display_name?: string | null;
       current_version?: number;
+      protected_join_info?: string | null;
+      join_info_visible?: boolean;
     } | null>(null),
     [guestNotices, setGuestNotices] = useState<ParticipantNotice[]>([]),
     [guestAdmission, setGuestAdmission] = useState<ParticipantAdmission | null>(
       null,
     ),
+    [publicJoinInfo, setPublicJoinInfo] = useState<{
+      protected_join_info?: string | null;
+      join_info_visible?: boolean;
+    } | null>(null),
     [unknown, setUnknown] = useState(!!storedParticipation),
     [error, setError] = useState(
       storedParticipation
@@ -2002,9 +2208,10 @@ export function PublicEventHub() {
       expected_version: number;
       operation_id: string;
     } | null>(storedParticipation);
+  const [renderedAt] = useState(() => Date.now());
   const pendingKey = `sontu-public-participation:${eventId}`;
   useEffect(() => {
-    const token = new URLSearchParams(location.search).get("guest");
+    const token = guestTokenFromLocation(location.search);
     if (!eventId || !token || !/^[0-9a-f-]{36}$/i.test(token)) return;
     const credential = {
       display_name: storedGuest?.display_name ?? "",
@@ -2017,11 +2224,6 @@ export function PublicEventHub() {
       /* this tab can still use the emailed credential */
     }
     setGuestCredential(credential);
-    window.history.replaceState(
-      null,
-      "",
-      `${window.location.pathname}#${location.pathname}`,
-    );
   }, [eventId, guestKey, location.pathname, location.search, storedGuest]);
   const guestCall = useCallback(
     async (
@@ -2037,8 +2239,15 @@ export function PublicEventHub() {
           commitment_state?: string | null;
           display_name?: string;
           current_version?: number;
-        }>("sontu_guest_hub_access", {
+          protected_join_info?: string | null;
+          join_info_visible?: boolean;
+        }>("sontu_guest_event_participation", {
           event_id: eventId,
+          action: "READ",
+          guest_name: null,
+          guest_email: null,
+          expected_version: null,
+          operation_id: null,
           manage_token: credential.manage_token,
         });
       return rpc<{
@@ -2073,15 +2282,33 @@ export function PublicEventHub() {
     );
     if (result?.status === "ready") setParticipation(result);
   }, [eventId]);
+  const loadInterest = useCallback(async () => {
+    if (!eventId) return;
+    const result = await rpc<{
+      status: string;
+      interested?: boolean;
+    }>("sontu_event_interest", {
+      event_id: eventId,
+      action: "READ",
+    });
+    if (result?.status === "ready") setInterested(Boolean(result.interested));
+  }, [eventId]);
   useEffect(() => {
     let live = true;
+    const directGuestToken =
+      guestToken ??
+      guestTokenFromLocation(location.search) ??
+      storedGuest?.manage_token ??
+      null;
     supabase.auth.getSession().then(({ data }) => {
       if (!live) return;
       setSignedIn(!!data.session);
-      if (data.session)
+      if (data.session) {
         void loadParticipation().catch(() =>
           setError("Could not load your participation status."),
         );
+        void loadInterest().catch(() => undefined);
+      }
     });
     rpc<{ status: string; events?: MyEvent[] }>("sontu_public_events", {
       event_id: eventId,
@@ -2089,28 +2316,54 @@ export function PublicEventHub() {
       .then((result) => {
         if (!live) return;
         const found = result.events?.[0];
-        if (result.status === "ready" && found) setEvent(found);
-        else setError("This event is private or unavailable.");
+        if (result.status === "ready" && found) {
+          setEvent(found);
+          if (
+            directGuestToken &&
+            /^[0-9a-f-]{36}$/i.test(directGuestToken)
+          ) {
+            const credential = {
+              display_name: storedGuest?.display_name ?? "",
+              email: storedGuest?.email ?? "",
+              manage_token: directGuestToken,
+            };
+            setGuestCredential(credential);
+            void rpc<{
+              status: string;
+              error_code?: string;
+              commitment_state?: string | null;
+              display_name?: string;
+              current_version?: number;
+              protected_join_info?: string | null;
+              join_info_visible?: boolean;
+            }>("sontu_guest_event_participation", {
+              event_id: eventId,
+              action: "READ",
+              guest_name: null,
+              guest_email: null,
+              expected_version: null,
+              operation_id: null,
+              manage_token: directGuestToken,
+            })
+              .then((guestResult) => {
+                if (!live) return;
+                if (guestResult?.status === "ready")
+                  setGuestParticipation(guestResult);
+                else if (guestResult?.error_code === "GUEST_ACCESS_EXPIRED")
+                  setError(
+                    "This guest RSVP link has expired. The public event page may still be available.",
+                  );
+              })
+              .catch(() => undefined);
+          }
+        } else setError("This event is private or unavailable.");
       })
       .catch(() => live && setError("This event could not be loaded."))
       .finally(() => live && setLoading(false));
     return () => {
       live = false;
     };
-  }, [eventId, loadParticipation]);
-  useEffect(() => {
-    if (!signedIn && guestCredential) {
-      void guestCall("READ", guestCredential)
-        .then((result) => {
-          if (result?.status === "ready") setGuestParticipation(result);
-          else if (result?.error_code === "GUEST_ACCESS_EXPIRED")
-            setError(
-              "This guest RSVP link has expired. The public event page may still be available.",
-            );
-        })
-        .catch(() => undefined);
-    }
-  }, [guestCall, guestCredential, signedIn]);
+  }, [eventId, guestToken, loadInterest, loadParticipation, location.search, storedGuest]);
   useEffect(() => {
     if (
       signedIn ||
@@ -2161,6 +2414,39 @@ export function PublicEventHub() {
     eventId,
     guestCredential,
     guestParticipation?.commitment_state,
+    signedIn,
+  ]);
+  useEffect(() => {
+    if (!eventId) return;
+    const directGuestToken = guestCredential?.manage_token ?? null;
+    if (
+      !signedIn &&
+      (!directGuestToken ||
+        guestParticipation?.commitment_state !== "CONFIRMED")
+    ) {
+      setPublicJoinInfo(null);
+      return;
+    }
+    void rpc<{
+      status: string;
+      protected_join_info?: string | null;
+      join_info_visible?: boolean;
+    }>("sontu_event_join_info", {
+      action: "read",
+      event_id: eventId,
+      value: null,
+      operation_id: null,
+      manage_token: signedIn ? null : directGuestToken,
+    })
+      .then((result) =>
+        setPublicJoinInfo(result.status === "ready" ? result : null),
+      )
+      .catch(() => setPublicJoinInfo(null));
+  }, [
+    eventId,
+    guestCredential?.manage_token,
+    guestParticipation?.commitment_state,
+    participation?.commitment_state,
     signedIn,
   ]);
   async function respond(request: {
@@ -2230,36 +2516,108 @@ export function PublicEventHub() {
       setBusy(false);
     }
   }
-  async function respondAsGuest(action: "JOIN" | "WITHDRAW") {
-    if (busy || !event) return;
+  async function toggleInterest() {
+    if (!eventId || interestBusy || participation?.hosting) return;
+    setInterestBusy(true);
+    setError("");
+    const next = !interested;
+    setInterested(next);
+    try {
+      const result = await rpc<{ status: string; interested?: boolean }>(
+        "sontu_event_interest",
+        {
+          event_id: eventId,
+          action: next ? "SAVE" : "UNSAVE",
+        },
+      );
+      if (result.status !== "ready") {
+        setInterested(!next);
+        setError(
+          errorMessages[(result as { error_code?: string }).error_code ?? ""] ??
+            "That interest could not be saved.",
+        );
+        return;
+      }
+      setInterested(Boolean(result.interested));
+      setEvent((current) =>
+        current ? { ...current, interested: Boolean(result.interested) } : current,
+      );
+      trackBeta(next ? "event_interest_saved" : "event_interest_removed", "invitation", {
+        event_id: eventId,
+      });
+    } catch {
+      setInterested(!next);
+      setError("That interest could not be saved.");
+    } finally {
+      setInterestBusy(false);
+    }
+  }
+  async function respondAsGuest(
+    action: "JOIN" | "WITHDRAW",
+    formValues?: { display_name?: string; email?: string },
+  ) {
+    if (!event) {
+      trackBeta("public_event_response_failed", "invitation", {
+        action: action === "JOIN" ? "guest_join" : "guest_withdraw",
+        error_code: "EVENT_NOT_LOADED",
+      });
+      return;
+    }
+    if (busy && action !== "JOIN") return;
     const credential =
       action === "JOIN"
         ? {
-            display_name: guestName.trim(),
-            email: guestEmail.trim().toLowerCase(),
-            manage_token: guestCredential?.manage_token ?? crypto.randomUUID(),
+            display_name: (formValues?.display_name ?? "").trim(),
+            email: (formValues?.email ?? "").trim().toLowerCase(),
+            manage_token: guestCredential?.manage_token ?? clientUuid(),
           }
         : guestCredential;
     if (!credential) return;
     if (action === "JOIN" && (!credential.display_name || !credential.email)) {
       setError("Enter your name and email to RSVP as a guest.");
+      trackBeta("public_event_response_failed", "invitation", {
+        action: "guest_join",
+        error_code: "MISSING_FIELDS",
+      });
+      return;
+    }
+    if (
+      action === "JOIN" &&
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(credential.email)
+    ) {
+      setError("Enter a valid email address to RSVP as a guest.");
+      trackBeta("public_event_response_failed", "invitation", {
+        action: "guest_join",
+        error_code: "INVALID_EMAIL",
+      });
       return;
     }
     setBusy(true);
     setError("");
+    const telemetryAction = action === "JOIN" ? "guest_join" : "guest_withdraw";
+    trackBeta("public_event_response_attempted", "invitation", {
+      action: telemetryAction,
+    });
     try {
-      const result = await guestCall(action, credential, crypto.randomUUID());
+      const result = await guestCall(action, credential, clientUuid());
       if (!result || result.status !== "ready") {
         setError(
           errorMessages[result?.error_code ?? ""] ??
             "This RSVP is no longer available.",
         );
+        trackBeta("public_event_response_failed", "invitation", {
+          action: telemetryAction,
+          error_code: result?.error_code ?? null,
+        });
         return;
       }
+      trackBeta("public_event_response_succeeded", "invitation", {
+        action: telemetryAction,
+      });
       if (action === "JOIN") {
         localStorage.setItem(guestKey, JSON.stringify(credential));
         setGuestCredential(credential);
-        const guestHubUrl = `${window.location.origin}${window.location.pathname}#/event/${event.id}?guest=${credential.manage_token}`;
+        const guestHubUrl = `${window.location.origin}${window.location.pathname}#/event/${event.id}/guest/${credential.manage_token}`;
         void supabase.functions
           .invoke("guest-rsvp-email", {
             body: {
@@ -2304,6 +2662,10 @@ export function PublicEventHub() {
       setGuestParticipation(result);
       setJoinOpen(null);
     } catch {
+      trackBeta("public_event_response_failed", "invitation", {
+        action: telemetryAction,
+        step: "transport",
+      });
       setError(
         "Your RSVP outcome is unconfirmed. Refresh this page before trying again.",
       );
@@ -2318,9 +2680,19 @@ export function PublicEventHub() {
     }
     setBusy(true);
     setError("");
+    const normalizedEmail = recoveryEmail.trim().toLowerCase();
+    if (
+      storedGuest?.manage_token &&
+      storedGuest.email.trim().toLowerCase() === normalizedEmail
+    ) {
+      setJoinOpen(null);
+      window.location.hash = `/event/${eventId}/guest/${storedGuest.manage_token}`;
+      setBusy(false);
+      return;
+    }
     try {
       await supabase.functions.invoke("guest-hub-recovery", {
-        body: { event_id: eventId, email: recoveryEmail.trim().toLowerCase() },
+        body: { event_id: eventId, email: normalizedEmail },
       });
       setJoinOpen(null);
       setError(
@@ -2334,6 +2706,18 @@ export function PublicEventHub() {
       );
     } finally {
       setBusy(false);
+    }
+  }
+  function readGuestFormValues(form: HTMLFormElement | null) {
+    if (!form) return null;
+    try {
+      const data = new FormData(form);
+      return {
+        display_name: String(data.get("guestName") ?? ""),
+        email: String(data.get("guestContact") ?? ""),
+      };
+    } catch {
+      return null;
     }
   }
   if (loading)
@@ -2354,18 +2738,97 @@ export function PublicEventHub() {
         </section>
       </main>
     );
+  const guestManagePath = guestCredential
+    ? `/event/${event.id}/guest/${guestCredential.manage_token}`
+    : null;
+  const guestManageHref = guestManagePath
+    ? `${window.location.origin}${window.location.pathname}#${guestManagePath}`
+    : null;
+  const guestLinkOpen = Boolean(guestToken ?? guestTokenFromLocation(location.search));
+  const eventResponsesOpen =
+    event.lifecycle === "PUBLISHED" &&
+    !!event.starts_at &&
+    Date.parse(event.starts_at) > renderedAt;
+  const guestEventFull =
+    !!event.capacity && (event.going_count ?? 1) - 1 >= event.capacity;
+  const mobileEventActions = event.lifecycle === "PUBLISHED" && !unknown ? (
+    participation?.hosting ? (
+      <Link className="button primary" to={`/core/events/${event.id}/host`}>
+        Manage event
+      </Link>
+    ) : signedIn && participation?.commitment_state === "CONFIRMED" ? (
+      <>
+        <span className="mobile-event-status">Going</span>
+        <Link className="button primary" to={`/my-events/${event.id}`}>
+          View RSVP
+        </Link>
+      </>
+    ) : signedIn && participation?.responses_open ? (
+      <>
+        <Button
+          disabled={busy || participation.full}
+          onClick={() =>
+            void respond({
+              action: "JOIN",
+              expected_version: participation.current_version,
+              operation_id: clientUuid(),
+            })
+          }
+        >
+          {participation.full ? "Event full" : busy ? "Joining…" : "Going"}
+        </Button>
+        <Button
+          disabled={interestBusy}
+          variant={interested ? "secondary" : "quiet"}
+          aria-pressed={interested}
+          onClick={() => void toggleInterest()}
+        >
+          Interested
+        </Button>
+      </>
+    ) : !signedIn && guestParticipation?.commitment_state === "CONFIRMED" ? (
+      <>
+        <span className="mobile-event-status">Going</span>
+        {guestLinkOpen ? (
+          <Button
+            disabled={busy}
+            variant="secondary"
+            onClick={() =>
+              window.confirm("Leave this event and release your place?") &&
+              void respondAsGuest("WITHDRAW")
+            }
+          >
+            Leave event
+          </Button>
+        ) : guestManagePath ? (
+          <Link className="button primary" to={guestManagePath}>
+            Manage RSVP
+          </Link>
+        ) : null}
+      </>
+    ) : !signedIn && eventResponsesOpen ? (
+      <Button
+        disabled={guestEventFull}
+        onClick={() => setJoinOpen("choice")}
+      >
+        {guestEventFull ? "Event full" : "RSVP"}
+      </Button>
+    ) : (
+      <StatusBadge>Responses closed</StatusBadge>
+    )
+  ) : null;
   return (
     <main id="main" tabIndex={-1} className="connected-hub public-event-hub">
       <div className="hub-cover">
         {event.cover_key !== "none" ? (
-          <img src={`images/${event.cover_key}.jpg`} alt="" />
+          <img src={eventCoverUrl(event.cover_key)} alt="" />
         ) : (
           <div className="image-fallback">No cover</div>
         )}
         <Link
-          to="/discover"
+          to={backTo ?? "/discover"}
           className="icon-button hub-back"
-          aria-label="Back to Discover"
+          aria-label={backTo ? "Back" : "Back to Discover"}
         >
           <ChevronLeft size={25} />
         </Link>
@@ -2412,7 +2875,11 @@ export function PublicEventHub() {
           <h1>{event.title}</h1>
           <div className="event-host-row">
             <span className="avatar hub-avatar">
-              {(event.host_name ?? "H").slice(0, 1).toUpperCase()}
+              {profileAvatarUrl(event.host_avatar_path) ? (
+                <img src={profileAvatarUrl(event.host_avatar_path)} alt="" />
+              ) : (
+                (event.host_name ?? "H").slice(0, 1).toUpperCase()
+              )}
             </span>
             <div>
               <span className="small muted">Hosted by</span>
@@ -2424,7 +2891,6 @@ export function PublicEventHub() {
                 <strong>{event.host_name ?? "Event host"}</strong>
               )}
             </div>
-            <StatusBadge>Host</StatusBadge>
           </div>
           <section className="hub-about">
             <h2>About this event</h2>
@@ -2437,6 +2903,14 @@ export function PublicEventHub() {
               <ParticipantNotices notices={guestNotices} />
             )}
           <AccessibilityInformation eventId={event.id} />
+          {((signedIn && participation?.commitment_state === "CONFIRMED") ||
+            (!signedIn &&
+              guestParticipation?.commitment_state === "CONFIRMED")) && (
+            <AccommodationRequest
+              eventId={event.id}
+              token={guestCredential?.manage_token}
+            />
+          )}
         </div>
         <aside className="panel event-hub-details">
           <div className="detail">
@@ -2457,6 +2931,24 @@ export function PublicEventHub() {
               </p>
             </div>
           </div>
+          {(event.format === "online" || event.format === "hybrid") && (
+            <div className="detail">
+              <Share2 />
+              <div>
+                <strong>
+                  {publicJoinInfo?.join_info_visible &&
+                  publicJoinInfo.protected_join_info
+                    ? publicJoinInfo.protected_join_info
+                      : "Join details protected"}
+                </strong>
+                <p>
+                  {publicJoinInfo?.join_info_visible
+                    ? "Private access for confirmed participants"
+                    : "RSVP to view private online access"}
+                </p>
+              </div>
+            </div>
+          )}
           <div className="detail">
             <Users />
             <div>
@@ -2482,6 +2974,25 @@ export function PublicEventHub() {
               {error}
             </p>
           )}
+          {!signedIn &&
+            guestManagePath &&
+            guestParticipation && (
+              <div className="guest-management-panel">
+                <span className="small muted">
+                  {guestLinkOpen
+                    ? "Private guest RSVP link is open"
+                    : "Local testing link"}
+                </span>
+                {guestManageHref && (
+                  <a
+                    className="button secondary guest-management-link"
+                    href={guestManageHref}
+                  >
+                    Open private guest RSVP link
+                  </a>
+                )}
+              </div>
+            )}
           {unknown && pending && (
             <Button disabled={busy} onClick={() => void respond(pending)}>
               Retry same response
@@ -2508,26 +3019,71 @@ export function PublicEventHub() {
                     Leave event
                   </Button>
                 </div>
+              ) : guestParticipation?.commitment_state === "RELEASED_DECLINED" ? (
+                <div className="public-rsvp-state">
+                  <div className="hub-confirmed muted-confirmed">
+                    This guest RSVP is not going.
+                  </div>
+                  {eventResponsesOpen && event.participation_access === "ANYONE" ? (
+                    <Button
+                      disabled={
+                        busy ||
+                        (!!event.capacity &&
+                          (event.going_count ?? 1) - 1 >= event.capacity)
+                      }
+                      onClick={() => {
+                        trackBeta("public_event_response_attempted", "invitation", {
+                          action: "guest_form_open",
+                        });
+                        setJoinOpen("guest");
+                      }}
+                    >
+                      {event.capacity &&
+                      (event.going_count ?? 1) - 1 >= event.capacity
+                        ? "Event is full"
+                        : "RSVP again as guest"}
+                    </Button>
+                  ) : (
+                    <StatusBadge>Responses closed</StatusBadge>
+                  )}
+                </div>
+              ) : !eventResponsesOpen ? (
+                <div className="public-rsvp-state">
+                  <StatusBadge>Responses closed</StatusBadge>
+                </div>
               ) : event.participation_access === "ANYONE" ? (
                 <div className="public-rsvp-state">
+                  <Link
+                    className="button primary"
+                    to={`/sign-in?next=${encodeURIComponent(`/event/${event.id}`)}`}
+                  >
+                    Sign in to RSVP
+                  </Link>
                   <Button
+                    variant="secondary"
                     disabled={
                       busy ||
                       (!!event.capacity &&
                         (event.going_count ?? 1) - 1 >= event.capacity)
                     }
-                    onClick={() => setJoinOpen("choice")}
+                    onClick={() => {
+                      trackBeta("public_event_response_attempted", "invitation", {
+                        action: "guest_form_open",
+                      });
+                      setJoinOpen("guest");
+                    }}
                   >
                     {event.capacity &&
                     (event.going_count ?? 1) - 1 >= event.capacity
                       ? "Event is full"
-                      : "Going"}
+                      : "RSVP as guest"}
                   </Button>
                   <Button
                     variant="quiet"
+                    className="guest-rsvp-recovery"
                     onClick={() => setJoinOpen("recovery")}
                   >
-                    Email my guest RSVP link
+                    Already RSVP’d? Get private guest link
                   </Button>
                 </div>
               ) : (
@@ -2554,32 +3110,56 @@ export function PublicEventHub() {
                     void respond({
                       action: "WITHDRAW",
                       expected_version: participation.current_version,
-                      operation_id: crypto.randomUUID(),
+                      operation_id: clientUuid(),
                     })
                   }
                 >
                   Leave event
                 </Button>
               </div>
+            ) : participation?.hosting ? (
+              <div className="public-rsvp-state">
+                <div className="hub-confirmed">You’re hosting this event.</div>
+                <Link className="button primary" to={`/core/events/${event.id}/host`}>
+                  Manage event
+                </Link>
+                <Link
+                  className="text-action"
+                  to={`/core/events/${event.id}/host?section=participants`}
+                >
+                  Open attendee list
+                </Link>
+              </div>
             ) : participation && participation.responses_open ? (
-              <Button
-                disabled={busy || participation.full}
-                onClick={() =>
-                  void respond({
-                    action: "JOIN",
-                    expected_version: participation.current_version,
-                    operation_id: crypto.randomUUID(),
-                  })
-                }
-              >
-                {participation.full
-                  ? "Event is full"
-                  : busy
-                    ? "Joining…"
-                    : "Going"}
-              </Button>
+              <div className="public-rsvp-state">
+                <Button
+                  disabled={busy || participation.full}
+                  onClick={() =>
+                    void respond({
+                      action: "JOIN",
+                      expected_version: participation.current_version,
+                      operation_id: clientUuid(),
+                    })
+                  }
+                >
+                  {participation.full
+                    ? "Event is full"
+                    : busy
+                      ? "Joining…"
+                      : "Going"}
+                </Button>
+                <Button
+                  disabled={interestBusy}
+                  variant={interested ? "secondary" : "quiet"}
+                  onClick={() => void toggleInterest()}
+                >
+                  {interested ? "Interested" : "Interested"}
+                </Button>
+              </div>
             ) : participation ? (
-              <StatusBadge>Responses closed</StatusBadge>
+              <div className="public-rsvp-state">
+                <StatusBadge>Responses closed</StatusBadge>
+              </div>
             ) : (
               <p role="status" className="small muted">
                 Loading participation…
@@ -2587,6 +3167,11 @@ export function PublicEventHub() {
             ))}
         </aside>
       </div>
+      {mobileEventActions && (
+        <nav className="mobile-event-actions" aria-label="Event actions">
+          {mobileEventActions}
+        </nav>
+      )}
       {joinOpen && (
         <Modal
           title={
@@ -2611,7 +3196,7 @@ export function PublicEventHub() {
                 className="button secondary"
                 to={`/sign-in?next=${encodeURIComponent(`/event/${event.id}`)}`}
               >
-                Sign in or create account
+                Sign in to RSVP
               </Link>
               <Button variant="quiet" onClick={() => setJoinOpen(null)}>
                 Cancel
@@ -2627,7 +3212,8 @@ export function PublicEventHub() {
             >
               <p>
                 Enter the email address you used when you RSVP’d. For privacy,
-                Sontu will show the same confirmation either way.
+                Sontu will show the same confirmation either way. On this
+                device, a saved private link opens immediately.
               </p>
               <TextField
                 label="Email address"
@@ -2658,27 +3244,35 @@ export function PublicEventHub() {
               className="guest-rsvp-form"
               onSubmit={(submitEvent) => {
                 submitEvent.preventDefault();
-                void respondAsGuest("JOIN");
+                const values = readGuestFormValues(submitEvent.currentTarget);
+                if (!values) {
+                  setError("The RSVP form could not be read. Refresh and try again.");
+                  trackBeta("public_event_response_failed", "invitation", {
+                    action: "guest_join",
+                    error_code: "FORM_UNREADABLE",
+                  });
+                  return;
+                }
+                void respondAsGuest("JOIN", values);
               }}
             >
               <TextField
                 label="Your name"
+                name="guestName"
                 required
                 maxLength={120}
-                value={guestName}
-                onChange={(changeEvent) =>
-                  setGuestName(changeEvent.target.value)
-                }
+                defaultValue={storedGuest?.display_name ?? ""}
               />
               <TextField
                 label="Email address"
-                type="email"
+                name="guestContact"
+                type="text"
+                inputMode="email"
+                autoCapitalize="none"
+                autoCorrect="off"
                 required
                 maxLength={254}
-                value={guestEmail}
-                onChange={(changeEvent) =>
-                  setGuestEmail(changeEvent.target.value)
-                }
+                defaultValue={storedGuest?.email ?? ""}
               />
               <div className="guest-email-reason">
                 <strong>Why we require an email</strong>
@@ -2704,8 +3298,22 @@ export function PublicEventHub() {
                   Back
                 </Button>
                 <Button
-                  type="submit"
-                  disabled={busy || !guestName.trim() || !guestEmail.trim()}
+                  type="button"
+                  disabled={busy}
+                  onClick={(clickEvent) => {
+                    const button = clickEvent.currentTarget as HTMLButtonElement;
+                    const form = button.form ?? button.closest("form");
+                    const values = readGuestFormValues(form);
+                    if (!values) {
+                      setError("The RSVP form could not be read. Refresh and try again.");
+                      trackBeta("public_event_response_failed", "invitation", {
+                        action: "guest_join",
+                        error_code: "FORM_UNREADABLE",
+                      });
+                      return;
+                    }
+                    void respondAsGuest("JOIN", values);
+                  }}
                 >
                   {busy ? "Reserving…" : "Confirm RSVP"}
                 </Button>

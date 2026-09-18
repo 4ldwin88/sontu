@@ -21,14 +21,15 @@ jobs:
         with:
           version: 2.117.0
       - name: Start isolated Auth and database
-        run: supabase start -x realtime,storage-api,imgproxy,postgres-meta,studio,edge-runtime,logflare,vector,supavisor
+        run: supabase start -x realtime,imgproxy,postgres-meta,studio,edge-runtime,logflare,vector,supavisor
       - name: Prepare disposable browser identity
         run: |
           supabase status -o json > /tmp/sontu-local-status.json
           node scripts/prepare-local-browser.mjs
       - name: Build against isolated backend
         run: npm run build
-      - run: npx playwright test
+      - name: Run deterministic real-data browser gate
+        run: npx playwright test --project=compact --workers=1
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -3,7 +3,7 @@ import {
   diagnosticEntries,
 } from "../../../packages/data/diagnostics";
 import { rpc } from "../../../packages/data/sontu";
-import { useAccount } from "./account-state";
+import { profileAvatarUrl, useAccount } from "./account-state";
 import { type ReactNode, useEffect, useState } from "react";
 import {
   Link,
@@ -28,7 +28,9 @@ import {
   UserCheck,
   UserPlus,
   Link as LinkIcon,
-  Sparkles,
+  Mail,
+  Phone,
+  MapPin,
 } from "lucide-react";
 import { Button, TextField } from "../../../packages/ui-web";
 const destinations = [
@@ -48,6 +50,7 @@ export function ProfileDrawerContent({
   const account = useAccount();
   const location = useLocation();
   const returnTo = `${location.pathname}${location.search}`;
+  const avatarSrc = profileAvatarUrl(account.profile?.avatar_path);
   if (!account.session)
     return (
       <section className="profile-menu">
@@ -73,11 +76,8 @@ export function ProfileDrawerContent({
   return (
     <section className="profile-menu">
       <div className="profile-identity">
-        <span
-          className="avatar profile-avatar"
-          aria-label="Profile avatar placeholder"
-        >
-          {profile.displayName[0]}
+        <span className="avatar profile-avatar" aria-label="Profile avatar">
+          {avatarSrc ? <img src={avatarSrc} alt="" /> : profile.displayName[0]}
         </span>
         <div>
           <h2>{profile.displayName}</h2>
@@ -102,9 +102,9 @@ export function ProfileDrawerContent({
 }
 const pages: Record<string, { title: string; intro: string; body: string }> = {
   connections: {
-    title: "Connections",
-    intro: "People and relationships around shared experiences.",
-    body: "Connections are explicit mutual relationships. Review requests, organize private groups, and choose who belongs in future invitation contexts.",
+    title: "Relationships",
+    intro: "People, follows, connections, and private groups.",
+    body: "Follow and connection are separate. Following helps you find people again; connections are mutual; groups and Close are private to you.",
   },
   privacy: {
     title: "Privacy & Safety",
@@ -169,6 +169,7 @@ export function ConnectionsPage({ onBack }: { onBack: () => void }) {
     [following, setFollowing] = useState<FollowPerson[]>([]),
     [handle, setHandle] = useState(""),
     [contextName, setContextName] = useState(""),
+    [contextSearch, setContextSearch] = useState<Record<string, string>>({}),
     [section, setSection] = useState<RelationshipSection>("people"),
     [message, setMessage] = useState("");
   const readConnections = async () =>
@@ -218,6 +219,34 @@ export function ConnectionsPage({ onBack }: { onBack: () => void }) {
     setHandle(""); setContextName(""); await load();
   };
   const accepted = connections.filter((connection) => connection.status === "ACCEPTED");
+  const maintainContext = async (
+    action: "rename" | "delete",
+    context: ConnectionContext,
+  ) => {
+    const name =
+      action === "rename"
+        ? window.prompt("Group name", context.name)?.trim()
+        : null;
+    if (action === "rename" && !name) return;
+    if (
+      action === "delete" &&
+      !window.confirm(`Delete ${context.name}? This only removes the private group.`)
+    )
+      return;
+    setMessage("");
+    const result = await rpc<{ status: string }>(
+      "sontu_connection_context_maintenance",
+      {
+        action,
+        input: { context_id: context.id, ...(name ? { name } : {}) },
+      },
+    );
+    if (result.status !== "ready") {
+      setMessage("That group change could not be completed.");
+      return;
+    }
+    await load();
+  };
   const followingHandles = new Set(following.map((person) => person.handle));
   const followAction = (person: FollowPerson | Connection) =>
     run(followingHandles.has(person.handle) ? "unfollow" : "follow", {
@@ -232,13 +261,52 @@ export function ConnectionsPage({ onBack }: { onBack: () => void }) {
       >
         <ChevronLeft size={26} strokeWidth={2.5} />
       </button>
-      <h1>Connections</h1>
-      <p className="muted">
-        Find people, accept or deny requests, and organize private groups for future invitations.
-      </p>
-      <div className="relationship-tabs" role="tablist" aria-label="Connections sections">
+      <section className="relationship-hero">
+        <span className="eyebrow">Relationships</span>
+        <h1>People around your events.</h1>
+        <p>
+          Follow people, manage mutual connections, and keep private groups for your own planning.
+        </p>
+        <div className="relationship-summary" aria-label="Relationship summary">
+          <span><strong>{accepted.length}</strong> Connections</span>
+          <span><strong>{followers.length}</strong> Followers</span>
+          <span><strong>{following.length}</strong> Following</span>
+        </div>
+      </section>
+      <section className="relationship-search-card">
+        <div>
+          <span className="eyebrow">Find someone</span>
+          <p>Use a Sontu handle to follow them or ask to connect.</p>
+        </div>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void run("request", { handle: normalizeHandleInput(handle) });
+          }}
+        >
+          <TextField
+            label="Handle"
+            name="handle"
+            value={handle}
+            onChange={(event) => setHandle(event.target.value)}
+            placeholder="member_handle"
+          />
+          <div className="relationship-search-actions">
+            <Button type="submit">Connect</Button>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => void run("follow", { handle: normalizeHandleInput(handle) })}
+            >
+              Follow
+            </Button>
+          </div>
+        </form>
+        {message && <p role="status">{message}</p>}
+      </section>
+      <div className="relationship-tabs" role="tablist" aria-label="Relationship sections">
         {[
-          ["people", `People (${connections.length})`],
+          ["people", `Connections (${accepted.length})`],
           ["followers", `Followers (${followers.length})`],
           ["following", `Following (${following.length})`],
           ["requests", `Requests (${requests.length})`],
@@ -256,31 +324,6 @@ export function ConnectionsPage({ onBack }: { onBack: () => void }) {
           </button>
         ))}
       </div>
-      <section className="panel">
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            void run("request", { handle: normalizeHandleInput(handle) });
-          }}
-        >
-          <TextField
-            label="Connect by handle"
-            name="handle"
-            value={handle}
-            onChange={(event) => setHandle(event.target.value)}
-            placeholder="member_handle"
-          />
-          <Button type="submit">Send connection request</Button>
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => void run("follow", { handle: normalizeHandleInput(handle) })}
-          >
-            Follow
-          </Button>
-        </form>
-        {message && <p role="status">{message}</p>}
-      </section>
       {section === "requests" && <section className="panel relationship-section">
         <h2>Requests</h2>
         {requests.length ? (
@@ -313,9 +356,9 @@ export function ConnectionsPage({ onBack }: { onBack: () => void }) {
         )}
       </section>}
       {section === "people" && <section className="panel relationship-section">
-        <h2>People</h2>
-        {connections.length ? (
-          connections.map((connection) => (
+        <h2>Connections</h2>
+        {accepted.length ? (
+          accepted.map((connection) => (
             <div key={connection.id} className="relationship-row">
               <span className="avatar">{connection.display_name.slice(0, 1).toUpperCase()}</span>
               <div>
@@ -331,8 +374,7 @@ export function ConnectionsPage({ onBack }: { onBack: () => void }) {
                       : ""}
                 </small>
               </div>
-              {connection.status === "ACCEPTED" ? (
-                <div className="coord-actions">
+              <div className="coord-actions">
                   <Button
                     variant={followingHandles.has(connection.handle) ? "quiet" : "secondary"}
                     onClick={() => void followAction(connection)}
@@ -356,34 +398,14 @@ export function ConnectionsPage({ onBack }: { onBack: () => void }) {
                   >
                     Remove
                   </Button>
-                </div>
-              ) : connection.direction === "INCOMING" ? (
-                <div className="coord-actions">
-                  <Button onClick={() => void run("accept", { connection_id: connection.id })}>
-                    Accept
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    onClick={() => void run("deny", { connection_id: connection.id })}
-                  >
-                    Deny
-                  </Button>
-                </div>
-              ) : (
-                <Button
-                  variant="quiet"
-                  onClick={() => void run("remove", { connection_id: connection.id })}
-                >
-                  Remove
-                </Button>
-              )}
+              </div>
             </div>
           ))
         ) : (
           <div className="relationship-empty">
             <Users size={28} />
             <strong>Find your people</strong>
-            <p className="muted">Search by handle to start a mutual connection request.</p>
+            <p className="muted">Search by handle to follow someone or ask to connect.</p>
           </div>
         )}
       </section>}
@@ -441,7 +463,7 @@ export function ConnectionsPage({ onBack }: { onBack: () => void }) {
         )}
       </section>}
       {section === "groups" && <section className="panel relationship-section">
-        <h2>Private contexts</h2>
+        <h2>Private groups</h2>
         <form
           onSubmit={(event) => {
             event.preventDefault();
@@ -453,47 +475,101 @@ export function ConnectionsPage({ onBack }: { onBack: () => void }) {
             name="context"
             value={contextName}
             onChange={(event) => setContextName(event.target.value)}
-            placeholder="RAJA, Family, Close friends"
+            placeholder="Book club, collaborators, close circle"
           />
-          <Button type="submit">Create context</Button>
+          <Button type="submit">Create group</Button>
         </form>
         {contexts.length ? contexts.map((context) => (
           <div key={context.id} className="relationship-row">
             <span className="avatar">{context.name.slice(0, 1).toUpperCase()}</span>
             <div>
               <strong>{context.name}</strong>
-              <small>{context.members.length} people · private to you</small>
+              <small>
+                {context.members.length} {context.members.length === 1 ? "person" : "people"} · private to you
+              </small>
             </div>
-            <select
-              aria-label={`Add person to ${context.name}`}
-              defaultValue=""
-              onChange={(event) => {
-                if (event.target.value)
-                  void run("add_member", {
+            <div className="group-member-search">
+              <TextField
+                label={`Find a connection for ${context.name}`}
+                type="search"
+                value={contextSearch[context.id] ?? ""}
+                onChange={(event) =>
+                  setContextSearch((current) => ({
+                    ...current,
+                    [context.id]: event.target.value,
+                  }))
+                }
+                placeholder="Search accepted connections"
+              />
+              {(contextSearch[context.id] ?? "").trim() && (
+                <div className="group-member-results">
+                  {accepted
+                    .filter(
+                      (connection) =>
+                        !context.members.some(
+                          (member) => member.user_id === connection.user_id,
+                        ) &&
+                        `${connection.display_name} ${connection.handle}`
+                          .toLowerCase()
+                          .includes(
+                            (contextSearch[context.id] ?? "")
+                              .trim()
+                              .toLowerCase(),
+                          ),
+                    )
+                    .slice(0, 6)
+                    .map((connection) => (
+                      <button
+                        type="button"
+                        key={connection.user_id}
+                        onClick={() => {
+                          setContextSearch((current) => ({
+                            ...current,
+                            [context.id]: "",
+                          }));
+                          void run("add_member", {
+                            context_id: context.id,
+                            user_id: connection.user_id,
+                          });
+                        }}
+                      >
+                        <span>
+                          <strong>{connection.display_name}</strong>
+                          <small>@{connection.handle}</small>
+                        </span>
+                        <UserPlus size={17} />
+                      </button>
+                    ))}
+                </div>
+              )}
+            </div>
+            <div className="coord-actions">
+              <Button variant="secondary" onClick={() => void maintainContext("rename", context)}>
+                Rename
+              </Button>
+              <Button variant="quiet" onClick={() => void maintainContext("delete", context)}>
+                Delete
+              </Button>
+            </div>
+            {context.members.map((member) => (
+              <Button
+                key={member.user_id}
+                variant="quiet"
+                onClick={() =>
+                  void run("remove_member", {
                     context_id: context.id,
-                    user_id: event.target.value,
-                  });
-              }}
-            >
-              <option value="">Add a connection</option>
-              {accepted
-                .filter(
-                  (connection) =>
-                    !context.members.some(
-                      (member) => member.user_id === connection.user_id,
-                    ),
-                )
-                .map((connection) => (
-                  <option key={connection.user_id} value={connection.user_id}>
-                    {connection.display_name}
-                  </option>
-                ))}
-            </select>
+                    user_id: member.user_id,
+                  })
+                }
+              >
+                Remove {member.display_name}
+              </Button>
+            ))}
           </div>
         )) : (
           <div className="relationship-empty">
             <Users size={28} />
-            <strong>Create your groups</strong>
+            <strong>Create private groups</strong>
             <p className="muted">Groups are private and only organize your own connections.</p>
           </div>
         )}
@@ -513,8 +589,12 @@ type PublicProfileHubResult = {
   profile?: {
     display_name: string;
     handle: string;
+    avatar_path?: string;
     fields?: {
       bio?: string;
+      email?: string;
+      phone?: string;
+      location?: string;
       interests?: string[];
       link?: { label: string; url: string };
     };
@@ -662,13 +742,14 @@ function ProfileHubContent({
   compact?: boolean;
 }) {
   const account = useAccount();
-  const [tab, setTab] = useState<"about" | "activity" | "relationship">(
+  const [tab, setTab] = useState<"about" | "events" | "relationship">(
     "about",
   );
   if (result.status !== "ready" || !result.profile) return null;
   const following = Boolean(result.viewer?.following);
   const connectionStatus = result.viewer?.connection_status ?? "none";
   const activity = result.profile.activity ?? [];
+  const avatarSrc = profileAvatarUrl(result.profile.avatar_path);
   const formatEventDate = (value: string | null) =>
     value
       ? new Intl.DateTimeFormat(undefined, {
@@ -686,7 +767,7 @@ function ProfileHubContent({
         <span />
       </div>
       <div className="profile-hub-avatar" aria-hidden="true">
-        <UserRound />
+        {avatarSrc ? <img src={avatarSrc} alt="" /> : <UserRound />}
       </div>
       <div className="profile-hub-intro">
         <span className="eyebrow">Sontu profile</span>
@@ -710,7 +791,7 @@ function ProfileHubContent({
         <div className="profile-hub-tabs" role="tablist" aria-label="Profile sections">
           {[
             ["about", "About"],
-            ["activity", "Activity"],
+            ["events", "Events"],
             ["relationship", "Relationship"],
           ].map(([value, label]) => (
             <button
@@ -719,7 +800,7 @@ function ProfileHubContent({
               role="tab"
               aria-selected={tab === value}
               className={tab === value ? "selected" : ""}
-              onClick={() => setTab(value as "about" | "activity" | "relationship")}
+              onClick={() => setTab(value as "about" | "events" | "relationship")}
             >
               {label}
             </button>
@@ -728,13 +809,26 @@ function ProfileHubContent({
       )}
       {(compact || tab === "about") && (
         <div className="profile-hub-panel">
-          {result.profile.fields?.bio ? (
+          {result.profile.fields?.bio && (
             <p className="profile-hub-bio">{result.profile.fields.bio}</p>
-          ) : (
-            <div className="profile-hub-empty">
-              <Sparkles size={18} />
-              <span>This member has not added a public bio yet.</span>
-            </div>
+          )}
+          {result.profile.fields?.email && (
+            <a className="profile-hub-link" href={`mailto:${result.profile.fields.email}`}>
+              <Mail size={18} />
+              <span>{result.profile.fields.email}</span>
+            </a>
+          )}
+          {result.profile.fields?.phone && (
+            <a className="profile-hub-link" href={`tel:${result.profile.fields.phone}`}>
+              <Phone size={18} />
+              <span>{result.profile.fields.phone}</span>
+            </a>
+          )}
+          {result.profile.fields?.location && (
+            <p className="profile-hub-link">
+              <MapPin size={18} />
+              <span>{result.profile.fields.location}</span>
+            </p>
           )}
           {result.profile.fields?.link && (
             <a
@@ -756,17 +850,17 @@ function ProfileHubContent({
           ) : null}
         </div>
       )}
-      {!compact && tab === "activity" && (
+      {!compact && tab === "events" && (
         <div className="profile-hub-panel">
           {activity.length ? (
-            <div className="profile-activity-list">
+            <div className="profile-event-list">
               {activity.map((item) => (
                 <Link
                   key={item.id}
                   to={`/event/${item.id}`}
-                  className="profile-activity-card"
+                  className="profile-event-card"
                 >
-                  <span className="profile-activity-cover" aria-hidden="true" />
+                  <span className="profile-event-cover" aria-hidden="true" />
                   <span>
                     <strong>{item.title}</strong>
                     <small>
@@ -802,7 +896,7 @@ function ProfileHubContent({
                       ? "Request received"
                       : "Not connected"}
               </strong>
-              <small>Connections are mutual trusted relationships.</small>
+              <small>Connections are mutual. Following and Close are separate private choices.</small>
             </span>
           </div>
         </div>
@@ -1287,3 +1381,7 @@ function DiagnosticPanel() {
     </section>
   );
 }
+
+
+
+

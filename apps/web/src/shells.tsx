@@ -1,4 +1,4 @@
-import { useAccount } from "./account-state";
+import { profileAvatarUrl, useAccount } from "./account-state";
 import { useMyEvents } from "./invitations";
 import { rpc } from "../../../packages/data/sontu";
 import {
@@ -62,21 +62,22 @@ export function TopUtilities({
 }) {
   const account = useAccount();
   const myEvents = useMyEvents();
-  const pendingInvites = myEvents.items.filter(
-    (event) =>
-      event.invitation_state === "CREATED" &&
-      event.commitment_state === "NO_COMMITMENT",
-  ).length;
-  const pendingUpdates = myEvents.items.filter(
-    (event) =>
-      !event.hosting &&
-      event.commitment_state === "CONFIRMED" &&
-      event.reconfirmation_required,
-  ).length;
+  const [pendingEvents, setPendingEvents] = useState(0);
   const [pendingReplies, setPendingReplies] = useState(0);
   const [pendingConnectionRequests, setPendingConnectionRequests] = useState(0);
   useEffect(() => {
     if (!myEvents.signed) return;
+    const loadEventCount = () =>
+      void rpc<{ status: string; unread_count?: number }>(
+        "sontu_event_notification_state",
+        { action: "read" },
+      )
+        .then((result) =>
+          setPendingEvents(result.status === "ready" ? result.unread_count ?? 0 : 0),
+        )
+        .catch(() => setPendingEvents(0));
+    loadEventCount();
+    window.addEventListener("sontu-notifications-read", loadEventCount);
     rpc<{ status: string; items?: unknown[] }>("sontu_event_question_notifications", { action: "read", question_id: null })
       .then((result) => setPendingReplies(result.status === "ready" ? (result.items?.length ?? 0) : 0))
       .catch(() => setPendingReplies(0));
@@ -90,11 +91,12 @@ export function TopUtilities({
         ),
       )
       .catch(() => setPendingConnectionRequests(0));
+    return () => window.removeEventListener("sontu-notifications-read", loadEventCount);
   }, [myEvents.signed, myEvents.items]);
   const pendingNotifications =
-    pendingInvites +
-    pendingUpdates +
+    pendingEvents +
     (myEvents.signed ? pendingReplies + pendingConnectionRequests : 0);
+  const avatarSrc = profileAvatarUrl(account.profile?.avatar_path);
   return (
     <header className="top-utilities">
       <button
@@ -103,7 +105,9 @@ export function TopUtilities({
         aria-label="Profile and appearance"
         aria-haspopup="dialog"
       >
-        {account.profile ? (
+        {avatarSrc ? (
+          <img src={avatarSrc} alt="" />
+        ) : account.profile ? (
           (account.profile.display_name || account.profile.first_name)[0]
         ) : (
           <UserRound size={23} aria-hidden="true" />
@@ -140,8 +144,10 @@ export function AppShell({
 }) {
   const location = useLocation();
   const navigate = useNavigate();
+  const eventRoute = /^\/event\/[0-9a-f-]+(?:\/|$)/i.test(location.pathname);
   const [hiddenOn, setHiddenOn] = useState<string | null>(null);
-  const hidden = hiddenOn === location.key;
+  const profileUtilityRoute = /^\/(profile|settings|connections|privacy|help|about|sign-out|organizations)(\/|$)/.test(location.pathname);
+  const hidden = profileUtilityRoute || hiddenOn === location.key;
   const setHidden = useCallback(
     (value: boolean) => setHiddenOn(value ? location.key : null),
     [location.key],
@@ -172,15 +178,15 @@ export function AppShell({
     return () => window.removeEventListener("scroll", onScroll);
   }, [location.key, setHidden]);
   return (
-    <div className={`app-shell ${hidden ? "chrome-hidden" : ""}`}>
-      <div className="consumer-chrome" onFocusCapture={() => setHidden(false)}>
+    <div className={`app-shell ${hidden ? "chrome-hidden" : ""} ${eventRoute ? "event-route" : ""}`.trim()}>
+      {!profileUtilityRoute && <div className="consumer-chrome" onFocusCapture={() => setHidden(false)}>
         <TopUtilities
           onOpen={(panel) => {
             setHidden(false);
             onOpen(panel);
           }}
         />
-      </div>
+      </div>}
       <div
         className="consumer-content"
         onTouchStart={(e) => {
@@ -216,6 +222,11 @@ export function AppShell({
         onTouchCancel={() => {
           gesture.current = null;
         }}
+        onTouchMove={(e) => {
+          const start = gesture.current;
+          if (!start || e.touches.length !== 1) return;
+          if (e.touches[0].clientY - start.y > 12) setHidden(false);
+        }}
         onTouchEnd={(e) => {
           const start = gesture.current;
           gesture.current = null;
@@ -249,9 +260,9 @@ export function AppShell({
       >
         <Outlet />
       </div>
-      <div onFocusCapture={() => setHidden(false)}>
+      {!profileUtilityRoute && <div onFocusCapture={() => setHidden(false)}>
         <RootBottomNav />
-      </div>
+      </div>}
     </div>
   );
 }
@@ -326,10 +337,12 @@ export function Modal({
   title,
   children,
   onClose,
+  className = "",
 }: {
   title: string;
   children: ReactNode;
   onClose: () => void;
+  className?: string;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -338,7 +351,7 @@ export function Modal({
     return () => previous?.focus();
   }, []);
   return (
-    <dialog ref={ref} className="modal" aria-label={title} onCancel={onClose}>
+    <dialog ref={ref} className={`modal ${className}`.trim()} aria-label={title} onCancel={onClose}>
       <div className="section-heading">
         <h2>{title}</h2>
         <IconButton label="Close dialog" onClick={onClose}>
@@ -481,3 +494,5 @@ export function UtilityDrawer({
     </dialog>
   );
 }
+
+

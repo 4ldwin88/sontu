@@ -251,6 +251,13 @@ describe("frozen Core Validation persistence contract", () => {
     });
     await command("revoke_link", { participant_id: p.participants[0].id });
     expect((await response(token)).error_code).toBe("TOKEN_INVALID");
+    const replacementToken = randomBytes(32).toString("hex");
+    await command("issue_link", {
+      participant_id: p.participants[0].id,
+      token: replacementToken,
+    });
+    expect((await response(token)).error_code).toBe("TOKEN_INVALID");
+    expect((await response(replacementToken)).status).toBe("ready");
     expect(
       (
         await sql<{ n: number }>(
@@ -298,6 +305,15 @@ describe("frozen Core Validation persistence contract", () => {
     const p = await projection();
     expect(p.event.lifecycle).toBe("CANCELLED");
     expect(p.cases[0].disposition).toBe("OPEN_UNRESOLVED");
+    expect(
+      await sql<{ status: string }>(
+        "select distinct status from sontu_private.event_admissions where event_instance_id=$1 order by status",
+        [event],
+      ),
+    ).toEqual([{ status: "CANCELLED_EVENT_INVALID" }]);
+    expect(
+      p.admission_summary,
+    ).toMatchObject({ valid: 0, invalid: 12 });
     expect(
       p.audit.some((x: any) => x.audit_kind === "participant_response"),
     ).toBe(true);
@@ -495,6 +511,53 @@ it("creates empty personal drafts, validates publication and preserves versioned
       )
     )[0].r.status,
   ).toBe("ready");
+  const logoOperation = randomUUID();
+  const logoPath = `${host}/organizations/logo-test.webp`;
+  expect(
+    (
+      await sql<{ r: any }>(
+        "select public.sontu_organization_logo('write',$1,$2,$3) r",
+        [organizationId, logoPath, logoOperation],
+      )
+    )[0].r,
+  ).toMatchObject({ status: "ready", logo_path: logoPath });
+  expect(
+    (
+      await sql<{ r: any }>(
+        "select public.sontu_organization_logo('write',$1,$2,$3) r",
+        [organizationId, logoPath, logoOperation],
+      )
+    )[0].r,
+  ).toMatchObject({ status: "ready", logo_path: logoPath });
+  expect(
+    (
+      await sql<{ r: any }>(
+        "select public.sontu_organization_logo('overview',null,null,null) r",
+      )
+    )[0].r.logos,
+  ).toContainEqual({ organization_id: organizationId, logo_path: logoPath });
+  expect(
+    (
+      await sql<{ r: any }>(
+        "select public.sontu_organization_logo('write',$1,$2,$3) r",
+        [
+          organizationId,
+          `${stranger}/organizations/not-owned.webp`,
+          randomUUID(),
+        ],
+      )
+    )[0].r.error_code,
+  ).toBe("INVALID_INPUT");
+  await asHost(stranger);
+  expect(
+    (
+      await sql<{ r: any }>(
+        "select public.sontu_organization_logo('write',$1,$2,$3) r",
+        [organizationId, logoPath, randomUUID()],
+      )
+    )[0].r.error_code,
+  ).toBe("UNAUTHORIZED");
+  await asHost();
   expect(
     (
       await sql<{ r: any }>(
@@ -618,7 +681,7 @@ it("creates empty personal drafts, validates publication and preserves versioned
     ends_at: "2030-09-17T01:00:00Z",
     timezone: "America/Vancouver",
     venue_label: "Private garden",
-    cover_key: "sunset",
+    cover_key: `upload:${host}/${event}/cover-test.webp`,
     capacity: "8",
   };
   expect(
@@ -658,7 +721,7 @@ it("creates empty personal drafts, validates publication and preserves versioned
     ).status,
   ).toBe("ready");
   p = await projection();
-  expect(p.version.cover_key).toBe("sunset");
+  expect(p.version.cover_key).toBe(`upload:${host}/${event}/cover-test.webp`);
   expect(p.version.capacity).toBe(8);
   expect(p.participants).toEqual([]);
   expect(p.cases).toEqual([]);
@@ -847,6 +910,9 @@ it("joins and withdraws from a public event atomically with safe retries", async
     )[0].r.status,
   ).toBe("ready");
   await command("publish", { confirmed: true });
+  await sql("update auth.users set email_confirmed_at=now() where id=$1", [
+    host,
+  ]);
   const participate = async (
     action: string,
     op: string | null = action === "READ" ? null : randomUUID(),
@@ -859,6 +925,11 @@ it("joins and withdraws from a public event atomically with safe retries", async
       )
     )[0].r;
 
+  const hostRead = await participate("READ");
+  expect(hostRead.hosting).toBe(true);
+  expect(hostRead.responses_open).toBe(false);
+  expect((await participate("JOIN")).error_code).toBe("INVALID_STATE");
+
   await asHost(attendee);
   const attendeeProfile = (
     await sql<{ r: any }>("select public.sontu_account_profile($1,$2) r", [
@@ -867,7 +938,37 @@ it("joins and withdraws from a public event atomically with safe retries", async
     ])
   )[0].r.profile;
   let read = await participate("READ");
+  expect(read.hosting).toBe(false);
   expect(read.commitment_state).toBeNull();
+  expect(
+    (
+      await sql<{ r: any }>("select public.sontu_event_interest($1,$2) r", [
+        event,
+        "READ",
+      ])
+    )[0].r.interested,
+  ).toBe(false);
+  expect(
+    (
+      await sql<{ r: any }>("select public.sontu_event_interest($1,$2) r", [
+        event,
+        "SAVE",
+      ])
+    )[0].r,
+  ).toMatchObject({ status: "ready", interested: true });
+  expect(
+    (
+      await sql<{ r: any }>("select public.sontu_public_events($1) r", [event])
+    )[0].r.events[0].interested,
+  ).toBe(true);
+  expect(
+    (
+      await sql<{ r: any }>("select public.sontu_event_interest($1,$2) r", [
+        event,
+        "UNSAVE",
+      ])
+    )[0].r,
+  ).toMatchObject({ status: "ready", interested: false });
   const joinOperation = randomUUID();
   const joined = await participate("JOIN", joinOperation);
   expect(joined.status).toBe("ready");
@@ -938,8 +1039,140 @@ it("joins and withdraws from a public event atomically with safe retries", async
   expect((await participate("JOIN")).error_code).toBe("CAPACITY_FULL");
   await asHost(attendee);
   expect((await participate("WITHDRAW")).status).toBe("ready");
+  read = await participate("READ");
+  expect(read.commitment_state).toBe("RELEASED_DECLINED");
+  expect(read.full).toBe(false);
+  await asHost();
+  const analyticsAfterWithdraw = (
+    await sql<{ r: any }>(
+      "select public.sontu_host_operational_analytics($1) r",
+      [event],
+    )
+  )[0].r;
+  expect(analyticsAfterWithdraw.rsvp).toMatchObject({
+    confirmed: 0,
+    reserved_places: 0,
+    remaining_places: 1,
+    declined_or_withdrawn: 1,
+  });
+  expect(analyticsAfterWithdraw.admissions.invalid).toBe(1);
   await asHost(waiting);
   expect((await participate("JOIN")).status).toBe("ready");
+  await asHost();
+  const analyticsAfterRecovery = (
+    await sql<{ r: any }>(
+      "select public.sontu_host_operational_analytics($1) r",
+      [event],
+    )
+  )[0].r;
+  expect(analyticsAfterRecovery.rsvp).toMatchObject({
+    confirmed: 1,
+    reserved_places: 1,
+    remaining_places: 0,
+  });
+});
+
+it("keeps virtual join info protected until RSVP is confirmed", async () => {
+  const attendee = randomUUID(),
+    waiting = randomUUID(),
+    guestToken = randomUUID();
+  await sql(
+    "insert into auth.users(id,email,email_confirmed_at) values($1,'protected-one@example.com',now()),($2,'protected-two@example.com',now())",
+    [attendee, waiting],
+  );
+  await asHost();
+  const created = await command(
+    "create_draft",
+    { timezone: "America/Toronto" },
+    1,
+  );
+  event = created.event_id;
+  version = created.current_version;
+  await command("save_draft", {
+    title: "Protected online session",
+    description: "Private link",
+    starts_at: "2031-08-20T22:00:00Z",
+    ends_at: "2031-08-21T00:00:00Z",
+    timezone: "America/Toronto",
+    venue_label: "Online access shared after RSVP",
+    cover_key: "music",
+    capacity: "4",
+  });
+  await sql("select public.sontu_set_event_intent($1,$2,$3)", [
+    event,
+    "Webinar",
+    "online",
+  ]);
+  await sql("select public.sontu_event_visibility('write',$1,'PUBLIC')", [
+    event,
+  ]);
+  await command("publish", { confirmed: true });
+  expect(
+    (
+      await sql<{ r: any }>(
+        "select public.sontu_event_join_info('write',$1,$2,$3,null) r",
+        [
+          event,
+          "Zoom https://sontu.example/secret passcode 2468",
+          randomUUID(),
+        ],
+      )
+    )[0].r.status,
+  ).toBe("ready");
+  await asHost(waiting);
+  const waitingRead = (
+    await sql<{ r: any }>(
+      "select public.sontu_event_join_info('read',$1,null,null,null) r",
+      [event],
+    )
+  )[0].r;
+  expect(waitingRead.protected_join_info).toBeNull();
+  expect(waitingRead.join_info_visible).toBe(false);
+
+  await asHost(attendee);
+  const joined = (
+    await sql<{ r: any }>(
+      "select public.sontu_public_event_participation($1,'JOIN',$2,$3) r",
+      [event, version, randomUUID()],
+    )
+  )[0].r;
+  expect(joined.status).toBe("ready");
+  const attendeeRead = (
+    await sql<{ r: any }>(
+      "select public.sontu_event_join_info('read',$1,null,null,null) r",
+      [event],
+    )
+  )[0].r;
+  expect(attendeeRead.protected_join_info).toContain("passcode 2468");
+  expect(attendeeRead.join_info_visible).toBe(true);
+  const hub = (
+    await sql<{ r: any }>("select public.sontu_event_hub($1) r", [event])
+  )[0].r;
+  expect(hub.event.title).toBe("Protected online session");
+
+  await asHost("");
+  const guestBefore = (
+    await sql<{ r: any }>(
+      "select public.sontu_event_join_info('read',$1,null,null,$2) r",
+      [event, guestToken],
+    )
+  )[0].r;
+  expect(guestBefore.protected_join_info).toBeNull();
+  const guestJoined = (
+    await sql<{ r: any }>(
+      "select public.sontu_guest_event_participation($1,'JOIN','Guest Online','guest-online@example.com',$2,$3,$4) r",
+      [event, version, randomUUID(), guestToken],
+    )
+  )[0].r;
+  expect(guestJoined.status).toBe("ready");
+  const guestAfter = (
+    await sql<{ r: any }>(
+      "select public.sontu_event_join_info('read',$1,null,null,$2) r",
+      [event, guestToken],
+    )
+  )[0].r;
+  expect(guestAfter.protected_join_info).toContain("passcode 2468");
+  expect(guestAfter.join_info_visible).toBe(true);
 });
 
 it("keeps public visibility separate from guest RSVP eligibility", async () => {
@@ -1120,12 +1353,145 @@ it("keeps public visibility separate from guest RSVP eligibility", async () => {
   ).toMatchObject({ status: "ready", commitment_state: "CONFIRMED" });
   expect(await guest("JOIN", secondOperation)).toEqual(joined);
   expect((await guest("READ")).commitment_state).toBe("CONFIRMED");
-  expect((await guest("WITHDRAW", randomUUID())).commitment_state).toBe(
+  await asHost();
+  expect(
+    (
+      await sql<{ r: any }>(
+        "select public.sontu_event_participation_access('write',$1,'SONTU_USERS_ONLY') r",
+        [event],
+      )
+    )[0].r,
+  ).toMatchObject({ status: "ready", participation_access: "SONTU_USERS_ONLY" });
+  await sql("select set_config('request.jwt.claim.sub','',false)");
+  expect((await guest("READ")).commitment_state).toBe("CONFIRMED");
+  const blockedToken = randomUUID();
+  token = blockedToken;
+  expect((await guest("JOIN", randomUUID())).error_code).toBe(
+    "INVITATION_UNAVAILABLE",
+  );
+  token = recoveredToken;
+  const guestWithdrawn = await guest("WITHDRAW", randomUUID());
+  expect(guestWithdrawn).toMatchObject({
+    status: "ready",
+    commitment_state: "RELEASED_DECLINED",
+  });
+  expect((await guest("READ")).commitment_state).toBe("RELEASED_DECLINED");
+  await asHost();
+  const guestParticipant = (
+    await sql<{ id: string }>(
+      "select id from sontu_private.event_participants where event_instance_id=$1 and guest_recovery_token_hash=sha256(convert_to($2::text,'UTF8'))",
+      [event, recoveredToken],
+    )
+  )[0];
+  expect(
+    await sql<{ status: string }>(
+      "select status from sontu_private.event_admissions where event_participant_id=$1",
+      [guestParticipant.id],
+    ),
+  ).toEqual([{ status: "REVOKED" }]);
+  {
+    const credentialRows = await sql<{ status: string }>(
+      "select c.status from sontu_private.event_credentials c join sontu_private.event_admissions a on a.id=c.admission_id where a.event_participant_id=$1",
+      [guestParticipant.id],
+    );
+    expect(credentialRows.length).toBeGreaterThan(0);
+    expect(credentialRows.every((row) => row.status === "REVOKED")).toBe(true);
+  }
+  expect(
+    (
+      await sql<{ r: any }>(
+        "select public.sontu_host_operational_analytics($1) r",
+        [event],
+      )
+    )[0].r.rsvp,
+  ).toMatchObject({
+    confirmed: 0,
+    reserved_places: 0,
+    declined_or_withdrawn: 1,
+  });
+  await sql(
+    "update sontu_private.event_participants set commitment_state='CONFIRMED', invitation_state='ACCEPTED' where id=$1",
+    [guestParticipant.id],
+  );
+  await sql(
+    "update sontu_private.event_admissions set status='VALID', invalidated_at=null, updated_at=now() where event_participant_id=$1",
+    [guestParticipant.id],
+  );
+  const hostRemoved = (
+    await sql<{ r: any }>(
+      "select public.sontu_host_participant_rsvp($1,$2,'REJECT',$3) r",
+      [event, guestParticipant.id, randomUUID()],
+    )
+  )[0].r;
+  expect(hostRemoved).toMatchObject({
+    status: "ready",
+    participant_id: guestParticipant.id,
+    commitment_state: "RELEASED_DECLINED",
+  });
+  expect(
+    await sql<{ status: string }>(
+      "select status from sontu_private.event_admissions where event_participant_id=$1",
+      [guestParticipant.id],
+    ),
+  ).toEqual([{ status: "REVOKED" }]);
+  {
+    const credentialRows = await sql<{ status: string }>(
+      "select c.status from sontu_private.event_credentials c join sontu_private.event_admissions a on a.id=c.admission_id where a.event_participant_id=$1",
+      [guestParticipant.id],
+    );
+    expect(credentialRows.length).toBeGreaterThan(0);
+    expect(credentialRows.every((row) => row.status === "REVOKED")).toBe(true);
+  }
+  const analyticsAfterRemoval = (
+    await sql<{ r: any }>(
+      "select public.sontu_host_operational_analytics($1) r",
+      [event],
+    )
+  )[0].r;
+  expect(analyticsAfterRemoval.rsvp).toMatchObject({
+    confirmed: 0,
+    reserved_places: 0,
+    declined_or_withdrawn: 1,
+  });
+  expect(analyticsAfterRemoval.admissions.invalid).toBe(1);
+  expect(
+    ((await sql<{ r: any }>("select public.sontu_event_hub($1) r", [event]))[0]
+      .r.going as { display_name: string }[]).some(
+      (person) => person.display_name === "Guest One",
+    ),
+  ).toBe(false);
+  await sql("select set_config('request.jwt.claim.sub','',false)");
+  expect((await guest("READ")).commitment_state).toBe(
     "RELEASED_DECLINED",
   );
 });
 
 it("keeps unlisted events out of discovery while allowing direct-link guest RSVP", async () => {
+  await asHost();
+  const expiredPublic = randomUUID();
+  await sql(
+    `insert into sontu_private.event_instances(id,host_owner_user_id,lifecycle,event_kind,visibility,event_category,event_format)
+     values($1,$2,'PUBLISHED','SIMPLE','PUBLIC','Past','in-person')`,
+    [expiredPublic, host],
+  );
+  await sql(
+    `insert into sontu_private.event_versions(event_instance_id,version_number,title,description,starts_at,ends_at,timezone,venue_label,cover_key,materiality_class,created_by)
+     values($1,1,'Expired public event','Should not appear in discovery','2020-01-01T20:00:00Z','2020-01-01T22:00:00Z','America/Toronto','Past venue','sunset','INITIAL',$2)`,
+    [expiredPublic, host],
+  );
+  await asHost("");
+  expect(
+    (
+      await sql<{ r: any }>("select public.sontu_public_events() r")
+    )[0].r.events.some((item: any) => item.id === expiredPublic),
+  ).toBe(false);
+  expect(
+    (
+      await sql<{ r: any }>("select public.sontu_public_events($1) r", [
+        expiredPublic,
+      ])
+    )[0].r.events[0],
+  ).toMatchObject({ id: expiredPublic, title: "Expired public event" });
   await asHost();
   const created = await command(
     "create_draft",
@@ -1173,6 +1539,92 @@ it("keeps unlisted events out of discovery while allowing direct-link guest RSVP
       )
     )[0].r.commitment_state,
   ).toBe("CONFIRMED");
+});
+
+it("keeps event access surfaces scoped by visibility and relationship", async () => {
+  const owner = randomUUID(),
+    participantUser = randomUUID(),
+    unrelatedUser = randomUUID(),
+    publicEvent = randomUUID(),
+    privateEvent = randomUUID(),
+    unlistedEvent = randomUUID();
+  await sql(
+    "insert into auth.users(id,email,email_confirmed_at) values($1,'matrix-host@example.com',now()),($2,'matrix-participant@example.com',now()),($3,'matrix-unrelated@example.com',now())",
+    [owner, participantUser, unrelatedUser],
+  );
+  await sql(
+    `insert into sontu_private.event_instances(id,host_owner_user_id,lifecycle,event_kind,visibility,event_category,event_format)
+     values
+      ($1,$2,'PUBLISHED','SIMPLE','PUBLIC','Public matrix','in-person'),
+      ($3,$2,'PUBLISHED','SIMPLE','PRIVATE','Private matrix','in-person'),
+      ($4,$2,'PUBLISHED','SIMPLE','UNLISTED','Unlisted matrix','online')`,
+    [publicEvent, owner, privateEvent, unlistedEvent],
+  );
+  await sql(
+    `insert into sontu_private.event_versions(event_instance_id,version_number,title,description,starts_at,ends_at,timezone,venue_label,cover_key,materiality_class,created_by)
+     values
+      ($1,1,'Public matrix event','Visible in discovery','2032-11-01T20:00:00Z','2032-11-01T22:00:00Z','America/Toronto','Public venue','music','INITIAL',$4),
+      ($2,1,'Private matrix event','Participant only','2032-11-02T20:00:00Z','2032-11-02T22:00:00Z','America/Toronto','Private venue','food','INITIAL',$4),
+      ($3,1,'Unlisted matrix event','Direct link only','2032-11-03T20:00:00Z','2032-11-03T22:00:00Z','America/Toronto','Unlisted venue','market','INITIAL',$4)`,
+    [publicEvent, privateEvent, unlistedEvent, owner],
+  );
+  await sql(
+    "insert into sontu_private.event_participants(event_instance_id,participant_user_id,display_name,commitment_state,invitation_state) values($1,$2,'Matrix Participant','CONFIRMED','ACCEPTED')",
+    [privateEvent, participantUser],
+  );
+
+  await asHost("");
+  const discovery = (
+    await sql<{ r: any }>("select public.sontu_public_events() r")
+  )[0].r.events;
+  expect(discovery.some((item: any) => item.id === publicEvent)).toBe(true);
+  expect(discovery.some((item: any) => item.id === privateEvent)).toBe(false);
+  expect(discovery.some((item: any) => item.id === unlistedEvent)).toBe(false);
+  expect(
+    (
+      await sql<{ r: any }>("select public.sontu_public_events($1) r", [
+        unlistedEvent,
+      ])
+    )[0].r.events[0],
+  ).toMatchObject({ id: unlistedEvent, title: "Unlisted matrix event" });
+  expect(
+    (
+      await sql<{ r: any }>("select public.sontu_public_events($1) r", [
+        privateEvent,
+      ])
+    )[0].r.events,
+  ).toEqual([]);
+
+  await asHost(unrelatedUser);
+  expect(
+    (
+      await sql<{ r: any }>("select public.sontu_event_hub($1) r", [
+        privateEvent,
+      ])
+    )[0].r.error_code,
+  ).toBe("INVITATION_UNAVAILABLE");
+
+  await asHost(participantUser);
+  expect(
+    (
+      await sql<{ r: any }>("select public.sontu_event_hub($1) r", [
+        privateEvent,
+      ])
+    )[0].r,
+  ).toMatchObject({
+    status: "ready",
+    event: { id: privateEvent, title: "Private matrix event" },
+    viewer: { hosting: false, commitment_state: "CONFIRMED" },
+  });
+
+  await asHost(owner);
+  expect(
+    (
+      await sql<{ r: any }>("select public.sontu_event_hub($1) r", [
+        privateEvent,
+      ])
+    )[0].r.viewer.hosting,
+  ).toBe(true);
 });
 
 describe("minimum profile and immutable account identity", () => {
@@ -1234,6 +1686,72 @@ describe("minimum profile and immutable account identity", () => {
     ).toBe("INVALID_HANDLE");
     await asHost("");
     expect((await call("read")).status).toBe("denied");
+  });
+});
+
+describe("account event email preferences", () => {
+  it("suppresses pending account event email when the participant opted out", async () => {
+    await asHost();
+    await sql(
+      `insert into sontu_private.account_profiles(user_id,first_name,handle,event_email_enabled)
+       values($1,'Opted Out','opted_out_test',false)
+       on conflict(user_id) do update set event_email_enabled=false`,
+      [stranger],
+    );
+    const created = await command("create_draft", {
+      timezone: "America/Toronto",
+    });
+    event = created.event_id;
+    version = created.current_version;
+    await command("save_draft", {
+      title: "Preference email test",
+      description: "Preference test",
+      starts_at: "2032-03-01T20:00:00Z",
+      ends_at: "2032-03-01T22:00:00Z",
+      timezone: "America/Toronto",
+      venue_label: "Room P",
+      cover_key: "market",
+      capacity: "12",
+    });
+    await command("publish", { confirmed: true });
+    const participant = randomUUID();
+    await sql(
+      `insert into sontu_private.event_participants(
+        id,event_instance_id,participant_user_id,display_name,invitation_email,commitment_state
+      ) values($1,$2,$3,'Opted Out','opted@example.com','CONFIRMED')`,
+      [participant, event, stranger],
+    );
+    const communication = (
+      await sql<{ id: string }>(
+        `insert into sontu_private.communication_records(event_instance_id,participant_id,kind)
+         values($1,$2,'EVENT_CHANGE') returning id`,
+        [event, participant],
+      )
+    )[0].id;
+    await sql(
+      "insert into sontu_private.outbox_entries(event_instance_id,communication_id) values($1,$2)",
+      [event, communication],
+    );
+    expect(
+      await sql("select * from sontu_private.claim_event_email_outbox($1,25)", [
+        event,
+      ]),
+    ).toEqual([]);
+    expect(
+      await sql(
+        `select o.state,c.dispatch_state,o.last_error
+         from sontu_private.outbox_entries o
+         join sontu_private.communication_records c on c.id=o.communication_id
+         where o.communication_id=$1`,
+        [communication],
+      ),
+    ).toEqual([
+      {
+        state: "SUPPRESSED",
+        dispatch_state: "SUPPRESSED",
+        last_error: "Recipient disabled account event email.",
+      },
+    ]);
   });
 });
 
@@ -1608,8 +2126,15 @@ describe("public profile hubs", () => {
           first_name: "Visible",
           handle: ownerProfile.handle,
           revision: ownerProfile.revision,
+          avatar_path: `${owner}/avatar.png`,
           bio: "Close-circle bio",
           bio_visibility: "CLOSE",
+          contact_email: "hello@example.com",
+          contact_email_visibility: "GENERAL",
+          phone_number: "+1 416 555 0199",
+          phone_visibility: "CLOSE",
+          profile_location: "Toronto, Ontario",
+          location_visibility: "ONLY_ME",
           link_label: "Public link",
           link_url: "https://example.com",
           link_visibility: "GENERAL",
@@ -1619,6 +2144,7 @@ describe("public profile hubs", () => {
       ])
     )[0].r;
     expect(ownerUpdate.status).toBe("ready");
+    expect(ownerUpdate.profile.avatar_path).toBe(`${owner}/avatar.png`);
 
     const createProfile = async (id: string, firstName: string) => {
       await asHost(id);
@@ -1673,9 +2199,11 @@ describe("public profile hubs", () => {
       ])
     )[0].r;
     expect(publicHub.profile.fields).toEqual({
+      email: "hello@example.com",
       link: { label: "Public link", url: "https://example.com" },
     });
     expect(publicHub.profile.fields.interests).toBeUndefined();
+    expect(publicHub.profile.avatar_path).toBe(`${owner}/avatar.png`);
 
     await asHost(closeViewer);
     const closeHub = (
@@ -1685,6 +2213,9 @@ describe("public profile hubs", () => {
     )[0].r;
     expect(closeHub.viewer.close).toBe(true);
     expect(closeHub.profile.fields.bio).toBe("Close-circle bio");
+    expect(closeHub.profile.fields.email).toBe("hello@example.com");
+    expect(closeHub.profile.fields.phone).toBe("+1 416 555 0199");
+    expect(closeHub.profile.fields.location).toBeUndefined();
     expect(closeHub.profile.fields.interests).toEqual(
       expect.arrayContaining(["Food & Drink", "Music", "Outdoors"]),
     );
@@ -1697,6 +2228,9 @@ describe("public profile hubs", () => {
       ])
     )[0].r;
     expect(groupedHub.viewer.close).toBe(false);
+    expect(groupedHub.profile.fields.email).toBe("hello@example.com");
+    expect(groupedHub.profile.fields.phone).toBeUndefined();
+    expect(groupedHub.profile.fields.location).toBeUndefined();
     expect(groupedHub.profile.fields.bio).toBeUndefined();
     expect(groupedHub.profile.fields.interests).toBeUndefined();
 
@@ -1714,6 +2248,12 @@ describe("public profile hubs", () => {
       ])
     )[0].r;
     expect(ownerOnly.status).toBe("ready");
+    const ownerHub = (
+      await sql<{ r: any }>("select public.sontu_public_profile_hub($1) r", [
+        ownerProfile.handle,
+      ])
+    )[0].r;
+    expect(ownerHub.profile.fields.location).toBe("Toronto, Ontario");
     await asHost(closeViewer);
     const closeAfterOnlyMe = (
       await sql<{ r: any }>("select public.sontu_public_profile_hub($1) r", [
@@ -1721,6 +2261,44 @@ describe("public profile hubs", () => {
       ])
     )[0].r;
     expect(closeAfterOnlyMe.profile.fields.bio).toBeUndefined();
+
+    await asHost(owner);
+    expect(
+      (
+        await sql<{ r: any }>(
+          "select public.sontu_connection_context_maintenance('rename',$1) r",
+          [JSON.stringify({ context_id: context.context_id, name: "Trusted circle" })],
+        )
+      )[0].r.status,
+    ).toBe("ready");
+    expect(
+      (
+        await sql<{ r: any }>("select public.sontu_connections('read','{}') r")
+      )[0].r.contexts[0].name,
+    ).toBe("Trusted circle");
+    await asHost(closeViewer);
+    expect(
+      (
+        await sql<{ r: any }>(
+          "select public.sontu_connection_context_maintenance('delete',$1) r",
+          [JSON.stringify({ context_id: context.context_id })],
+        )
+      )[0].r.error_code,
+    ).toBe("CONTEXT_NOT_FOUND");
+    await asHost(owner);
+    expect(
+      (
+        await sql<{ r: any }>(
+          "select public.sontu_connection_context_maintenance('delete',$1) r",
+          [JSON.stringify({ context_id: context.context_id })],
+        )
+      )[0].r.status,
+    ).toBe("ready");
+    expect(
+      (
+        await sql<{ r: any }>("select public.sontu_connections('read','{}') r")
+      )[0].r.contexts,
+    ).toEqual([]);
   });
 });
 
@@ -1839,8 +2417,8 @@ describe("reviewed published schedule and location", () => {
   });
   it("suggests reconfirmation for a venue change, carries an accepted obligation to later end-time changes, and does not escalate cosmetic edits", async () => {
     await sql(
-      "insert into sontu_private.event_participants(event_instance_id,display_name,commitment_state) values($1,'Committed test guest','CONFIRMED')",
-      [event],
+      "insert into sontu_private.event_participants(event_instance_id,participant_user_id,display_name,commitment_state) values($1,$2,'Committed test guest','CONFIRMED')",
+      [event, stranger],
     );
     const current = (await projection()).version;
     const input = {
@@ -1857,6 +2435,28 @@ describe("reviewed published schedule and location", () => {
     p = await projection();
     const originalCase = p.cases[0].id;
     expect(p.participants[0].response).toBe("AWAITING_RESPONSE");
+    expect(p.communications).toEqual([{ dispatch_state: "PENDING", count: 1 }]);
+    await asHost(stranger);
+    expect(
+      (
+        await sql<{ r: any }>(
+          "select public.sontu_participant_communication_history($1,null) r",
+          [event],
+        )
+      )[0].r,
+    ).toMatchObject({
+      status: "ready",
+      notices: [{ kind: "EVENT_CHANGE", state: "PENDING" }],
+    });
+    await asHost();
+    expect(
+      (
+        await sql<{ r: any }>(
+          "select public.sontu_participant_communication_history($1,$2) r",
+          [event, randomUUID()],
+        )
+      )[0].r.error_code,
+    ).toBe("INVITATION_UNAVAILABLE");
     await command("change_schedule", {
       ...input,
       ends_at: "2030-09-18T02:00:00Z",
@@ -2218,6 +2818,108 @@ describe("private ask-host inbox", () => {
   });
 });
 
+describe("configurable RSVP form", () => {
+  it("lets hosts configure limited questions and participants save structured answers", async () => {
+    await asHost();
+    const created = await command("create_draft", {
+      timezone: "America/Toronto",
+    });
+    event = created.event_id;
+    version = created.current_version;
+    await command("save_draft", {
+      title: "RSVP questions test",
+      description: "Structured RSVP",
+      starts_at: "2032-02-01T20:00:00Z",
+      ends_at: "2032-02-01T22:00:00Z",
+      timezone: "America/Toronto",
+      venue_label: "Room Q",
+      cover_key: "market",
+      capacity: "12",
+    });
+    await command("publish", { confirmed: true });
+    const configured = (
+      await sql<{ r: any }>(
+        "select public.sontu_rsvp_form('CONFIGURE',$1,null,$2,null) r",
+        [
+          event,
+          JSON.stringify({
+            questions: [
+              {
+                prompt: "Meal",
+                type: "SINGLE_SELECT",
+                required: true,
+                per_attendee: true,
+                options: ["Vegetarian", "Chicken"],
+              },
+            ],
+          }),
+        ],
+      )
+    )[0].r;
+    expect(configured.status).toBe("ready");
+    const question = configured.questions[0];
+    const token = randomBytes(32).toString("hex");
+    const participant = randomUUID();
+    await sql(
+      `insert into sontu_private.event_participants(
+        id,event_instance_id,display_name,commitment_state,plus_one_allowance,token_hash,token_expires_at
+      ) values($1,$2,'Taylor RSVP','CONFIRMED',1,sha256(convert_to($3::text,'UTF8')),now()+interval '1 day')`,
+      [participant, event, token],
+    );
+    await asHost("");
+    const payload = {
+      attendees: [
+        { name: "Taylor RSVP", answers: { [question.id]: "Vegetarian" } },
+        { name: "Guest One", answers: { [question.id]: "Chicken" } },
+      ],
+    };
+    const op = randomUUID();
+    const saved = (
+      await sql<{ r: any }>(
+        "select public.sontu_rsvp_form('SAVE',$1,$2,$3,$4) r",
+        [event, token, JSON.stringify(payload), op],
+      )
+    )[0].r;
+    expect(saved.status).toBe("ready");
+    expect(
+      (
+        await sql<{ r: any }>(
+          "select public.sontu_rsvp_form('SAVE',$1,$2,$3,$4) r",
+          [event, token, JSON.stringify(payload), op],
+        )
+      )[0].r,
+    ).toEqual(saved);
+    await asHost();
+    const summary = (
+      await sql<{ r: any }>(
+        "select public.sontu_rsvp_response_summary($1) r",
+        [event],
+      )
+    )[0].r;
+    expect(summary.responses).toEqual(
+      expect.arrayContaining([
+        {
+          participant_id: participant,
+          invitee_name: "Taylor RSVP",
+          attendee_name: "Taylor RSVP",
+          question: "Meal",
+          answer: "Vegetarian",
+          updated_at: expect.any(String),
+        },
+        {
+          participant_id: participant,
+          invitee_name: "Taylor RSVP",
+          attendee_name: "Guest One",
+          question: "Meal",
+          answer: "Chicken",
+          updated_at: expect.any(String),
+        },
+      ]),
+    );
+    expect(summary.responses).toHaveLength(2);
+  });
+});
+
 describe("event-scoped discussion", () => {
   it("keeps discussion participant-only and lets the host hide a post", async () => {
     await asHost();
@@ -2314,6 +3016,19 @@ describe("explicit beta dev notes", () => {
           [randomUUID()],
         ),
       ).rejects.toThrow();
+      await db.exec("reset role");
+      await asHost("");
+      await db.exec("set role anon");
+      const anonymous = randomUUID();
+      await sql(
+        "insert into public.sontu_dev_notes(id,session_id,body,screen) values($1,$2,'Signed out captured','home')",
+        [randomUUID(), anonymous],
+      );
+      await expect(
+        sql("select body from public.sontu_dev_notes where session_id=$1", [
+          anonymous,
+        ]),
+      ).rejects.toThrow();
     } finally {
       await db.exec("reset role");
       await asHost();
@@ -2332,6 +3047,53 @@ describe("temporary beta telemetry", () => {
         "insert into public.sontu_beta_telemetry(id,session_id,event_name,screen,metadata) values($1,$2,'route_view','home',$3)",
         [id, session, JSON.stringify({ route: "home" })],
       );
+      await sql(
+        "insert into public.sontu_beta_telemetry(id,session_id,event_name,screen,metadata) values($1,$2,'event_interest_saved','invitation','{}')",
+        [randomUUID(), session],
+      );
+      for (const eventName of [
+        "create_draft_attempted",
+        "create_draft_delayed",
+        "create_draft_succeeded",
+        "create_draft_failed",
+      ]) {
+        await sql(
+          "insert into public.sontu_beta_telemetry(id,session_id,event_name,screen,metadata) values($1,$2,$3,'hosting',$4)",
+          [
+            randomUUID(),
+            session,
+            eventName,
+            JSON.stringify({
+              retrying: eventName !== "create_draft_attempted",
+              owner_kind: "PERSONAL",
+            }),
+          ],
+        );
+      }
+      for (const eventName of [
+        "host_link_issue_attempted",
+        "host_link_issue_succeeded",
+        "host_link_issue_failed",
+        "host_link_revoke_attempted",
+        "host_link_revoke_succeeded",
+        "host_link_revoke_failed",
+        "host_rsvp_remove_attempted",
+        "host_rsvp_remove_succeeded",
+        "host_rsvp_remove_failed",
+      ]) {
+        await sql(
+          "insert into public.sontu_beta_telemetry(id,session_id,event_name,screen,metadata) values($1,$2,$3,'hosting',$4)",
+          [
+            randomUUID(),
+            session,
+            eventName,
+            JSON.stringify({
+              participant_kind: "guest",
+              error_code: eventName.endsWith("_failed") ? "INVALID_STATE" : null,
+            }),
+          ],
+        );
+      }
       await expect(
         sql("select event_name from public.sontu_beta_telemetry where id=$1", [
           id,
@@ -2543,4 +3305,34 @@ describe("commerce-ready admission authority", () => {
     ).toBe(false);
     await asHost();
   });
+
+  it("keeps public wrappers executable through their private implementations", async () => {
+    const authenticatedFunctions = [
+      "sontu_private.host_participant_rsvp(uuid,uuid,text,uuid)",
+      "sontu_private.event_operations_command(text,uuid,uuid,uuid,jsonb)",
+      "sontu_private.event_team_hub_action(uuid)",
+      "sontu_private.event_host_questions(text,uuid,uuid,text)",
+      "sontu_private.event_seating(text,uuid,uuid,uuid,text,text,integer)",
+      "sontu_private.host_operational_analytics(uuid)",
+      "sontu_private.rsvp_form(text,uuid,text,jsonb,uuid)",
+      "sontu_private.event_hub_reconfirmation_required(uuid)",
+      "sontu_private.event_notification_state(text)",
+      "sontu_private.organization_logo(text,uuid,text,uuid)",
+    ];
+    for (const fn of authenticatedFunctions) {
+      expect(
+        await sql<{ allowed: boolean }>(
+          "select has_function_privilege('authenticated',$1,'execute') allowed",
+          [fn],
+        ),
+      ).toEqual([{ allowed: true }]);
+    }
+    expect(
+      await sql<{ allowed: boolean }>(
+        "select has_function_privilege('anon','sontu_private.rsvp_form(text,uuid,text,jsonb,uuid)','execute') allowed",
+      ),
+    ).toEqual([{ allowed: true }]);
+  });
 });
+
+

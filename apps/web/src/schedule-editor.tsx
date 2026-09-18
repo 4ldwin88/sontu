@@ -36,6 +36,21 @@ export function ScheduleEditor({
   const [venue, setVenue] = useState(version.venue_label);
   const [review, setReview] = useState<ScheduleChange | null>(null);
   const [issue, setIssue] = useState("");
+  const updateStart = (value: string) => {
+    const previousStart = instantForWall(start, version.timezone);
+    const previousEnd = instantForWall(end, version.timezone);
+    const nextStart = instantForWall(value, version.timezone);
+    setStart(value);
+    if (!previousStart || !previousEnd || !nextStart) return;
+    const duration = Date.parse(previousEnd) - Date.parse(previousStart);
+    if (duration <= 0) return;
+    setEnd(
+      wallTime(
+        new Date(Date.parse(nextStart) + duration).toISOString(),
+        version.timezone,
+      ),
+    );
+  };
   const display = (iso: string) =>
     new Intl.DateTimeFormat(undefined, {
       dateStyle: "medium",
@@ -140,7 +155,7 @@ export function ScheduleEditor({
               type="datetime-local"
               required
               value={start}
-              onChange={(e) => setStart(e.target.value)}
+              onChange={(e) => updateStart(e.target.value)}
             />
             <TextField
               label="End date and time"

@@ -1,9 +1,10 @@
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-test("beta notes remain reachable in drawers and save once after an interrupted response", async ({
+test("beta notes remain reachable in drawers and save once when cloud confirmation is interrupted", async ({
   page,
 }, info) => {
   test.skip(!process.env.SONTU_TEST_PASSWORD, "Requires isolated auth");
+  const noteText = `Beta note ${info.project.name} ${Date.now()}`;
   await page.goto("/#/sign-in");
   await page
     .getByLabel("Email", { exact: true })
@@ -19,7 +20,7 @@ test("beta notes remain reachable in drawers and save once after an interrupted 
   const dialog = page.getByRole("dialog", { name: "Dev notes", exact: true });
   await dialog
     .getByLabel("What should we fix or improve?")
-    .fill(`Beta note ${info.project.name}`);
+    .fill(noteText);
   let dropped = false;
   await page.route("**/rest/v1/sontu_dev_notes*", async (route) => {
     if (!dropped && route.request().method() === "POST") {
@@ -30,14 +31,14 @@ test("beta notes remain reachable in drawers and save once after an interrupted 
   });
   await dialog.getByRole("button", { name: "Save note", exact: true }).click();
   await expect(
-    dialog.getByText("Saving is unconfirmed. Retry the same note safely."),
+    dialog.getByText(/Note saved on this device\. Account sync is unconfirmed/),
   ).toBeVisible();
-  await dialog.getByRole("button", { name: "Retry same note" }).click();
+  await dialog.getByRole("button", { name: "Retry sync" }).click();
   await expect(
-    dialog.getByText("Note saved for development review."),
+    dialog.getByText(/Note saved on this device and synced to your account\./),
   ).toBeVisible();
   await expect(
-    dialog.getByText(`Beta note ${info.project.name}`, { exact: true }),
+    dialog.getByText(noteText, { exact: true }),
   ).toHaveCount(1);
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await page.screenshot({
@@ -48,6 +49,29 @@ test("beta notes remain reachable in drawers and save once after an interrupted 
   await page.reload();
   await page.getByRole("button", { name: "Add dev note", exact: true }).click();
   await expect(
-    dialog.getByText(`Beta note ${info.project.name}`, { exact: true }),
+    dialog.getByText(noteText, { exact: true }),
   ).toHaveCount(1);
+});
+
+test("beta notes can still be copied when browser clipboard is blocked", async ({
+  page,
+}) => {
+  await page.goto("/#/home");
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: () => Promise.reject(new Error("blocked")) },
+    });
+    document.execCommand = () => false;
+  });
+  await page.reload();
+  await page.getByRole("button", { name: "Add dev note", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Dev notes", exact: true });
+  await dialog
+    .getByLabel("What should we fix or improve?")
+    .fill("Copy fallback note");
+  await dialog.getByRole("button", { name: "Copy note", exact: true }).click();
+  await expect(
+    dialog.getByText("Copy is blocked by this browser. The note text is selected; use your device copy command."),
+  ).toBeVisible();
 });

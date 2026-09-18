@@ -4,7 +4,8 @@ import {
   AccountEntryGate,
   RealProfile,
 } from "./account";
-import { useAccount } from "./account-state";
+import { profileAvatarUrl, useAccount } from "./account-state";
+import { clientUuid } from "./ids";
 import { DevNotes } from "./dev-notes";
 import { OrganizationSetupPage, OrganizationsPage } from "./organizations";
 import {
@@ -13,6 +14,8 @@ import {
   PublicEventHub,
   useMyEvents,
   forView,
+  isFutureEvent,
+  when,
   SimpleEventCard,
   HostingCollection,
 } from "./invitations";
@@ -48,7 +51,11 @@ import {
   Users,
 } from "lucide-react";
 import { eventViews } from "../../../packages/application/projections";
-import { screenFromPath, trackBeta } from "../../../packages/data/telemetry";
+import {
+  attributionFromSearch,
+  screenFromPath,
+  trackBeta,
+} from "../../../packages/data/telemetry";
 import {
   Button,
   Chip,
@@ -92,7 +99,7 @@ function SectionHeading({
 function Home() {
   const real = useMyEvents();
   const featured = real.items
-    .filter((event) => event.lifecycle === "PUBLISHED")
+    .filter((event) => event.lifecycle === "PUBLISHED" && isFutureEvent(event))
     .slice(0, 3);
   const upcoming = forView(real.items, "Upcoming").slice(0, 2);
   const hosted = forView(real.items, "Hosting").find(
@@ -122,36 +129,23 @@ function Home() {
               </Link>
             </div>
           </div>
-          <nav className="home-shortcuts" aria-label="Explore Sontu">
-            <Link to="/discover?mode=nearby">
-              <span>
-                <MapPin />
-              </span>
-              Events near you
-            </Link>
-            <Link to="/discover">
-              <span>
-                <List />
-              </span>
-              Explore events
-            </Link>
-            <Link to="/events">
-              <span>
-                <CalendarDays />
-              </span>
-              Your plans
-            </Link>
-            <Link to="/events?view=Interested">
-              <span>
-                <Users />
-              </span>
-              Interested
-            </Link>
-          </nav>
           <section>
             <SectionHeading title="Featured for you" to="/discover" />
-            {real.loading ? (
-              <p role="status">Loading events…</p>
+            {real.error ? (
+              <SystemState
+                state={{
+                  status: "error",
+                  message: "Featured events could not be loaded. Try again before testing this screen.",
+                }}
+                onRetry={real.reload}
+              />
+            ) : real.loading ? (
+              <SystemState
+                state={{
+                  status: "loading",
+                  message: "Loading featured events…",
+                }}
+              />
             ) : featured.length ? (
               <div className="editorial-grid">
                 {featured.map((event) => (
@@ -163,19 +157,38 @@ function Home() {
                 ))}
               </div>
             ) : (
-              <p className="muted">No featured events are available yet.</p>
+              <EmptyState>
+                <p>No featured events are available yet.</p>
+              </EmptyState>
             )}
           </section>
         </div>
         <aside className="home-aside">
           <section className="panel">
             <SectionHeading title="Your upcoming events" to="/events" />
-            {upcoming.length ? (
+            {real.error ? (
+              <SystemState
+                state={{
+                  status: "error",
+                  message: "Upcoming events could not be loaded.",
+                }}
+                onRetry={real.reload}
+              />
+            ) : real.loading ? (
+              <SystemState
+                state={{
+                  status: "loading",
+                  message: "Loading your upcoming events…",
+                }}
+              />
+            ) : upcoming.length ? (
               upcoming.map((event) => (
                 <SimpleEventCard key={event.id} event={event} view="Upcoming" />
               ))
             ) : (
-              <p className="muted">No upcoming events yet.</p>
+              <EmptyState>
+                <p>No upcoming events yet.</p>
+              </EmptyState>
             )}
           </section>
           {hosted && (
@@ -201,10 +214,26 @@ function Discover() {
   const [params, setParams] = useSearchParams();
   const [query, setQuery] = useState("");
   const real = useMyEvents();
+  const [people, setPeople] = useState<Array<{ handle: string; display_name: string; avatar_path?: string | null }>>([]);
+  const [peopleLoading, setPeopleLoading] = useState(false);
+  useEffect(() => {
+    const clean = query.trim();
+    if (clean.length < 2) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      setPeopleLoading(true);
+      void rpc<{ status: string; members?: typeof people }>("sontu_member_search", { search_query: clean })
+        .then((result) => { if (!cancelled) setPeople(result.status === "ready" ? result.members ?? [] : []); })
+        .catch(() => { if (!cancelled) setPeople([]); })
+        .finally(() => { if (!cancelled) setPeopleLoading(false); });
+    }, 180);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [query]);
   const nearby = params.get("mode") === "nearby";
   const matching = real.items.filter(
     (event) =>
       event.lifecycle === "PUBLISHED" &&
+      isFutureEvent(event) &&
       `${event.title} ${event.venue_label}`
         .toLowerCase()
         .includes(query.toLowerCase()),
@@ -212,7 +241,12 @@ function Discover() {
   return (
     <main {...mainProps}>
       <div className="discover-tools">
-        <SearchField value={query} onChange={setQuery} />
+        <SearchField
+          value={query}
+          onChange={setQuery}
+          label="Search events and people"
+          placeholder="Find events or people"
+        />
         <div className="view-toggle" aria-label="Discovery view">
           <Chip selected={!nearby} onClick={() => setParams({})}>
             <List size={16} />
@@ -234,6 +268,24 @@ function Discover() {
           <span className="tag">Coming later</span>
         </div>
       ) : null}
+      {!nearby && query.trim().length >= 2 && (
+        <section className="people-search-section" aria-label="People results">
+          <SectionHeading title="People" />
+          {peopleLoading ? (
+            <p role="status" className="muted">Searching people…</p>
+          ) : people.length ? (
+            <div className="people-search-results">
+              {people.map((person) => (
+                <Link className="relationship-row" to={`/p/${person.handle}`} key={person.handle}>
+                  <span className="avatar">{profileAvatarUrl(person.avatar_path) ? <img src={profileAvatarUrl(person.avatar_path)} alt="" /> : person.display_name.slice(0, 1).toUpperCase()}</span>
+                  <span><strong>{person.display_name}</strong><small>@{person.handle}</small></span>
+                  <ArrowRight size={18} aria-hidden="true" />
+                </Link>
+              ))}
+            </div>
+          ) : <p className="muted">No people match this search.</p>}
+        </section>
+      )}
       <section>
         <SectionHeading
           title={
@@ -245,7 +297,20 @@ function Discover() {
           }
         />
         {real.loading && !query ? (
-          <p role="status">Loading events…</p>
+          <SystemState
+            state={{
+              status: "loading",
+              message: "Loading discoverable events…",
+            }}
+          />
+        ) : real.error ? (
+          <SystemState
+            state={{
+              status: "error",
+              message: "Discover could not load events. Try again before testing filters.",
+            }}
+            onRetry={real.reload}
+          />
         ) : matching.length ? (
           <div className={nearby ? "nearby-list" : "discover-grid"}>
             {matching.map((event) => (
@@ -338,6 +403,8 @@ function Events() {
                 ? "Your invitations"
                 : view === "Interested"
                   ? "Interested events"
+                : view === "History"
+                  ? "Event history"
                   : "Your upcoming events"}
           </h1>
           <p className="muted">
@@ -347,6 +414,8 @@ function Events() {
                 ? "Your invitations, all in one place."
                 : view === "Interested"
                   ? "Experiences you’d like to come back to."
+                : view === "History"
+                  ? "Cancelled, completed, and past events you joined."
                   : "Your confirmed plans, in date order."}
           </p>
         </div>
@@ -360,12 +429,17 @@ function Events() {
         >
           {real.signed ? (
             real.loading ? (
-              <p role="status">Loading your events…</p>
+              <SystemState
+                state={{
+                  status: "loading",
+                  message: "Loading your event relationships…",
+                }}
+              />
             ) : real.error ? (
-              <div role="alert">
-                <p>{real.error}</p>
-                <Button onClick={real.reload}>Retry</Button>
-              </div>
+              <SystemState
+                state={{ status: "error", message: real.error }}
+                onRetry={real.reload}
+              />
             ) : forView(real.items, view).length ? (
               view === "Hosting" ? (
                 <HostingCollection items={forView(real.items, view)} />
@@ -375,7 +449,9 @@ function Events() {
                 ))
               )
             ) : (
-              <p>No {view.toLowerCase()} events yet.</p>
+              <EmptyState>
+                <p>No {view.toLowerCase()} events yet.</p>
+              </EmptyState>
             )
           ) : (
             <p>Sign in to see events connected to your account.</p>
@@ -630,6 +706,9 @@ function Notifications({ embedded = false }: { embedded?: boolean }) {
   };
   useEffect(() => {
     if (!real.signed) return;
+    void rpc("sontu_event_notification_state", { action: "mark_all" })
+      .then(() => window.dispatchEvent(new Event("sontu-notifications-read")))
+      .catch(() => undefined);
     void rpc<{ status: string; items?: typeof replies }>(
       "sontu_event_question_notifications",
       { action: "read", question_id: null },
@@ -684,7 +763,7 @@ function Notifications({ embedded = false }: { embedded?: boolean }) {
           event_id: eventId,
           decision,
           expected_version: hub.event.current_version,
-          operation_id: crypto.randomUUID(),
+          operation_id: clientUuid(),
         },
       );
       if (result.status !== "ready")
@@ -752,6 +831,7 @@ function Notifications({ embedded = false }: { embedded?: boolean }) {
       !event.hosting &&
       event.commitment_state === "CONFIRMED" &&
       (event.reconfirmation_required ||
+        event.schedule_changed ||
         event.lifecycle === "CANCELLED" ||
         event.lifecycle === "COMPLETED"),
   );
@@ -871,7 +951,9 @@ function Notifications({ embedded = false }: { embedded?: boolean }) {
                     ? "Cancelled"
                     : event.lifecycle === "COMPLETED"
                       ? "Completed"
-                      : "Action needed"}
+                      : event.reconfirmation_required
+                        ? "Action needed"
+                        : "Schedule updated"}
                 </StatusBadge>
                 <h2>
                   {event.lifecycle === "CANCELLED"
@@ -885,8 +967,17 @@ function Notifications({ embedded = false }: { embedded?: boolean }) {
                     ? "Open the event for the latest information."
                     : event.lifecycle === "COMPLETED"
                       ? "Open the event to revisit its details and outcomes."
-                      : "Review the new details and reconfirm if you can still attend."}
+                      : event.reconfirmation_required
+                        ? "Review the new details and reconfirm if you can still attend."
+                        : "Your Going status is unchanged."}
                 </p>
+                {event.schedule_changed && event.schedule_change && (
+                  <p className="schedule-notification-detail">
+                    <del>{when(event.schedule_change.previous_starts_at, event.timezone)}</del>
+                    {" → "}
+                    <strong>{when(event.schedule_change.starts_at, event.timezone)}</strong>
+                  </p>
+                )}
               </div>
             </Link>
           ))}
@@ -965,11 +1056,17 @@ export default function App() {
   const [accent, setAccent] = useState(
     () => localStorage.getItem("sontu-accent") ?? "ocean",
   );
+  const lastTrackedRoute = useRef("");
   useEffect(() => {
-    trackBeta("route_view", screenFromPath(location.pathname), {
-      route: screenFromPath(location.pathname),
+    const routeKey = location.pathname + location.search;
+    if (lastTrackedRoute.current === routeKey) return;
+    lastTrackedRoute.current = routeKey;
+    const screen = screenFromPath(location.pathname);
+    trackBeta("route_view", screen, {
+      route: screen,
+      ...attributionFromSearch(location.search),
     });
-  }, [location.pathname]);
+  }, [location.pathname, location.search]);
   useEffect(() => {
     const mq = matchMedia("(prefers-color-scheme: dark)");
     const apply = () => {
@@ -1101,6 +1198,7 @@ export default function App() {
           />
         </Route>
         <Route path="/invite/:token" element={<Invitation />} />
+        <Route path="/event/:eventId/guest/:guestToken" element={<PublicEventHub />} />
         <Route path="/event/:eventId" element={<PublicEventHub />} />
         <Route path="/my-events/:eventId" element={<ConnectedEventHub />} />
         <Route path="/create" element={<Creation />} />

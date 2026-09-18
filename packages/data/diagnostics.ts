@@ -1,4 +1,5 @@
 // Bounded, session-local diagnostics. No payloads, identities, URLs, or tokens.
+import { clientUuid } from "./ids";
 export type DiagnosticKind =
   "request_failed" | "access_denied" | "unexpected_error";
 const key = "sontu-diagnostics-v1";
@@ -16,7 +17,7 @@ export function diagnosticEntries(): Entry[] {
   }
 }
 export function recordDiagnostic(kind: DiagnosticKind): string {
-  const reference = crypto.randomUUID();
+  const reference = clientUuid();
   try {
     const entry = { reference, time: new Date().toISOString(), kind };
     const entries = [...diagnosticEntries(), entry].slice(-30);
